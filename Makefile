@@ -85,18 +85,26 @@ check-gl:
 # with no hand-maintained string copy. Relative input paths give stable array
 # names src_world_debug_120_vert / _frag (+ *_len). Regenerated when either
 # shader changes; a build-time artifact (gitignored, not committed).
+# Both headers are written to $@.tmp and renamed only after every xxd succeeds, so
+# a failed or interrupted run (e.g. xxd missing) cannot leave a partial header
+# that make would later treat as up to date.
 GEN := src/generated_world_debug_shaders.h src/generated_shaders.h
 src/generated_world_debug_shaders.h: src/world_debug_120.vert src/world_debug_120.frag
-	@echo "/* AUTO-GENERATED from world_debug_120.vert/.frag by make -- do not edit */" > $@
-	@xxd -i src/world_debug_120.vert >> $@
-	@xxd -i src/world_debug_120.frag >> $@
+	@( echo "/* AUTO-GENERATED from world_debug_120.vert/.frag by make -- do not edit */" && \
+	  xxd -i src/world_debug_120.vert && xxd -i src/world_debug_120.frag ) > $@.tmp \
+	  || { rm -f $@.tmp; exit 1; }
+	@mv -f $@.tmp $@
 # Renderer shader sources (src/shaders/), embedded the same way: arrays named
 # src_shaders_<file>_<ext> (+ *_len), not NUL-terminated. Made static const so
 # more than one file can include the header.
 SHADERS := $(sort $(wildcard src/shaders/*.vert src/shaders/*.frag))
 src/generated_shaders.h: $(SHADERS)
-	@echo "/* AUTO-GENERATED from src/shaders/ by make -- do not edit */" > $@
-	@for f in $(SHADERS); do xxd -i $$f | sed 's/^unsigned/static const unsigned/' >> $@; done
+	@( echo "/* AUTO-GENERATED from src/shaders/ by make -- do not edit */" && \
+	  for f in $(SHADERS); do xxd -i $$f || exit 1; done ) > $@.tmp \
+	  || { rm -f $@.tmp; exit 1; }
+	@sed 's/^unsigned/static const unsigned/' $@.tmp > $@.sed && mv -f $@.sed $@ \
+	  || { rm -f $@.tmp $@.sed; exit 1; }
+	@rm -f $@.tmp
 
 ifneq ($(WINDOWS),)
 # Preserve explicit `make nfsu2` calls while tracking the actual .exe output.
