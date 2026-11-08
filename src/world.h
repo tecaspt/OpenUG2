@@ -50,6 +50,15 @@ typedef struct {
     int mesh0, mesh1;                /* this region's mesh range in the scene */
 } WRegion;
 
+/* Per-mesh XY buckets of ground triangles (CSR, ascending triangle ids). */
+typedef struct {
+    const float *verts;
+    const uint16_t *idx;
+    int ntri, nx, ny;
+    float x0, y0, sx, sy;
+    int *start, *list;
+} WTriIndex;
+
 /* Owned uniform-grid acceleration data for ROAD/TERRAIN queries. Building a
  * second grid does not affect the active world; activation is explicit so a
  * replacement neighborhood can be validated before any gameplay query sees
@@ -62,6 +71,7 @@ typedef struct {
     int *start;
     int *list;
     float (*bounds)[4]; /* per mesh: XY bounds of its indexed triangles */
+    WTriIndex *tri;     /* per mesh; NULL list = scan every triangle */
 } WGroundGrid;
 
 typedef struct {
