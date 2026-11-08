@@ -3310,6 +3310,17 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
             float turn_reach=0;
             int tight=driver->progress.kind==N2_RACE_STREETX && race_turn_needs_preview(&driver->drive,t,car,&turn_reach);
             float turn_pace[2*sides+4];memset(turn_pace,0,sizeof turn_pace);
+            /* A clear line is driven back up to pace: prefer lines whose solid
+               corridor covers braking from pace, so a car slowed below pace
+               cannot shrink a divider out of view. Only if none is clear, fall
+               back to the speed-sized corridor, which threads tight chicanes. */
+            float resume=fmaxf(speed,pace/3.6f);
+            float corridor=fmaxf(preview,car->half_length+resume*.5f+resume*resume/6);
+            for(int tier=0;tier<2 && !isfinite(best);tier++) {
+            if(tier) {
+                if(corridor<=preview)break;
+                corridor=preview;memset(corridor_state,0,sizeof corridor_state);
+            }
             for(int approach=0;approach<3 && !isfinite(best);approach++) {
                 /* Retain a safe selected lane after a pass instead of
                    cancelling turn-in as soon as the rival falls behind. */
@@ -3405,7 +3416,7 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
                        downhill endpoint. Keep its layer reference local too. */
                     if(clear && !corridor_state[option+1]) {
                         z=car->pos[2];
-                        for(float ahead=0;clear && ahead<=preview;ahead+=2) {
+                        for(float ahead=0;clear && ahead<=corridor;ahead+=2) {
                             float point[2];race_line_point(&driver->drive,t,ahead,offset,point,&heading);
                             clear=race_ground_at(world->scene,point[0],point[1],z,&z)!=WSURF_NONE &&
                                   race_pose_clear(world,car,point[0],point[1],z,heading);
@@ -3414,6 +3425,7 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
                     }
                     if(clear){best=cost;best_offset=offset;best_pace=tight?turn_pace[option+1]:0;}
                 }
+            }
             }
             /* Only recover a stalled driver; moving racers keep their normal plan.
                At a lip, an unfinished lane change may need to continue

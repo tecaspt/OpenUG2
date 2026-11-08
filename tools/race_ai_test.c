@@ -1729,6 +1729,50 @@ static void side_by_side_corner_test(void) {
     world_ground_grid_activate(NULL);world_ground_grid_free(&grid);
 }
 
+/* Event 4212: a car slowed below its pace (braking for a divider, or boxed
+   in by rivals) must still check its line for the distance it needs once it
+   is back at pace. A speed-only check shrank until a divider 33 m ahead
+   vanished, so the car resumed the dead-end centre line until it was too
+   late to leave it. The divider is a closed solid median, as BARRIERS_4212. */
+static void slowed_divider_test(void) {
+    float floor[]={-20,-20,0,0,0,420,-20,0,0,0,420,20,0,0,0,-20,20,0,0,0};
+    float x0=35,x1=200,h=2.5f,top=4;
+    float box[]={x0,-h,0,0,0,x1,-h,0,0,0,x1,-h,top,0,0,x0,-h,top,0,0,
+                 x1,-h,0,0,0,x1,h,0,0,0,x1,h,top,0,0,x1,-h,top,0,0,
+                 x1,h,0,0,0,x0,h,0,0,0,x0,h,top,0,0,x1,h,top,0,0,
+                 x0,h,0,0,0,x0,-h,0,0,0,x0,-h,top,0,0,x0,h,top,0,0};
+    uint16_t idx[]={0,1,2,0,2,3},boxidx[24];
+    for(int f=0;f<4;f++)for(int k=0;k<6;k++)boxidx[6*f+k]=(uint16_t)(4*f+idx[k]);
+    N2Mesh meshes[]={{.verts=floor,.nverts=4,.idx=idx,.nidx=6,.cat=N2_ROAD},
+        {.verts=box,.nverts=16,.idx=boxidx,.nidx=24,.cat=N2_OTHER,.scen=N2_SC_WALL}};
+    N2Scene scene={meshes,2,2};WGroundGrid grid={0};float bounds[][4]={{-20,-20,420,20},{x0,-h,x1,h}};
+    assert(world_ground_grid_build(&grid,&scene,bounds));world_ground_grid_activate(&grid);
+    float obs[2][4],oz[2][2];int src[2];int n=phys_collect_walls(&scene,obs,src,oz,2);
+    phys_wall_index_build(obs,oz,n);
+    /* Default 50 km/h pace, as the drag event; the car has slowed to 30. */
+    AiTrafficWorld world={.scene=&scene,.obst=obs,.obstz=oz,.obstsrc=src,.nobst=n};
+    float xy[]={0,0,100,0,200,0,300,0,400,0};N2Path path={.xy=xy,.n=5};
+    AiCar cars[N_RACE_AI]={0};AiRace drivers[N_RACE_AI]={0};
+    cars[0]=(AiCar){.spd=30/3.6f/PHYS_TICKRATE,.half_length=2,.half_width=.85f,.height=1.5f};
+    drivers[0].progress=(WRace){.active=1,.kind=N2_RACE_DRAG,.maxlaps=1,.ngate=2,
+        .gate={{.dx=1,.half=10},{.x=380,.dx=1,.half=10}}};
+    assert(ai_drive_init(&drivers[0].drive,&path,cars[0].pos,cars[0].head));
+    ai_race_step(cars,drivers,0,1,0,&world,NULL);
+    fprintf(stderr,"slowed divider first plan offset%.2f blocked%d\n",drivers[0].offset,drivers[0].blocked);
+    assert(!drivers[0].blocked && fabsf(drivers[0].offset)>h+cars[0].half_width);
+    int contacts=0;
+    for(int t=0;t<6000 && !drivers[0].progress.finished && !drivers[0].drive.failed;t++) {
+        ai_race_step(cars,drivers,0,1,0,&world,NULL);
+        float probe[3];memcpy(probe,cars[0].pos,sizeof probe);
+        float v[2]={0},bb[]={-2,-.85f,0,2,.85f,1.5f};
+        contacts+=collide_body_walls(probe,v,cars[0].head,bb,obs,oz,n,
+            probe[2]+.05f,probe[2]+1.5f,&scene,src,NULL,0)!=0;
+    }
+    assert(drivers[0].progress.finished && !drivers[0].drive.failed && !contacts && cars[0].ride.contact_mask==15);
+    phys_wall_index_build(NULL,NULL,0);world_ground_grid_activate(NULL);world_ground_grid_free(&grid);
+    puts("race slowed divider: a car below pace checks its line for the resumed-pace distance PASS");
+}
+
 /* Steady circular lanes expose a bearing-only controller's persistent
    understeer. Test both turn directions and physical integration. */
 static void steady_lane_test(void) {
@@ -1941,6 +1985,7 @@ int main(void) {
     oriented_rival_test();
     bend_rival_test();
     held_lane_test();
+    slowed_divider_test();
     narrow_passing_test();
     rail_replacement_test();
     descending_deck_test();
