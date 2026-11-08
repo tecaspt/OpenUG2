@@ -188,6 +188,10 @@ static void mb_triangle(unsigned char *mask, int s, const float *a, const float 
     if (fabsf(area) < 1e-6f) return;
     float lox = fminf(a[0], fminf(b[0], c[0])), hix = fmaxf(a[0], fmaxf(b[0], c[0]));
     float loy = fminf(a[1], fminf(b[1], c[1])), hiy = fmaxf(a[1], fmaxf(b[1], c[1]));
+    /* Reject boxes wholly outside the plane (and NaN) while still in float:
+       casting a coordinate beyond int range is undefined. Inside these limits
+       every cast below is bounded, and the drawn texels are unchanged. */
+    if (!(lox <= s && loy <= s && hix >= -2 && hiy >= -2)) return;
     int x0 = lox < 0 ? 0 : (int)lox, x1 = hix >= s - 1 ? s - 1 : (int)hix + 1;
     int y0 = loy < 0 ? 0 : (int)loy, y1 = hiy >= s - 1 ? s - 1 : (int)hiy + 1;
     for (int y = y0; y <= y1; y++)
@@ -201,8 +205,10 @@ static void mb_triangle(unsigned char *mask, int s, const float *a, const float 
 
 /* True when a world point lies on the road layer, or within r texels of it. */
 static int mb_on_road(const unsigned char *reach, int s, float x, float y, const double origin[3]) {
-    int px = (int)((x - origin[0]) / origin[2] * s), py = (int)((origin[1] - y) / origin[2] * s);
-    return px >= 0 && py >= 0 && px < s && py < s && reach[(long)py * s + px] != 0;
+    double fx = (x - origin[0]) / origin[2] * s, fy = (origin[1] - y) / origin[2] * s;
+    if (!(fx > -1 && fy > -1 && fx < s && fy < s)) return 0;   /* also NaN; casts stay in range */
+    int px = (int)fx, py = (int)fy;
+    return reach[(long)py * s + px] != 0;
 }
 
 static void mb_stroke(unsigned char *plane, int s, const double origin[3],

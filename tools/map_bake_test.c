@@ -289,6 +289,32 @@ int main(void) {
         chk("a secondary surface on a dim road is kept", pixel(out, 800, 260) > 90);
     }
 
+    /* Texel coordinates beyond int range (a tiny or corrupt TrackInfo extent)
+       and NaN coordinates must be rejected before any float->int conversion;
+       build with -fsanitize=float-cast-overflow to see the difference. */
+    {
+        float far_verts[] = { 50000,0,0,0,0, 50010,0,0,0,0, 50000,-10,0,0,0 };
+        uint16_t far_idx[] = { 0, 1, 2 };
+        N2Mesh far; memset(&far, 0, sizeof far);
+        far.verts = far_verts; far.nverts = 3; far.idx = far_idx; far.nidx = 3; far.cat = N2_ROAD;
+        N2Scene far_scene = { &far, 1, 1 };
+        double tiny[3] = { 0, 0, 0.001 };
+        memset(road, 0, (size_t)S * S); memset(second, 0, (size_t)S * S);
+        map_bake_raster(&far_scene, tiny, S, road, second);
+        int lit = 0;
+        for (long i = 0; i < (long)S * S; i++) lit += road[i] != 0;
+        chk("a triangle far outside the frame draws nothing", lit == 0);
+
+        float nan_tri[3][2] = { { NAN, NAN }, { NAN, NAN }, { NAN, NAN } };
+        mb_triangle(road, S, nan_tri[0], nan_tri[1], nan_tri[2]);
+        lit = 0;
+        for (long i = 0; i < (long)S * S; i++) lit += road[i] != 0;
+        chk("a NaN triangle draws nothing", lit == 0);
+
+        chk("a point far outside the frame is off the road",
+            !mb_on_road(road, S, 90000.f, 0.f, tiny) && !mb_on_road(road, S, NAN, NAN, tiny));
+    }
+
     free(road); free(second); free(out);
     printf(fails ? "map_bake_test: FAIL\n" : "map_bake_test: PASS\n");
     return fails != 0;
