@@ -7224,6 +7224,9 @@ int main(int argc, char **argv) {
                     if (nvista) vista_far *= 2.5f;
                     trackname = next_track; seltrack = requested;
                     resident_args.trackname = trackname;
+                    /* The HUD borrows this city's nav graph for race-map bakes;
+                       the previous one was freed with old_city above. */
+                    if (hud) city_map_apply(hud, &scene, &world.city, trackname, city_map_size);
                     resident_args.scenery_event=resident_scenery_applied=scenery_preview_set?scenery_event:-1;
                     memcpy(spawn, next_spawn, sizeof spawn);
                     memcpy(carpos, next_spawn, sizeof carpos);
