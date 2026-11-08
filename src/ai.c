@@ -3313,12 +3313,17 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
             /* A clear line is driven back up to pace: prefer lines whose solid
                corridor covers braking from pace, so a car slowed below pace
                cannot shrink a divider out of view. Only if none is clear, fall
-               back to the speed-sized corridor, which threads tight chicanes. */
+               back to the speed-sized corridor, which threads tight chicanes.
+               That fallback is for geometry only: if a long corridor is clear
+               but a rival holds the way across to it, yield behind the rival
+               rather than take a lane that only looks clear because the
+               horizon shrank (a diverging branch, as at the event 4201 fork). */
             float resume=fmaxf(speed,pace/3.6f);
             float corridor=fmaxf(preview,car->half_length+resume*.5f+resume*resume/6);
+            int yielding=0;
             for(int tier=0;tier<2 && !isfinite(best);tier++) {
             if(tier) {
-                if(corridor<=preview)break;
+                if(corridor<=preview || yielding)break;
                 corridor=preview;memset(corridor_state,0,sizeof corridor_state);
             }
             for(int approach=0;approach<3 && !isfinite(best);approach++) {
@@ -3366,7 +3371,7 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
                         if(!rival_conflict[r] || (entering && held && rival_distant[r]))continue;
                         if(fabsf(to)<width+margin)cost+=100;
                     }
-                    if(!merge_clear || cost>=best || corridor_state[option+1]<0)continue;
+                    if((!merge_clear && (tier || yielding || corridor<=preview)) || cost>=best || corridor_state[option+1]<0)continue;
                     if(tight) {
                         /* Slowing also shortens pursuit; test the live pace before the minimum. */
                         if(!turn_pace[option+1]) {
@@ -3423,7 +3428,8 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
                         }
                         corridor_state[option+1]=clear?1:-1;
                     }
-                    if(clear){best=cost;best_offset=offset;best_pace=tight?turn_pace[option+1]:0;}
+                    if(clear && !merge_clear)yielding=1;
+                    else if(clear){best=cost;best_offset=offset;best_pace=tight?turn_pace[option+1]:0;}
                 }
             }
             }

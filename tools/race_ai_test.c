@@ -1773,6 +1773,58 @@ static void slowed_divider_test(void) {
     puts("race slowed divider: a car below pace checks its line for the resumed-pace distance PASS");
 }
 
+/* Event 4201 fork: a slowed car's held lane meets a gore nose, a rival
+   alongside holds the way across to the clear inner lane, and the outer
+   lane is a pocket closed beyond the speed-sized corridor but inside the
+   pace-sized one. Falling back to the short corridor because of a rival
+   took the pocket; the car must yield behind the rival instead. */
+static void rival_fork_test(void) {
+    float floor[]={-20,-12,0,0,0,420,-12,0,0,0,420,10,0,0,0,-20,10,0,0,0};
+    /* Gore nose on the held lane, then the pocket's closing wall. */
+    float solid[2][5]={{18,200,3.2f,7,4},{34,200,6.9f,10,4}},box[2][80];
+    uint16_t idx[]={0,1,2,0,2,3},boxidx[24];
+    for(int f=0;f<4;f++)for(int k=0;k<6;k++)boxidx[6*f+k]=(uint16_t)(4*f+idx[k]);
+    N2Mesh meshes[3]={{.verts=floor,.nverts=4,.idx=idx,.nidx=6,.cat=N2_ROAD}};
+    for(int b=0;b<2;b++) {
+        float x0=solid[b][0],x1=solid[b][1],y0=solid[b][2],y1=solid[b][3],top=solid[b][4];
+        float v[]={x0,y0,0,0,0,x1,y0,0,0,0,x1,y0,top,0,0,x0,y0,top,0,0,
+                   x1,y0,0,0,0,x1,y1,0,0,0,x1,y1,top,0,0,x1,y0,top,0,0,
+                   x1,y1,0,0,0,x0,y1,0,0,0,x0,y1,top,0,0,x1,y1,top,0,0,
+                   x0,y1,0,0,0,x0,y0,0,0,0,x0,y0,top,0,0,x0,y1,top,0,0};
+        memcpy(box[b],v,sizeof v);
+        meshes[b+1]=(N2Mesh){.verts=box[b],.nverts=16,.idx=boxidx,.nidx=24,.cat=N2_OTHER,.scen=N2_SC_WALL};
+    }
+    N2Scene scene={meshes,3,3};WGroundGrid grid={0};
+    float bounds[][4]={{-20,-12,420,10},{18,3.2f,200,7},{34,6.9f,200,10}};
+    assert(world_ground_grid_build(&grid,&scene,bounds));world_ground_grid_activate(&grid);
+    float obs[8][4],oz[8][2];int src[8];int n=phys_collect_walls(&scene,obs,src,oz,8);
+    phys_wall_index_build(obs,oz,n);
+    AiTrafficWorld world={.scene=&scene,.obst=obs,.obstz=oz,.obstsrc=src,.nobst=n};
+    float xy[]={0,0,100,0,200,0,300,0,400,0};N2Path path={.xy=xy,.n=5};
+    AiCar cars[N_RACE_AI]={0};AiRace drivers[N_RACE_AI]={0};
+    cars[0]=(AiCar){.pos={0,5,0},.spd=30/3.6f/PHYS_TICKRATE,.half_length=2,.half_width=.85f,.height=1.5f};
+    cars[1]=cars[0];cars[1].pos[1]=1.75f;
+    drivers[0]=(AiRace){.offset=5,.progress={.active=1,.kind=N2_RACE_DRAG,.maxlaps=1,.ngate=2,
+        .gate={{.dx=1,.half=10},{.x=380,.dx=1,.half=12}}}};
+    assert(ai_drive_init(&drivers[0].drive,&path,cars[0].pos,cars[0].head));
+    ai_race_step(cars,drivers,0,2,0,&world,NULL);cars[1].pos[0]+=cars[1].spd;
+    fprintf(stderr,"rival fork first plan offset%.2f blocked%d\n",drivers[0].offset,drivers[0].blocked);
+    assert(drivers[0].offset<solid[0][3]);
+    int contacts=0,overlap=0;
+    for(int t=0;t<6000 && !drivers[0].progress.finished && !drivers[0].drive.failed;t++) {
+        ai_race_step(cars,drivers,0,2,0,&world,NULL);
+        overlap+=phys_ai_overlap(cars,cars+1);cars[1].pos[0]+=cars[1].spd;
+        float probe[3];memcpy(probe,cars[0].pos,sizeof probe);
+        float v[2]={0},bb[]={-2,-.85f,0,2,.85f,1.5f};
+        contacts+=collide_body_walls(probe,v,cars[0].head,bb,obs,oz,n,
+            probe[2]+.05f,probe[2]+1.5f,&scene,src,NULL,0)!=0;
+    }
+    fprintf(stderr,"rival fork finished%d failed%d contacts%d overlap%d\n",drivers[0].progress.finished,drivers[0].drive.failed,contacts,overlap);
+    assert(drivers[0].progress.finished && !drivers[0].drive.failed && !contacts && !overlap && cars[0].ride.contact_mask==15);
+    phys_wall_index_build(NULL,NULL,0);world_ground_grid_activate(NULL);world_ground_grid_free(&grid);
+    puts("race rival fork: a rival-held clear lane is waited for, not traded for a short-horizon pocket PASS");
+}
+
 /* Steady circular lanes expose a bearing-only controller's persistent
    understeer. Test both turn directions and physical integration. */
 static void steady_lane_test(void) {
@@ -1986,6 +2038,7 @@ int main(void) {
     bend_rival_test();
     held_lane_test();
     slowed_divider_test();
+    rival_fork_test();
     narrow_passing_test();
     rail_replacement_test();
     descending_deck_test();
