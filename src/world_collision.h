@@ -4,6 +4,20 @@
 #include "ug2_track_collision.h"
 #include "world_scenery.h"
 
+/* Stable scene identity of one packed polygon: FNV-1a over a provenance tag,
+   the bundle-name hash and the polygon's source offset. Audits use the same
+   function to map a contacted BUN_TRACK_POLYGON mesh back to its source row. */
+static uint32_t wce_bundle_hash(const char *trackname) {
+    uint32_t bundle=0xffffffffu;
+    for(const unsigned char *p=(const unsigned char*)trackname;*p;p++)bundle=bundle*33u+*p;
+    return bundle;
+}
+static uint64_t wce_polygon_id(uint32_t bundle,uint64_t source_offset) {
+    uint64_t id=UINT64_C(1469598103934665603);
+    const uint64_t provenance[]={UINT64_C(0x554732504f4c5900),bundle,source_offset};
+    for(size_t p=0;p<sizeof provenance;p++){id^=((const unsigned char*)provenance)[p];id*=UINT64_C(1099511628211);}
+    return id?id:1;
+}
 static int wce_bun(N2Scene *scene,const UG2TrackCollision *data,uint32_t bundle,int event) {
     if(!scene || !data || event < -1 || event > 65535 || !data->activation.count || data->activation.count>256 ||
        scene->count<0 || data->count>(size_t)(INT_MAX-scene->count) ||
@@ -28,10 +42,7 @@ static int wce_bun(N2Scene *scene,const UG2TrackCollision *data,uint32_t bundle,
         m.verts=malloc(sizeof verts);m.idx=malloc(sizeof indices);
         if(!m.verts || !m.idx){free(m.verts);free(m.idx);goto fail;}
         memcpy(m.verts,verts,sizeof verts);memcpy(m.idx,indices,sizeof indices);
-        uint64_t id=UINT64_C(1469598103934665603);
-        const uint64_t provenance[]={UINT64_C(0x554732504f4c5900),bundle,poly->source_offset};
-        for(size_t p=0;p<sizeof provenance;p++){id^=((const unsigned char*)provenance)[p];id*=UINT64_C(1099511628211);}
-        m.placement_id=id?id:1;strcpy(m.sname,"BUN_TRACK_POLYGON");
+        m.placement_id=wce_polygon_id(bundle,poly->source_offset);strcpy(m.sname,"BUN_TRACK_POLYGON");
         walls[count++]=m;
     }
     if(count) {

@@ -4,6 +4,10 @@
  * Finishing a course does not certify drift scoring or URL tournaments. */
 #include "ai.h"
 #include "world.h"
+#include "contact_audit.h"
+
+/* --contact-audit: attribute every returned world contact (read-only). */
+static int contact_audit,free_roam_collision;
 
 static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
         const RaceAiSource *source,int difficulty,float pace,int laps) {
@@ -14,7 +18,10 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
     int ev=-1;for(int k=0;k<w.city.nev;k++)if(w.city.ev[k].id==e->id)ev=k;
     if(!world_race_start(&w,root,ev,laps)){world_city_free(&w.city);return 0;}
     WorldNeighborhood nb={0};
-    WLoadOptions opt={1,w.city.race.grid[0][0],w.city.race.grid[0][1],6000,e->id};
+    /* --free-roam-collision keeps the race course but loads the free-roam
+       scenery/collision selection, so its contacts are free-roam statics. */
+    WLoadOptions opt={1,w.city.race.grid[0][0],w.city.race.grid[0][1],6000,
+                      free_roam_collision?-1:e->id};
     if(!world_neighborhood_load(&nb,root,region,&opt)) {
         world_neighborhood_free(&nb);world_city_free(&w.city);return 0;
     }
@@ -38,6 +45,11 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
             .race_source=source,.race_source_choice=-1,.race_difficulty=difficulty,.race_pace=pace};
         /* Five URL rivals still need a separate moving player reference. */
         AiCar cars[N_RACE_AI+1]={0};AiRace drivers[N_RACE_AI+1]={0};
+        if(contact_audit) {
+            ca_begin(region,e->id,free_roam_collision,&nb.scene,&nb.track_collision,cars,
+                     nb.rgn[0].data,nb.rgn[0].len,root);
+            g_ai_wall_audit_hook=ca_hook;
+        }
         for(int k=0;k<N_RACE_AI;k++)cars[k]=(AiCar){.half_length=2,.half_width=.85f,.height=1.5f,.mass=1.4f};
         *spawned=ai_race_prepare(root,e,&w.city.race,&world,&course,cars,drivers,&player);
         int wanted=e->info.downhill?1:e->info.kind==N2_RACE_URL?5:3,driven=*spawned;
@@ -62,6 +74,7 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
             int invalid=0;
             for(int frame=0;frame<90000;frame++) {
                 AiCar *contacts[N_RACE_AI+1];int done=0,failed=0;
+                g_ca.frame=frame;
                 for(int k=0;k<driven;k++) {
                     int was_finished=drivers[k].progress.finished;
                     ai_race_step(cars,drivers,k,driven,e->circuit,&world,reference>=0?cars+reference:NULL);
@@ -105,6 +118,7 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
                     drivers[k].drive.failed,drivers[k].progress.drift.bank);
         }
     }
+    if(contact_audit && g_ca.scene){g_ai_wall_audit_hook=NULL;g_ca.course=&course;ca_end(stdout);}
     free(course.xy);free(walls);free(heights);free(sources);
     phys_wall_index_build(NULL,NULL,0);world_ground_grid_activate(NULL);
     world_neighborhood_free(&nb);world_city_free(&w.city);world_props_reset();return ok;
@@ -126,7 +140,14 @@ int main(int argc,char **argv) {
             char *end=NULL;pace=strtof(argv[++j],&end);if(!end || *end || !isfinite(pace))return 2;
         }else if(!strcmp(argv[j],"--laps") && j+1<argc){
             char *end=NULL;long n=strtol(argv[++j],&end,10);if(!end || *end || n<1 || n>99)return 2;laps=(int)n;
-        }else {fprintf(stderr,"Usage: race_events_check TRACKS [--drive [event] [--source-ai] [--difficulty 0..2] [--pace km/h] [--laps 1..99]]\n");return 2;}
+        }else if(!strcmp(argv[j],"--contact-audit")){
+            contact_audit=1;
+            if(j+1<argc && strncmp(argv[j+1],"--",2)){
+                g_ca.log=fopen(argv[++j],"w");
+                if(!g_ca.log){fprintf(stderr,"cannot write %s\n",argv[j]);return 2;}
+            }
+        }else if(!strcmp(argv[j],"--free-roam-collision"))free_roam_collision=1;
+        else {fprintf(stderr,"Usage: race_events_check TRACKS [--drive [event] [--source-ai] [--difficulty 0..2] [--pace km/h] [--laps 1..99] [--contact-audit [TSV]] [--free-roam-collision]]\n");return 2;}
     }
     RaceAiSource *source=NULL;
     if(use_source){
@@ -154,5 +175,6 @@ int main(int argc,char **argv) {
         fflush(stdout);
     }
     printf("EVENT-CHECK SUMMARY events=%d decoded=%d completed=%d simulation=%d\n",count,decoded,completed,simulate);
+    if(g_ca.log)fclose(g_ca.log);
     free(source);return !count || (simulate?completed!=count:decoded!=count);
 }

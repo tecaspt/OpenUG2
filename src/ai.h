@@ -128,6 +128,13 @@ extern AiAuditHook g_ai_audit_hook;
  * kind 0: world walls/rails, kind 1: vehicle separation. */
 typedef void (*AiContactHook)(const float before[3],const float after[3],int kind);
 extern AiContactHook g_ai_contact_hook;
+/* Optional read-only attribution of the world contacts the production solver
+ * returned; NULL in production. Supplying it only fills the solver's existing
+ * contact log and first-rail record. phase 0: vehicle step, 1: separation fix.
+ * walls holds at most 8 entries; nwalls is the solver's full count. */
+typedef void (*AiWallAuditHook)(const AiCar *car,const PhysWallContact *walls,int nwalls,
+                                int rail_mesh,int rail_tri,int nrails,int phase);
+extern AiWallAuditHook g_ai_wall_audit_hook;
 /* Work counters for the optional frame profiler; the caller resets them. */
 typedef struct { long passes, pairs, hits, world_fixes, wall_candidates, spawn_checks; } AiPerf;
 extern AiPerf g_ai_perf;

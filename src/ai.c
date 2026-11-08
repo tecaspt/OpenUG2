@@ -17,6 +17,7 @@
 AiPerf g_ai_perf;
 AiAuditHook g_ai_audit_hook;
 AiContactHook g_ai_contact_hook;
+AiWallAuditHook g_ai_wall_audit_hook;
 
 void ai_render_pose(AiCar *out,const AiCar *before,const AiCar *after,float alpha) {
     AiCar pose=*after;
@@ -88,9 +89,14 @@ static int ai_vehicle_step(AiCar *car,float throttle,float steer,int handbrake,
         float dz=!car->ride.contact_mask
                  ?(car->ride.vz-PHYS_RIDE_G/PHYS_TICKRATE)/PHYS_TICKRATE:0;
         int rails=0;
+        PhysWallContact audit[8];WRailHit rail={.mesh=-1,.tri=-1};
+        AiWallAuditHook observe=g_ai_wall_audit_hook;
         collision=world_body_walls_move(scene,old,car->pos,car->vel,car->head,bb,
             car->pos[2]+.05f,car->pos[2]+height,dz,world->obst,world->obstz,
-            world->nobst,world->obstsrc,NULL,0,NULL,&rails);
+            world->nobst,world->obstsrc,observe?audit:NULL,observe?8:0,
+            observe?&rail:NULL,&rails);
+        if(observe && (collision || rails))
+            observe(car,audit,collision,rail.mesh,rail.tri,rails,0);
         collision|=rails;
         phys_ride_wall_response(&car->ride,wall_before,car->vel);
         if(g_ai_contact_hook)g_ai_contact_hook(contact_before,car->pos,0);
@@ -138,12 +144,15 @@ static void ai_contact_world(AiCar *car,const float old[3],const AiTrafficWorld 
         float contact_before[3];memcpy(contact_before,car->pos,sizeof contact_before);
         g_ai_perf.world_fixes++;
         if(world->obst && world->obstsrc) g_ai_perf.wall_candidates+=world->nobst;
+        AiWallAuditHook observe=g_ai_wall_audit_hook;
+        PhysWallContact audit[8];WRailHit rail={.mesh=-1,.tri=-1};int walls=0;
         if(world->obst && world->obstsrc)
-            collide_body_walls(car->pos,car->vel,car->head,bb,world->obst,world->obstz,
+            walls=collide_body_walls(car->pos,car->vel,car->head,bb,world->obst,world->obstz,
                 world->nobst,car->pos[2]+.05f,car->pos[2]+bb[5],
-                world->scene,world->obstsrc,NULL,0);
-        world_body_wall_push(world->scene,car->pos,car->vel,car->head,bb,
-                             car->pos[2]+.05f,car->pos[2]+bb[5],NULL);
+                world->scene,world->obstsrc,observe?audit:NULL,observe?8:0);
+        int rails=world_body_wall_push(world->scene,car->pos,car->vel,car->head,bb,
+                             car->pos[2]+.05f,car->pos[2]+bb[5],observe?&rail:NULL);
+        if(observe && (walls || rails))observe(car,audit,walls,rail.mesh,rail.tri,rails,1);
         if(g_ai_contact_hook)g_ai_contact_hook(contact_before,car->pos,0);
     }
 }
@@ -3154,8 +3163,9 @@ static int race_drop_clear(const AiTrafficWorld *world,const AiCar *car,
     AiCar probe=*car;AiRace forecast=*driver;
     AiDrive *drive=&forecast.drive;drive->stalled=0;
     AiPerf perf=g_ai_perf;AiContactHook contact=g_ai_contact_hook;
+    AiWallAuditHook wall_audit=g_ai_wall_audit_hook;
     PhysPropImpactHook impact=g_phys_prop_impact_hook;
-    g_ai_contact_hook=NULL;g_phys_prop_impact_hook=NULL;
+    g_ai_contact_hook=NULL;g_phys_prop_impact_hook=NULL;g_ai_wall_audit_hook=NULL;
     int left=car->ride.contact_mask==0,stable=0,ok=0,air_ticks=0;
     float peak=car->pos[2];
     /* shortcut: four-second local rollout, not general airborne route planning. */
@@ -3181,7 +3191,7 @@ static int race_drop_clear(const AiTrafficWorld *world,const AiCar *car,
         }
         if(air_ticks>PHYS_TICKRATE)break;
     }
-    g_ai_perf=perf;g_ai_contact_hook=contact;g_phys_prop_impact_hook=impact;
+    g_ai_perf=perf;g_ai_contact_hook=contact;g_ai_wall_audit_hook=wall_audit;g_phys_prop_impact_hook=impact;
     return ok;
 }
 

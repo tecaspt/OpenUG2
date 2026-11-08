@@ -313,9 +313,9 @@ race-ai-test: tools/race_ai_test.c src/ai.c src/world.c src/resource.c src/world
 	./build/race_ai_test
 
 # Local asset check: optional --drive [event-id] runs normal physics/contact.
-race-events-check: tools/race_events_check.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c $(HDRS) src/generated_shaders.h
+race-events-check: tools/race_events_check.c tools/contact_audit.h src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c $(HDRS) src/generated_shaders.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/race_events_check.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/race_events_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -DWORLD_INSTANCE_TESTING -Isrc tools/race_events_check.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/race_events_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
 
 world-group-test: tools/world_group_test.c src/world_group_reader.h
 	@mkdir -p build

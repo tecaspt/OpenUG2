@@ -567,8 +567,7 @@ static int world_neighborhood_load_facade(World *w, const char *troot,
         if(!region->data || !ug2_track_collision_read(region->data,(size_t)region->len,&activation,selection,&w->neighborhood.track_collision)) {
             fprintf(stderr,"invalid or missing BUN track collision data in %s\n",trackname);return 0;
         }
-        uint32_t bundle=0xffffffffu;
-        for(const unsigned char *p=(const unsigned char*)trackname;*p;p++)bundle=bundle*33u+*p;
+        uint32_t bundle=wce_bundle_hash(trackname);
         int before=w->neighborhood.scene.count;
         int event=instance_world?w->neighborhood.inst_stats.scenery_effective:options?options->scenery_event:0;
         if(!wce_bun(&w->neighborhood.scene,&w->neighborhood.track_collision,bundle,event))return 0;

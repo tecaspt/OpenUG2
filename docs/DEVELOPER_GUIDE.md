@@ -951,6 +951,17 @@ fix must remove the incorrect source or classification; hiding all props or
 loosening the wall predicate is not an acceptable workaround. Free-roam
 static contacts and race-generated closure barriers must be logged separately.
 
+`race_events_check TRACKS --drive [event] --contact-audit [TSV]` records
+these fields for every wall/rail contact the AI solver returns (through the
+read-only `g_ai_wall_audit_hook`; NULL in production). The TSV holds each
+contact; `CONTACT-SOURCE` lines report each source hit on 10+ frames with its
+packed-polygon row (offset, section, activation group, flags) or placement
+row, the drawn geometry within 0.5 m in the car's height band, road support
+on both sides and the distance to the driven course. Contacts are tagged
+`static` (present in free roam), `closure` (event-owned group) or `prop`.
+`--free-roam-collision` drives the same courses with the free-roam selection.
+The printed class is evidence-based triage, not a verdict on retail intent.
+
 Generated race-corridor closures are approximate 18 m visual guides inferred
 from navigation links. Their dedicated collision/push has been removed: these
 estimates must not create additional walls across a drivable race course.
