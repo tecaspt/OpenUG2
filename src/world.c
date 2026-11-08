@@ -1001,15 +1001,51 @@ static void wg_tri_index_build(WTriIndex *ix, const N2Mesh *m) {
     ix->x0 = gx0; ix->y0 = gy0; ix->sx = sx; ix->sy = sy; ix->nx = nx; ix->ny = ny;
     ix->start = start; ix->list = list;
 }
-/* Triangles of grid mesh `src` that can cover (x,y), or -1: scan them all. */
-static int wg_tri_cands(int src, const N2Mesh *me, float x, float y, const int **out) {
+/* Triangles of grid mesh `src` whose box can meet [x0,x1]x[y0,y1], ascending
+   and without repeats, or -1: scan them all. A multi-bucket result lives in a
+   scratch buffer that the next call reuses (ground queries are single-threaded). */
+static int wg_int_cmp(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+static int wg_tri_span(int src, const N2Mesh *me, float x0, float y0, float x1, float y1,
+                       const int **out) {
+    static int *buf; static long cap;
     if (src < 0 || !g_grid.tri || src >= g_grid.mesh_count) return -1;
     const WTriIndex *ix = &g_grid.tri[src];
-    if (!ix->list || ix->verts != me->verts || ix->idx != me->idx ||
-        ix->ntri != me->nidx/3 || !isfinite(x) || !isfinite(y)) return -1;
-    int c = wg_tri_cell(y,ix->y0,ix->sy,ix->ny)*ix->nx + wg_tri_cell(x,ix->x0,ix->sx,ix->nx);
-    *out = ix->list + ix->start[c];
-    return ix->start[c+1] - ix->start[c];
+    if (!ix->list || ix->verts != me->verts || ix->idx != me->idx || ix->ntri != me->nidx/3 ||
+        !isfinite(x0) || !isfinite(y0) || !isfinite(x1) || !isfinite(y1)) return -1;
+    int cx0 = wg_tri_cell(x0,ix->x0,ix->sx,ix->nx), cx1 = wg_tri_cell(x1,ix->x0,ix->sx,ix->nx);
+    int cy0 = wg_tri_cell(y0,ix->y0,ix->sy,ix->ny), cy1 = wg_tri_cell(y1,ix->y0,ix->sy,ix->ny);
+    if (cx0 == cx1 && cy0 == cy1) {
+        int c = cy0*ix->nx + cx0;
+        *out = ix->list + ix->start[c];
+        return ix->start[c+1] - ix->start[c];
+    }
+    long n = 0;
+    for (int cy = cy0; cy <= cy1; cy++)
+        n += ix->start[cy*ix->nx+cx1+1] - ix->start[cy*ix->nx+cx0];
+    if (n > ix->ntri) return -1;                 /* wide span: scan the mesh */
+    if (n > cap) {
+        int *grown = (int *)realloc(buf, (size_t)n * sizeof *grown);
+        if (!grown) return -1;
+        buf = grown; cap = n;
+    }
+    n = 0;
+    for (int cy = cy0; cy <= cy1; cy++) {
+        int a = ix->start[cy*ix->nx+cx0], b = ix->start[cy*ix->nx+cx1+1];
+        memcpy(buf + n, ix->list + a, (size_t)(b - a) * sizeof *buf);
+        n += b - a;
+    }
+    qsort(buf, (size_t)n, sizeof *buf, wg_int_cmp);
+    int k = 0;
+    for (long i = 0; i < n; i++) if (!k || buf[k-1] != buf[i]) buf[k++] = buf[i];
+    *out = buf;
+    return k;
+}
+/* Triangles of grid mesh `src` that can cover (x,y), or -1: scan them all. */
+static int wg_tri_cands(int src, const N2Mesh *me, float x, float y, const int **out) {
+    return wg_tri_span(src, me, x, y, x, y, out);
 }
 
 void world_ground_grid_free(WGroundGrid *grid) {
@@ -2123,9 +2159,9 @@ static int wg_unique_road(const N2Scene *scene,float x,float y,float *z) {
     for(int k=begin;k<end;k++) {
         int id=indexed?g_grid.list[k]:k;
         if(scene->meshes[id].cat!=N2_ROAD)continue;
-        N2Scene one={scene->meshes+id,1,1};float top,bottom;
-        if(!wg_pick(&one,NULL,x,y,N2_GROUND_HIGHEST,&top,NULL,NULL))continue;
-        if(!wg_pick(&one,NULL,x,y,-1e6f,&bottom,NULL,NULL))continue;
+        N2Scene one={scene->meshes+id,1,1};float top,bottom;const int *src=indexed?&id:NULL;
+        if(!wg_pick(&one,src,x,y,N2_GROUND_HIGHEST,&top,NULL,NULL))continue;
+        if(!wg_pick(&one,src,x,y,-1e6f,&bottom,NULL,NULL))continue;
         low=fminf(low,bottom);high=fmaxf(high,top);
         if(high-low>.25f)return 0;
     }
@@ -2328,14 +2364,17 @@ int world_wheel_support(const N2Scene *s, float x, float y, float wheel_z,
     return WSURF_NONE;
 }
 
-static void wgs_mesh(const N2Mesh *m, int mi, const float p[3], const float q[3],
+static void wgs_mesh(const N2Mesh *m, int mi, int src, const float p[3], const float q[3],
                      float *best, WGroundHit *hit) {
     if (m->ground_disabled || (m->cat != N2_ROAD && m->cat != N2_TERRAIN)) return;
     /* Exact early-out: a hit lies on p..q AND inside the triangle, so XY
      * bounds separated by more than float noise can never produce one. */
     float sx0=fminf(p[0],q[0])-1e-3f, sx1=fmaxf(p[0],q[0])+1e-3f;
     float sy0=fminf(p[1],q[1])-1e-3f, sy1=fmaxf(p[1],q[1])+1e-3f;
-    for (int t=0; t+2<m->nidx; t+=3) {
+    const int *cand = NULL;      /* any triangle passing the test below is listed */
+    int ncand = wg_tri_span(src, m, sx0, sy0, sx1, sy1, &cand);
+    for (int i = 0, n = ncand < 0 ? m->nidx/3 : ncand; i < n; i++) {
+        int t = (ncand < 0 ? i : cand[i]) * 3;
         const float *a=m->verts+m->idx[t]*5, *b=m->verts+m->idx[t+1]*5,
                     *c=m->verts+m->idx[t+2]*5;
         if ((a[0]<sx0&&b[0]<sx0&&c[0]<sx0) || (a[0]>sx1&&b[0]>sx1&&c[0]>sx1) ||
@@ -2376,7 +2415,7 @@ float world_ground_sweep(const N2Scene *s, const float from[3],
     if (hit) { memset(hit,0,sizeof *hit);hit->mesh=hit->tri=-1; }
     if (!s || !s->meshes) return best;
     if (s->meshes!=g_grid.meshes) {
-        for(int i=0;i<s->count;i++)wgs_mesh(&s->meshes[i],i,from,to,&best,hit);
+        for(int i=0;i<s->count;i++)wgs_mesh(&s->meshes[i],i,-1,from,to,&best,hit);
     } else {
         int x0=(int)floorf((fminf(from[0],to[0])-g_grid.x0)/GCELL);
         int x1=(int)floorf((fmaxf(from[0],to[0])-g_grid.x0)/GCELL);
@@ -2388,7 +2427,7 @@ float world_ground_sweep(const N2Scene *s, const float from[3],
         for(int y=y0;y<=y1;y++)for(int x=x0;x<=x1;x++) {
             int cell=y*g_grid.gw+x;
             for(int k=g_grid.start[cell];k<g_grid.start[cell+1];k++) {
-                int i=g_grid.list[k];wgs_mesh(&s->meshes[i],i,from,to,&best,hit);
+                int i=g_grid.list[k];wgs_mesh(&s->meshes[i],i,i,from,to,&best,hit);
             }
         }
     }
