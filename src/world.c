@@ -945,17 +945,17 @@ static int wg_tri_cell(float v, float origin, float scale, int n) {
     float f = floorf((v - origin) * scale);       /* monotonic in v */
     return f > 0 ? (f < (float)(n-1) ? (int)f : n-1) : 0;
 }
-static void wg_tri_index_build(WTriIndex *ix, const N2Mesh *m) {
-    int ntri = m->nidx / 3;
+static void wg_tri_index_build(WTriIndex *ix, const float *verts, const uint16_t *idx, int nidx) {
+    int ntri = nidx / 3;
     memset(ix, 0, sizeof *ix);
-    if ((m->cat != N2_ROAD && m->cat != N2_TERRAIN) || ntri < WG_TRI_INDEX_MIN) return;
+    if (!verts || !idx || ntri < WG_TRI_INDEX_MIN) return;
     float *box = (float *)malloc((size_t)ntri * 4 * sizeof *box);
     if (!box) return;
     float gx0=INFINITY, gy0=INFINITY, gx1=-INFINITY, gy1=-INFINITY;
     for (int i = 0; i < ntri; i++) {
-        const float *a = m->verts + m->idx[i*3]*5;
-        const float *b = m->verts + m->idx[i*3+1]*5;
-        const float *c = m->verts + m->idx[i*3+2]*5;
+        const float *a = verts + idx[i*3]*5;
+        const float *b = verts + idx[i*3+1]*5;
+        const float *c = verts + idx[i*3+2]*5;
         /* wg_tri_far's acceptance box, widened so rounding can only add. */
         float x0=fminf(a[0],fminf(b[0],c[0])), x1=fmaxf(a[0],fmaxf(b[0],c[0]));
         float y0=fminf(a[1],fminf(b[1],c[1])), y1=fmaxf(a[1],fmaxf(b[1],c[1]));
@@ -997,7 +997,7 @@ static void wg_tri_index_build(WTriIndex *ix, const N2Mesh *m) {
             for (int cx = cx0; cx <= cx1; cx++) list[cursor[cy*nx+cx]++] = i;
     }
     free(cursor); free(box);
-    ix->verts = m->verts; ix->idx = m->idx; ix->ntri = ntri;
+    ix->verts = verts; ix->idx = idx; ix->ntri = ntri;
     ix->x0 = gx0; ix->y0 = gy0; ix->sx = sx; ix->sy = sy; ix->nx = nx; ix->ny = ny;
     ix->start = start; ix->list = list;
 }
@@ -1008,12 +1008,10 @@ static int wg_int_cmp(const void *a, const void *b) {
     int x = *(const int *)a, y = *(const int *)b;
     return (x > y) - (x < y);
 }
-static int wg_tri_span(int src, const N2Mesh *me, float x0, float y0, float x1, float y1,
-                       const int **out) {
+static int wg_tri_span_ix(const WTriIndex *ix, const float *verts, const uint16_t *idx, int nidx,
+                          float x0, float y0, float x1, float y1, const int **out) {
     static int *buf; static long cap;
-    if (src < 0 || !g_grid.tri || src >= g_grid.mesh_count) return -1;
-    const WTriIndex *ix = &g_grid.tri[src];
-    if (!ix->list || ix->verts != me->verts || ix->idx != me->idx || ix->ntri != me->nidx/3 ||
+    if (!ix->list || ix->verts != verts || ix->idx != idx || ix->ntri != nidx/3 ||
         !isfinite(x0) || !isfinite(y0) || !isfinite(x1) || !isfinite(y1)) return -1;
     int cx0 = wg_tri_cell(x0,ix->x0,ix->sx,ix->nx), cx1 = wg_tri_cell(x1,ix->x0,ix->sx,ix->nx);
     int cy0 = wg_tri_cell(y0,ix->y0,ix->sy,ix->ny), cy1 = wg_tri_cell(y1,ix->y0,ix->sy,ix->ny);
@@ -1025,7 +1023,7 @@ static int wg_tri_span(int src, const N2Mesh *me, float x0, float y0, float x1, 
     long n = 0;
     for (int cy = cy0; cy <= cy1; cy++)
         n += ix->start[cy*ix->nx+cx1+1] - ix->start[cy*ix->nx+cx0];
-    if (n > ix->ntri) return -1;                 /* wide span: scan the mesh */
+    if (!n || n > ix->ntri) return n ? -1 : 0;   /* none, or wide span: scan */
     if (n > cap) {
         int *grown = (int *)realloc(buf, (size_t)n * sizeof *grown);
         if (!grown) return -1;
@@ -1043,14 +1041,88 @@ static int wg_tri_span(int src, const N2Mesh *me, float x0, float y0, float x1, 
     *out = buf;
     return k;
 }
+static int wg_tri_span(int src, const N2Mesh *me, float x0, float y0, float x1, float y1,
+                       const int **out) {
+    if (src < 0 || !g_grid.tri || src >= g_grid.mesh_count) return -1;
+    return wg_tri_span_ix(&g_grid.tri[src], me->verts, me->idx, me->nidx, x0, y0, x1, y1, out);
+}
 /* Triangles of grid mesh `src` that can cover (x,y), or -1: scan them all. */
 static int wg_tri_cands(int src, const N2Mesh *me, float x, float y, const int **out) {
     return wg_tri_span(src, me, x, y, x, y, out);
 }
 
+/* Camera index: each mesh world_camera_clip can hit (its static tests), in
+   every ground cell its XY triangle box meets (clamped, so far meshes land in
+   edge cells), plus triangle buckets per pass. The clearance march per
+   triangle only lowers `best`, so any superset of the triangles passing its
+   box test, in any order, yields the same result. Failure: full scan. Bucket
+   threshold: at 32 triangles, <20% fewer box tests for +29 MB on L4RA. */
+#define WCAM_TRI_INDEX_MIN 512
+static void wg_cam_free(WGroundGrid *g) {
+    for (int i = 0; g->cam_tri && i < 2*g->mesh_count; i++)
+        if (g->cam_tri[i]) { free(g->cam_tri[i]->start); free(g->cam_tri[i]->list); free(g->cam_tri[i]); }
+    free(g->cam_tri); free(g->cam_start); free(g->cam_list); free(g->cam_bounds);
+    g->cam_tri = NULL; g->cam_start = g->cam_list = NULL; g->cam_bounds = NULL;
+}
+static int wg_cam_solid(const N2Mesh *m) {
+    return m->cat != N2_SKY && m->cat != N2_GLOW && !n2_world_effect_only(m);
+}
+static void wg_cam_cells(const WGroundGrid *g, const float *b, int c[4]) {
+    for (int k = 0; k < 4; k++)
+        c[k] = wg_tri_cell(b[k], k&1 ? g->y0 : g->x0, 1.0f/GCELL, k&1 ? g->gh : g->gw);
+}
+static void wg_cam_build(WGroundGrid *g, const N2Scene *s) {
+    size_t cells = (size_t)g->gw * g->gh;
+    int *cursor = NULL, c[4];
+    g->cam_tri = (WTriIndex **)calloc(2*(size_t)s->count, sizeof *g->cam_tri);
+    g->cam_bounds = (float (*)[4])malloc((size_t)s->count * sizeof *g->cam_bounds);
+    g->cam_start = (int *)calloc(cells + 1, sizeof *g->cam_start);
+    if (!g->tri || !g->cam_tri || !g->cam_bounds || !g->cam_start) goto fail;
+    for (int i = 0; i < s->count; i++) {
+        const N2Mesh *m = &s->meshes[i];
+        float *b = g->cam_bounds[i];
+        b[0] = b[1] = INFINITY; b[2] = b[3] = -INFINITY;
+        if (!wg_cam_solid(m)) continue;
+        for (int pass = 0; pass < 2; pass++) {
+            const float *v = pass ? m->wall_verts : m->verts;
+            const uint16_t *ix = pass ? m->wall_idx : m->idx;
+            int n = pass ? m->wall_nidx : m->nidx;
+            if (!v || !ix) continue;
+            for (int t = 0; t < n; t++) {
+                const float *p = v + 5*ix[t];
+                if (!isfinite(p[0]) || !isfinite(p[1])) goto fail;
+                b[0]=fminf(b[0],p[0]); b[1]=fminf(b[1],p[1]); b[2]=fmaxf(b[2],p[0]); b[3]=fmaxf(b[3],p[1]);
+            }
+            if ((pass || !g->tri[i].list) && n/3 >= WCAM_TRI_INDEX_MIN) {
+                WTriIndex *t = g->cam_tri[2*i+pass] = (WTriIndex *)malloc(sizeof *t);
+                if (t) wg_tri_index_build(t, v, ix, n); else goto fail;
+            }
+        }
+        if (!(b[0] <= b[2])) continue;
+        wg_cam_cells(g, b, c);
+        for (int cy = c[1]; cy <= c[3]; cy++)
+            for (int cx = c[0]; cx <= c[2]; cx++) g->cam_start[(size_t)cy*g->gw+cx+1]++;
+    }
+    for (size_t k = 0; k < cells; k++) g->cam_start[k+1] += g->cam_start[k];
+    g->cam_list = (int *)malloc((size_t)(g->cam_start[cells] ? g->cam_start[cells] : 1) * sizeof *g->cam_list);
+    cursor = (int *)malloc(cells * sizeof *cursor);
+    if (!g->cam_list || !cursor) goto fail;
+    memcpy(cursor, g->cam_start, cells * sizeof *cursor);
+    for (int i = 0; i < s->count; i++) {
+        if (!(g->cam_bounds[i][0] <= g->cam_bounds[i][2])) continue;
+        wg_cam_cells(g, g->cam_bounds[i], c);
+        for (int cy = c[1]; cy <= c[3]; cy++)
+            for (int cx = c[0]; cx <= c[2]; cx++) g->cam_list[cursor[(size_t)cy*g->gw+cx]++] = i;
+    }
+    free(cursor); return;
+fail:
+    free(cursor); wg_cam_free(g);
+}
+
 void world_ground_grid_free(WGroundGrid *grid) {
     if (!grid) return;
     if (g_active_grid == grid) world_ground_grid_activate(NULL);
+    wg_cam_free(grid);
     if (grid->tri)
         for (int i = 0; i < grid->mesh_count; i++) { free(grid->tri[i].start); free(grid->tri[i].list); }
     free(grid->tri);
@@ -1129,11 +1201,14 @@ int world_ground_grid_build(WGroundGrid *grid, const N2Scene *scene,
 
     next.tri = (WTriIndex *)calloc((size_t)scene->count, sizeof *next.tri);
     for (int i = 0; next.tri && i < scene->count; i++)
-        wg_tri_index_build(&next.tri[i], &scene->meshes[i]);
+        if (scene->meshes[i].cat == N2_ROAD || scene->meshes[i].cat == N2_TERRAIN)
+            wg_tri_index_build(&next.tri[i], scene->meshes[i].verts, scene->meshes[i].idx,
+                               scene->meshes[i].nidx);
     next.meshes = scene->meshes;next.mesh_count=scene->count;
     next.x0 = x0; next.y0 = y0;
     next.gw = gw; next.gh = gh;
     next.start = start; next.list = list;
+    wg_cam_build(&next, scene);
     world_ground_grid_free(grid);
     *grid = next;
     return 1;
@@ -2458,48 +2533,72 @@ static float camera_tri_distance(const float p[3],const float *a,const float *b,
     return sqrtf(inside?d*d/nn:best);
 }
 
+static void camera_mesh_clip(const WGroundGrid *g,const N2Scene *s,const float (*bounds)[4],
+        int mi,const float q[4],const float anchor[3],const float eye[3],
+        const float delta[3],float length,float radius,float *best) {
+    const N2Mesh*m=&s->meshes[mi];
+    if(m->cat==N2_SKY || m->cat==N2_GLOW || n2_world_effect_only(m))return;
+    /* Visible structures remain camera-solid when BUN replaces body walls. */
+    int visible=m->cat!=N2_COLLISION && (m->cat==N2_ROAD || m->cat==N2_TERRAIN ||
+        m->scen==N2_SC_BUILDING || m->scen==N2_SC_WALL || m->scen==N2_SC_STRUCT);
+    if(bounds && (fmaxf(anchor[0],eye[0])+radius<bounds[mi][0] ||
+       fminf(anchor[0],eye[0])-radius>bounds[mi][2] ||
+       fmaxf(anchor[1],eye[1])+radius<bounds[mi][1] ||
+       fminf(anchor[1],eye[1])-radius>bounds[mi][3]))return;
+    for(int pass=0;pass<2;pass++) {
+      const float *verts=pass?m->wall_verts:m->verts;
+      const uint16_t *idx=pass?m->wall_idx:m->idx;
+      int count=pass?m->wall_nidx:m->nidx;
+      if (!verts || !idx || (pass && m->wall_policy==1) ||
+          (!pass && m->wall_policy && !visible)) continue;
+      const int *cand=NULL;int n=-1;
+      const WTriIndex *ix=!g?NULL:!pass && g->tri[mi].list?&g->tri[mi]:g->cam_tri[2*mi+pass];
+      if(ix)n=wg_tri_span_ix(ix,verts,idx,count,q[0],q[1],q[2],q[3],&cand);
+      for(int j=0,nt=n<0?count/3:n;j<nt;j++) {
+        int ti=(n<0?j:cand[j])*3;
+        const float*a=verts+5*idx[ti],*b=verts+5*idx[ti+1],*c=verts+5*idx[ti+2];
+        int outside=0;
+        for(int k=0;k<3;k++)
+            if(fmaxf(anchor[k],eye[k])+radius<fminf(a[k],fminf(b[k],c[k])) ||
+               fminf(anchor[k],eye[k])-radius>fmaxf(a[k],fmaxf(b[k],c[k])))outside=1;
+        if(outside)continue;
+        float t=0;
+        /* Distance is 1-Lipschitz: clearance steps cannot tunnel through
+           faces, edges or corners, regardless of triangle winding. */
+        for(int it=0;it<64 && t<*best;it++) {
+            float p[3];for(int k=0;k<3;k++)p[k]=anchor[k]+delta[k]*t;
+            float gap=camera_tri_distance(p,a,b,c)-radius;
+            if(gap<=.0001f){*best=t;break;}
+            t+=gap/length;
+            if(it==63 && t<*best)*best=t; /* conservative grazing contact */
+        }
+      }
+    }
+}
+
 float world_camera_clip(const N2Scene *s,const float (*bounds)[4],
                          const float anchor[3],float eye[3],float radius) {
     float delta[3],length=0,best=1;
     for(int k=0;k<3;k++){delta[k]=eye[k]-anchor[k];length+=delta[k]*delta[k];}
     length=sqrtf(length);
     if(!s || length<1e-5f || radius<=0)return 1;
-    /* ponytail: reuse resident XY bounds; add a spatial index only if measured
-       camera-query cost warrants one. No separate collision mesh ownership. */
-    for(int mi=0;mi<s->count;mi++) {
-        const N2Mesh*m=&s->meshes[mi];
-        if(m->cat==N2_SKY || m->cat==N2_GLOW || n2_world_effect_only(m))continue;
-        /* Visible structures remain camera-solid when BUN replaces body walls. */
-        int visible=m->cat!=N2_COLLISION && (m->cat==N2_ROAD || m->cat==N2_TERRAIN ||
-            m->scen==N2_SC_BUILDING || m->scen==N2_SC_WALL || m->scen==N2_SC_STRUCT);
-        if(bounds && (fmaxf(anchor[0],eye[0])+radius<bounds[mi][0] ||
-           fminf(anchor[0],eye[0])-radius>bounds[mi][2] ||
-           fmaxf(anchor[1],eye[1])+radius<bounds[mi][1] ||
-           fminf(anchor[1],eye[1])-radius>bounds[mi][3]))continue;
-        for(int pass=0;pass<2;pass++) {
-          const float *verts=pass?m->wall_verts:m->verts;
-          const uint16_t *idx=pass?m->wall_idx:m->idx;
-          int count=pass?m->wall_nidx:m->nidx;
-          if (!verts || !idx || (pass && m->wall_policy==1) ||
-              (!pass && m->wall_policy && !visible)) continue;
-          for(int ti=0;ti+2<count;ti+=3) {
-            const float*a=verts+5*idx[ti],*b=verts+5*idx[ti+1],*c=verts+5*idx[ti+2];
-            int outside=0;
-            for(int k=0;k<3;k++)
-                if(fmaxf(anchor[k],eye[k])+radius<fminf(a[k],fminf(b[k],c[k])) ||
-                   fminf(anchor[k],eye[k])-radius>fmaxf(a[k],fmaxf(b[k],c[k])))outside=1;
-            if(outside)continue;
-            float t=0;
-            /* Distance is 1-Lipschitz: clearance steps cannot tunnel through
-               faces, edges or corners, regardless of triangle winding. */
-            for(int it=0;it<64 && t<best;it++) {
-                float p[3];for(int k=0;k<3;k++)p[k]=anchor[k]+delta[k]*t;
-                float gap=camera_tri_distance(p,a,b,c)-radius;
-                if(gap<=.0001f){best=t;break;}
-                t+=gap/length;
-                if(it==63 && t<best)best=t; /* conservative grazing contact */
+    const WGroundGrid *g=&g_grid;
+    float q[4]={fminf(anchor[0],eye[0])-radius,fminf(anchor[1],eye[1])-radius,
+                fmaxf(anchor[0],eye[0])+radius,fmaxf(anchor[1],eye[1])+radius};
+    if(!bounds || !g->cam_start || s->meshes!=g->meshes || s->count!=g->mesh_count ||
+       !isfinite(q[0]) || !isfinite(q[1]) || !isfinite(q[2]) || !isfinite(q[3])) {
+        for(int mi=0;mi<s->count;mi++)
+            camera_mesh_clip(NULL,s,bounds,mi,q,anchor,eye,delta,length,radius,&best);
+    } else {
+        int c[4],mc[4];wg_cam_cells(g,q,c);
+        for(int y=c[1];y<=c[3];y++)for(int x=c[0];x<=c[2];x++) {
+            int cell=y*g->gw+x;
+            for(int k=g->cam_start[cell];k<g->cam_start[cell+1];k++) {
+                int mi=g->cam_list[k];wg_cam_cells(g,g->cam_bounds[mi],mc);
+                /* Visit each mesh once: in the first cell both ranges share. */
+                if(x!=(mc[0]>c[0]?mc[0]:c[0]) || y!=(mc[1]>c[1]?mc[1]:c[1]))continue;
+                camera_mesh_clip(g,s,bounds,mi,q,anchor,eye,delta,length,radius,&best);
             }
-          }
         }
     }
     for(int k=0;k<3;k++)eye[k]=anchor[k]+delta[k]*best;

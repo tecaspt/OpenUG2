@@ -72,6 +72,9 @@ typedef struct {
     int *list;
     float (*bounds)[4]; /* per mesh: XY bounds of its indexed triangles */
     WTriIndex *tri;     /* per mesh; NULL list = scan every triangle */
+    int *cam_start, *cam_list;  /* camera-solid meshes per cell (CSR, clamped) */
+    float (*cam_bounds)[4];     /* per mesh: XY box of its camera triangles */
+    WTriIndex **cam_tri;        /* per mesh x {pass 0, wall pass}; NULL = scan */
 } WGroundGrid;
 
 typedef struct {
