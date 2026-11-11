@@ -1880,6 +1880,8 @@ static void race_street_course(const char *root,const WEvent *event,const AiTraf
    ponytail: up to 64 lane choices per sample, one measured height per prefix. */
 static int race_ground_at(N2Scene *scene,float x,float y,float ref,float *z);
 
+/* world.c binds a checkpoint 22 m to either side of its outline point. */
+#define RACE_GATE_REACH 22.0f
 static int race_course_read_mode(const char *root,const WEvent *event,N2Path *out,int full,
         const AiTrafficWorld *world,const AiCar *body,float *widest,int lane_terrain,
         int repair_distance,int *unsupported_out) {
@@ -1943,7 +1945,7 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
     if(event->circuit){low=0;high=length;ok=ok && length>20;}
     int samples=ok && high>low ? (int)ceilf((high-low)/5)+1 : 0;
     enum { CHOICES=64 };
-    typedef struct { float x,y,z,authored_z,along,penalty; double cost; int parent,root,edge,linked; } Choice;
+    typedef struct { float x,y,z,authored_z,along,penalty,gate; double cost; int parent,root,edge,linked; } Choice;
     Choice *choices=samples>1 && samples<4096?calloc((size_t)samples*CHOICES,sizeof *choices):NULL;
     int *counts=choices?calloc((size_t)samples,sizeof *counts):NULL;
     ok=choices && counts;int layers=0;float previous=low;
@@ -1971,6 +1973,37 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
         }
         if(!n){if(along-previous>15)ok=0;continue;}
         counts[layers++]=n;previous=along;
+    }
+    /* Lanes beside the course carry race progress too, often advancing faster
+       than their length, so the cheapest continuous chain can leave the course
+       and skip its checkpoints. The ordered outline is the event's own
+       checkpoint line: where the nearest lane places an outline point at some
+       progress and a sample at that progress lies inside the gate, samples
+       outside it cost their squared distance beyond it. A course already
+       inside every gate keeps its cost order and is unchanged. */
+    for(int g=0;ok && g<event->npoly-(event->circuit!=0) && g<WORLD_EVPOLY;g++) {
+        const float *p=event->poly[g];float nearest=INFINITY,at=0;
+        if(!isfinite(p[0]) || !isfinite(p[1]))continue;
+        for(int k=0;k<lanes.n;k++) {
+            int next=lanes.next[k];if(next<0)continue;
+            float dx=lanes.xy[2*next]-lanes.xy[2*k],dy=lanes.xy[2*next+1]-lanes.xy[2*k+1];
+            float len2=dx*dx+dy*dy,span=race_lane_span(&lanes,distance,k,event->circuit?length:0);
+            if(fabsf(span)<.01f || len2<.0001f)continue;
+            float t=fmaxf(0,fminf(1,((p[0]-lanes.xy[2*k])*dx+(p[1]-lanes.xy[2*k+1])*dy)/len2));
+            float error=hypotf(lanes.xy[2*k]+t*dx-p[0],lanes.xy[2*k+1]+t*dy-p[1]);
+            if(error<nearest){nearest=error;at=distance[k]+t*span;}
+        }
+        if(nearest>RACE_GATE_REACH)continue;
+        if(event->circuit){at=fmodf(at,length);if(at<0)at+=length;}
+        int row=-1,inside=0;float off=2.5f;
+        for(int j=0;j<layers;j++)if(fabsf(choices[j*CHOICES].along-at)<=off){off=fabsf(choices[j*CHOICES].along-at);row=j;}
+        for(int q=0;row>=0 && q<counts[row];q++)
+            inside|=hypotf(choices[row*CHOICES+q].x-p[0],choices[row*CHOICES+q].y-p[1])<=RACE_GATE_REACH;
+        for(int q=0;inside && q<counts[row];q++) {
+            Choice *c=choices+row*CHOICES+q;
+            float d=hypotf(c->x-p[0],c->y-p[1])-RACE_GATE_REACH;
+            if(d>0)c->gate+=d*d;
+        }
     }
     /* Seed height beside the starting body, not at a distant lap seam.
        Rotate the closed source sequence; gate binding keeps the finish line. */
@@ -2034,7 +2067,7 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
                        !race_pose_clear(world,body,c->x,c->y,z,h))c->penalty=1e8f;
                     c->z=z;
                 }
-                choices[q].cost=seed<0 || q==seed ? choices[q].penalty : INFINITY;
+                choices[q].cost=seed<0 || q==seed ? choices[q].penalty+choices[q].gate : INFINITY;
                 if(world && body){float dz=c->z-c->authored_z;choices[q].cost+=dz*dz;}
                 if(terrain && anchored && reference[0].penalty==0 && hypotf(c->x-reference[0].x,c->y-reference[0].y)>.1f)c->cost+=1e8/(layers+1);
                 choices[q].root=q;choices[q].parent=-1;
@@ -2155,7 +2188,7 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
                         /* Prefer the authored 3D route, allowing interpolation
                            error on grades without bypassing physical checks. */
                         float dz=world && body?z-row[q].authored_z:0;
-                        double c=prev[r].cost+step*step*(3-ad-bd)+dz*dz+penalty+anchor;
+                        double c=prev[r].cost+row[q].gate+step*step*(3-ad-bd)+dz*dz+penalty+anchor;
                         int other_layer=isfinite(row[q].cost) && fabsf(z-row[q].z)>2.5f;
                         if(other_layer?linked>row[q].linked || (linked==row[q].linked && c<row[q].cost):c<row[q].cost) {
                             row[q].cost=c;row[q].parent=r;row[q].root=prev[r].root;

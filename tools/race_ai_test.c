@@ -663,6 +663,38 @@ static void progress_outlier_course_test(const char *root,int reverse) {
     free(path.xy);phys_wall_index_build(NULL,NULL,0);world_ground_grid_activate(NULL);world_ground_grid_free(&grid);
 }
 
+/* A road beside the course records race progress too, and advances it faster
+   than its own length. The course must still pass the event's checkpoint. */
+static void checkpoint_course_test(const char *root) {
+    enum { N=5, RECORD=140+56*N, SIZE=16+2*RECORD };
+    unsigned char bytes[SIZE]={0};uint32_t heads[]={0x80034120,SIZE-8,0x34121,SIZE-16};memcpy(bytes,heads,16);
+    const float leg=hypotf(50,60);
+    const float lanes[2][N][3]={
+        {{0,0,0},{100,0,100},{150,60,100+leg},{200,0,100+2*leg},{300,0,200+2*leg}},
+        {{100,0,100},{125,0,100+leg/2},{150,0,100+leg},{175,0,100+1.5f*leg},{200,0,100+2*leg}}};
+    for(int lane=0;lane<2;lane++)for(int j=0;j<N;j++){
+        unsigned char *record=bytes+24+lane*RECORD;uint32_t pair=N|(N<<16);memcpy(record+44,&pair,4);
+        memcpy(record+128+56*j+4,lanes[lane][j],sizeof lanes[lane][j]);
+        uint16_t widths[]={32*256,32*256};memcpy(record+128+56*j+24,widths,4);
+    }
+    char file[512];snprintf(file,sizeof file,"%s/ROUTESTEST/Routes1F.bin",root);
+    FILE *f=fopen(file,"wb");assert(f);assert(fwrite(bytes,1,SIZE,f)==SIZE);assert(!fclose(f));
+    WEvent event={.id=1,.reg="TEST",.npoly=3,.poly={{0,0},{150,60},{300,0}},.info={.kind=N2_RACE_SPRINT}};
+    N2Path path={0};assert(ai_race_course(root,&event,&path));
+    float nearest=INFINITY,reach=0;
+    for(int j=0;j<path.n;j++) {
+        nearest=fminf(nearest,hypotf(path.xy[2*j]-150,path.xy[2*j+1]-60));
+        reach=fmaxf(reach,path.xy[2*j]);
+    }
+    assert(nearest<5 && reach>290);
+    /* Without a checkpoint on the detour the shorter road stays the course. */
+    event.poly[1][0]=150;event.poly[1][1]=0;free(path.xy);path=(N2Path){0};
+    assert(ai_race_course(root,&event,&path));
+    for(int j=0;j<path.n;j++)assert(fabsf(path.xy[2*j+1])<.01f);
+    free(path.xy);
+    puts("checkpoint course: faster-progress side road cannot skip a gate PASS");
+}
+
 /* Source settings affect intent/pace while the shared physical limits remain. */
 static void source_ai_test(const char *root){
     RaceAiSource source={.count=1};
@@ -2560,6 +2592,7 @@ int main(void) {
     authored_layer_test(root);
     rising_deck_course_test(root);
     fallback_chicane_test(root);
+    checkpoint_course_test(root);
     progress_outlier_course_test(root,0);
     progress_outlier_course_test(root,1);
     route_height_test(root);
