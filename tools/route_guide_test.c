@@ -135,6 +135,13 @@ static void circuit(void) {
           "a lap-wide window: before gate 3 still heads for the finish");
     r.next_gate = 2;
     CHECK(route_guide_eval(&r,&ix,195,195,NAN,&o) && o.dir[0] < -.5f, "corner turns toward gate 2");
+    /* just past the armed gate on a circuit: forward round the lap, not back */
+    r.next_gate = 1;
+    CHECK(route_guide_eval(&r,&ix,201,120,NAN,&o) && o.dir[1] > .9f && !o.target_gate,
+          "past the armed gate on a circuit keeps going forward (%.2f %.2f)", o.dir[0], o.dir[1]);
+    r.lap = 0; r.next_gate = 0;
+    CHECK(route_guide_eval(&r,&ix,201,120,NAN,&o) && o.dir[1] > .9f,
+          "grid beyond gate 1 before the gun points forward (%.2f %.2f)", o.dir[0], o.dir[1]);
 }
 
 /* No gates (a free-roam route): the whole course is one window. */

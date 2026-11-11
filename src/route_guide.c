@@ -103,7 +103,13 @@ static void window(const RouteGuideRoute *r, const RouteGuideIndex *ix,
     float prev = r->lap <= 0 ? A[0] - 4*ROUTE_GUIDE_SLACK
                : g > 0 ? A[g-1] : A[r->ngate-1];
     *aim = target;
-    *hi = target + ROUTE_GUIDE_SLACK;
+    /* A circuit's window is exactly the lap ending at the armed gate: a pose
+       just past that gate (a grid a few metres beyond gate 1, as events 4605
+       and 4708 have, or projection jitter on the line) is a lap short of it
+       and is guided forward round the lap, never back toward the gate. Only
+       an open course keeps the slack past the gate, where turning back is
+       the one way to cross it. */
+    *hi = ix->loop ? target : target + ROUTE_GUIDE_SLACK;
     *lo = ix->loop ? target - L : -ROUTE_GUIDE_SLACK;
     *sub = prev - ROUTE_GUIDE_SLACK;
     if (*sub < *lo) *sub = *lo;

@@ -173,6 +173,7 @@ int main(int argc, char **argv) {
         int have_map = mdata && global && map_origin(global, glen, e->id, m.o) &&
                        ha_texture_find(mdata, (size_t)mlen, ha_hash(mname), &px) == 1;
         int lit = 0, lit_total = 0, off_image = 0, node_lit = 0, node_total = 0;
+        int out_lit = 0, out_total = 0;
         float mpt = 0;
         if (have_map) {
             maps++;
@@ -183,10 +184,12 @@ int main(int argc, char **argv) {
                 float l = hypotf(q[0]-p[0], q[1]-p[1]);
                 int steps = (int)ceilf(l / SAMPLE); if (steps < 1) steps = 1;
                 for (int s = 0; s < steps; s++) {
-                    float t = (float)s / steps;
-                    int r = retail_lit(&m, p[0] + t*(q[0]-p[0]), p[1] + t*(q[1]-p[1]), NULL);
+                    float t = (float)s / steps, x = p[0] + t*(q[0]-p[0]), y = p[1] + t*(q[1]-p[1]);
+                    int r = retail_lit(&m, x, y, NULL);
                     if (r < 0) { off_image++; continue; }
                     lit_total++; lit += r;
+                    /* does the retail image side with the course where it leaves the authored nodes? */
+                    if (authored_dist(&a, x, y) > OVERLAY_TOL) { out_total++; out_lit += r; }
                 }
             }
             for (int n = 0; n < a.n; n++) {
@@ -217,10 +220,10 @@ int main(int argc, char **argv) {
         pass += ok;
         printf("MINIMAP %d %s %s course=%d authored=%d samples=%d max-dev=%.1f p95-dev=%.1f mean-dev=%.1f "
                "outside=%d node-coverage=%d/%d capacity=%s retail-map=%s m/texel=%.2f course-lit=%d/%d "
-               "off-image=%d nodes-lit=%d/%d %s\n",
+               "off-image=%d nodes-lit=%d/%d outside-lit=%d/%d %s\n",
                e->id, e->reg, n2_race_name(e->info.kind), course.n, a.n, samples, worst, p95,
                samples ? sum / samples : 0, outside, covered, a.n, capacity_ok ? "ok" : "OVER",
-               have_map ? "yes" : "none", mpt, lit, lit_total, off_image, node_lit, node_total,
+               have_map ? "yes" : "none", mpt, lit, lit_total, off_image, node_lit, node_total, out_lit, out_total,
                ok ? "PASS" : "FAIL");
         fflush(stdout);
         free(px.rgba); free(mdata); free(a.xy); free(a.edge); free(course.xy);

@@ -188,14 +188,21 @@ static void walk(const char *root, const WEvent *e, const Course *c, const WRace
         if (nerr > 30) st->naive++;
         /* the armed gate: within 40 m of it along the course */
         float before = dga;
-        if (before > 0 && before <= 40) {
+        if (before > 0 && before <= 40 && o.target_gate) {
+            /* only once the gate is the aim point: further out the arrow
+               follows the road, which may bend more than 90 degrees before
+               the gate (the 33-40 m misses at 4125, 4301, 4708, ...) */
             st->gate_into++;
             if (o.dir[0]*g->dx + o.dir[1]*g->dy > 0) st->gate_into_ok++;
-            if (o.target_gate) {
+            {
                 st->gate_through++;
                 if (seg_hit(x, y, o.dir[0], o.dir[1], 80, g)) st->gate_through_ok++;
             }
         }
+        if (getenv("ROUTE_GUIDE_TRACE"))
+            printf("TRACE2 s=%.1f truth=%.1f err=%.1f aimdot=%.3f tdot=%.3f dga=%.1f gatedot=%.3f tg=%d dir=(%.2f %.2f) gate=(%.1f %.1f d %.2f %.2f half %.1f) ga=%.1f\n",
+                   s, truth, err, dot, tdot, dga, o.dir[0]*g->dx + o.dir[1]*g->dy, o.target_gate, o.dir[0], o.dir[1],
+                   g->x, g->y, g->dx, g->dy, g->half, ga);
         /* junctions: samples within 40 m past an authored junction node */
         for (int k = 0; k < njunc; k++) {
             float ja = junc[2*k];   /* raw along of a junction on the course */
