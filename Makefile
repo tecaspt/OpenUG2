@@ -45,7 +45,7 @@ UGUI_IMAGE_LIBS := $(shell pkg-config --libs libpng libcrypto)
 override CFLAGS += $(UGUI_CFLAGS)
 # engine modules: orchestrator + Renderer/Physics/AI/Audio/Resources/World
 GAME_UI_SRC := $(wildcard src/ugui/*.c) src/pause_menu.c src/pause_screen.c src/pause_entries.c src/gui_view.c src/gui_carousel.c src/gui_dialog.c src/gui_layout.c src/gui_timing.c src/options_menu.c src/settings.c src/controls_bind.c src/controls_menu.c src/controls_store.c src/controls_sdl.c src/frontend/frontend.c src/frontend/frontend_draw.c
-SRC  := src/main.c src/render.c src/render_params.c src/physics.c src/drivetrain.c src/braking.c src/resistance.c src/lateral.c src/drive_stage1.c src/contact.c src/body_response.c src/drive_contact.c src/tire_marks.c src/ai.c src/audio.c src/resource.c src/world.c src/world_instance.c src/world_resident.c src/world_mesh.c src/hud.c src/hud_asset.c src/hud_texture.c src/hud_baseline.c src/rhi_gl_state.c src/rhi_gl.c src/camera.c src/tex_override.c $(GAME_UI_SRC)
+SRC  := src/main.c src/render.c src/render_params.c src/physics.c src/drivetrain.c src/braking.c src/resistance.c src/lateral.c src/drive_stage1.c src/contact.c src/body_response.c src/drive_contact.c src/tire_marks.c src/ai.c src/audio.c src/resource.c src/world.c src/world_instance.c src/world_resident.c src/world_mesh.c src/hud.c src/hud_asset.c src/hud_texture.c src/hud_baseline.c src/route_guide.c src/rhi_gl_state.c src/rhi_gl.c src/camera.c src/tex_override.c $(GAME_UI_SRC)
 HDRS := src/race_ai_source.h src/world_collision_rules.h src/world_collision.h src/race_log.h src/race.h src/traffic_heatmap.h src/asset_chunks.h src/car_config.h src/car_mod.h src/nfsu2.h src/render.h src/physics.h src/ai.h src/audio.h src/resource.h src/debug.h src/world.h src/world_instance.h src/world_resident.h src/world_mesh.h src/world_capture_policy.h src/world_group_reader.h src/world_scenery.h src/ground_motion.h src/hud.h src/hud_asset.h src/hud_texture.h src/hud_baseline.h src/hud_host.h src/rhi_gl_state.h src/rhi.h src/rhi_gl.h src/render_params.h src/camera.h src/tex_override.h
 HDRS += src/options_menu.h src/settings.h src/controls_bind.h src/controls_menu.h src/controls_store.h src/controls_sdl.h src/pause_menu_binding.h src/pause_menu.h src/pause_menu_layout.h src/pause_screen.h src/pause_entries.h src/gui_view.h src/gui_carousel.h src/gui_dialog.h src/gui_layout.h src/gui_timing.h src/frontend/frontend.h src/frontend/frontend_draw.h $(wildcard src/ugui/*.h)
 
@@ -57,7 +57,7 @@ HDRS += src/ug2_track_collision.h src/drivetrain.h src/braking.h src/resistance.
 HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
 HDRS += src/hud_race.h src/dir_scan.h
-HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h
+HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
 
 map-bake-test: tools/map_bake_test.c src/map_bake.h src/nfsu2.h
 	@mkdir -p build
@@ -913,6 +913,14 @@ route-guide-check: tools/route_guide_check.c src/route_guide.c src/route_guide.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/route_guide_check.c src/route_guide.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/route_guide_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
 
 .PHONY: route-guide-check
+
+# Provenance census for a race direction-arrow asset (needs DATA; prints only).
+route-arrow-census: build/route_arrow_census
+build/route_arrow_census: tools/route_arrow_census.c $(UGUI_SRC) $(UGUI_HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(UGUI_FLAGS) tools/route_arrow_census.c $(UGUI_SRC) -o $@ $(UGUI_IMAGE_LIBS) -lm
+	./build/route_arrow_census "$(DATA)"
+
 .PHONY: route-arrow-census
 
 # Local asset check: minimap route vs authored route nodes and TRACKMAP (needs DATA).

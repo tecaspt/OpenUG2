@@ -834,6 +834,8 @@ void hud_draw(Hud*h,const RProg*rp,GpuMesh*unused,const HudState*s,int w,int hei
  if(own_lines)rhi_texture_destroy(turbo_lines.id);
  if(bank>0){role_text(h,h->bank_label,HA_TEXT_BANK_LABEL,0,0,0,ha_bank_label,w,height);role_text(h,h->bank_value,HA_TEXT_BANK_VALUE,0,0,0,bankbuf,w,height);}
  rhi_cmd_restore_state(&hud_saved);
+ /* Opt-in diagnostic (--route-arrow-diag); s->route_diag is zero otherwise. */
+ if(s->route_diag&&rp&&unused)hud_baseline_draw_route_diag(h->auxiliary,rp,unused,s,w,height);
 }
 float hud_angle_delta(float from, float to) {
     float d = to - from;

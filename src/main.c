@@ -45,6 +45,7 @@
 #include "hud.h"          /* stage 8: opt-in in-game player HUD (--hud) */
 #include "hud_race.h"
 #include "hud_host.h"     /* GL-free HUD context/preview policy */
+#include "route_guide.h"  /* GL-free route-state layer (--route-arrow-diag) */
 #include "map_bake.h"     /* city minimap detail levels */
 #include "graphics_policy.h"
 #include <sys/stat.h>
@@ -2330,6 +2331,9 @@ int main(int argc, char **argv) {
          --no-road-reflections  keep surface sheen without scene reflections
          --world-cull-off  diagnostic: submit offscreen world batches
          --hud            draw the in-game player HUD (on by default; --no-hud hides it)
+         --route-arrow-diag  --hud plus a magenta GEOMETRIC diagnostic arrow from
+                          the selected event route (src/route_guide.c); not
+                          retail UI, no retail arrow asset is matched
          --no-drivetrain  use the classic physics instead of the stock drivetrain (on by default)
          --map-detail N   minimap size: 512 (retail, default), 1024, 2048 or 4096
          --no-map-cache   bake minimaps every run; ignore OpenUG2Cache
@@ -2383,6 +2387,7 @@ int main(int argc, char **argv) {
        that have no live system with clearly-labelled sample values. */
     int hud_opt = 1, hud_preview_opt = 0, hud_dest_set = 0;   /* --no-hud turns it off */
     int drivetrain_explicit = 0, drivetrain_off = 0;          /* --drivetrain / --no-drivetrain */
+    int route_arrow_diag = 0;   /* --route-arrow-diag: diagnostic arrow, off by default */
     int hud_imperial = 0;
     int hud_skin = 0;
     int hud_fitted_set = 0, hud_fitted_nos = 0, hud_fitted_turbo = 0;
@@ -2717,6 +2722,7 @@ int main(int argc, char **argv) {
             drive_trace_path=argv[++i];g_stage1_requested=1;drivetrain_explicit=1;
         }
         else if (!strcmp(argv[i], "--hud")) hud_opt = 1;
+        else if (!strcmp(argv[i], "--route-arrow-diag")) { route_arrow_diag = 1; hud_opt = 1; }
         else if (!strcmp(argv[i], "--hud-skin") && i + 1 < argc) {
             char *end = NULL;
             long requested = strtol(argv[++i], &end, 10);
@@ -11303,6 +11309,45 @@ int main(int argc, char **argv) {
                 hud_preview_tank = hud_host_preview_tank_step(hud_preview_tank,
                     race_nos_allowed && cx_action_down(&g_cx, ks, CB_ACT_NITROUS), dt);
                 hud_host_preview_apply(&hs, hud_preview_tank);
+            }
+            if (route_arrow_diag) {
+                /* Route-state layer -> diagnostic arrow. Course, gates and
+                   progress are city/race state, so a resident swap does not
+                   reset them; the index is rebuilt only when they change. */
+                static RouteGuideIndex rg_index;
+                static RouteGuideGate rg_gate[ROUTE_GUIDE_MAXGATE];
+                static const float *rg_xy; static int rg_n = -1, rg_ev = -1, rg_ngate = -1, rg_ok, rg_state = -1;
+                static float rg_hint = NAN;
+                static float rg_key[4];
+                int ngate = wr->ngate < ROUTE_GUIDE_MAXGATE ? wr->ngate : ROUTE_GUIDE_MAXGATE;
+                float key[4] = {ngate ? wr->gate[0].x : 0, ngate ? wr->gate[0].y : 0,
+                                ngate ? wr->gate[ngate-1].x : 0, ngate ? wr->gate[ngate-1].y : 0};
+                int circuit = wr->ev >= 0 && wr->ev < world.city.nev && world.city.ev[wr->ev].circuit;
+                int closed = aipath.n > 1 && hypotf(aipath.xy[0]-aipath.xy[2*aipath.n-2],
+                                                    aipath.xy[1]-aipath.xy[2*aipath.n-1]) < .01f;
+                for (int k = 0; k < ngate; k++)
+                    rg_gate[k] = (RouteGuideGate){wr->gate[k].x, wr->gate[k].y, wr->gate[k].dx, wr->gate[k].dy, wr->gate[k].half};
+                RouteGuideRoute rr = {event_race && ai_race && aipath.n > 1, wr->finished, aipath.xy, aipath.n,
+                                      circuit && closed, rg_gate, ngate, wr->next, wr->lap};
+                if (rg_xy != aipath.xy || rg_n != aipath.n || rg_ev != wr->ev || rg_ngate != ngate ||
+                    memcmp(rg_key, key, sizeof key)) {
+                    rg_xy = aipath.xy; rg_n = aipath.n; rg_ev = wr->ev; rg_ngate = ngate;
+                    memcpy(rg_key, key, sizeof key); rg_hint = NAN;
+                    rg_ok = rr.selected && route_guide_index(&rg_index, &rr);
+                }
+                RouteGuide guide;
+                route_guide_eval(&rr, rg_ok ? &rg_index : NULL, render_player.pos[0], render_player.pos[1], rg_hint, &guide);
+                if (!rr.selected) guide.state = ROUTE_GUIDE_UNSELECTED;
+                if (guide.state == ROUTE_GUIDE_ON) {
+                    rg_hint = guide.along;
+                    hs.route_diag = 1;
+                    hs.route_diag_angle = route_guide_screen_angle(guide.dir, atan2f(look[1], look[0]));
+                }
+                if (guide.state != rg_state) {
+                    printf("route-guide: %s (gate %d lap %d edge %d)\n", route_guide_state_name(guide.state),
+                           wr->next, wr->lap, guide.edge);
+                    rg_state = guide.state;
+                }
             }
             hud_last_state = hs;
             hud_draw(hud, &rp, &quad, &hs, W, H);

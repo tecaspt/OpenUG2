@@ -96,6 +96,10 @@ typedef struct {
     /* Capture set 7 (H3/H4): clock_ms also times the shift-icon flash.
        Optional transmission mode, HA_TRANSMISSION_* (0 = absent). */
     unsigned char transmission;
+    /* Diagnostic route-guidance arrow (--route-arrow-diag only): an OpenUG2
+       geometric marker, NOT recovered retail art. Zero = not drawn. */
+    unsigned char route_diag;
+    float route_diag_angle;   /* screen rotation vs the camera, CCW+, 0 = up */
 } HudState;
 
 /* Named HUD settings from the capture amendments. Gear and shift colours

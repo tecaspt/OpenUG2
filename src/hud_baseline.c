@@ -805,6 +805,56 @@ static void hud_baseline_draw_nav_arrow(HudBaseline *h, const HudDC *dc, const H
     }
 }
 
+/* ------------------------------------------ diagnostic route arrow (opt-in) */
+
+/* --route-arrow-diag only. A plain geometric marker for checking the
+   route-state layer (src/route_guide.c) on screen: no retail arrow asset or
+   state table has been matched (reports/route-guidance/REPORT.md), so this is
+   drawn, magenta, outlined and captioned so it cannot pass for retail UI.
+   s->route_diag_angle is already relative to the CAMERA view heading
+   (route_guide_screen_angle): 0 = up the screen, positive = CCW = left. */
+void hud_baseline_draw_route_diag(HudBaseline *h, const RProg *rp, GpuMesh *quad,
+                                  const HudState *s, int width, int height) {
+    if (!h || !rp || !quad || !s || !s->route_diag || width <= 0 || height <= 0) return;
+    HudDC dc; dc.rp = rp; dc.quad = quad; dc.asp = (float)width / (float)height;
+    dc.w = width; dc.h = height; dc.policy = h->fit_policy;
+    RhiStateSnapshot saved; rhi_cmd_save_state(&saved);
+    rhi_cmd_bind_pipeline(render_overlay_pipelines(rp)->screen_blend);
+    float fog_density = rp->p->uFogDensity;
+    rp->p->uUnlit = 1.0f; rp->p->uVColor = 0.0f; rp->p->uFogDensity = 0.0f;
+    rp->p->uAlpha = 1.0f; rp->p->uDecal = 0.0f; rp->p->uAlphaTest = 0.0f;
+    rp->p->uTextureAlpha = 1.0f; rp->p->uEmissiveTex = 0.0f; rp->p->uVista = 0.0f;
+    ug2_vec3(rp->p->uEmissive, 0.0f, 0.0f, 0.0f);
+
+    float ax, ay;
+    hud_baseline_dc_place(&dc, 0.0f, 1.0f, 0.0f, -0.34f, &ax, &ay);
+    float rot = s->route_diag_angle;
+    float fx = -sinf(rot), fy = cosf(rot);          /* "up" rotated CCW by rot */
+    const float L = 0.16f, T = 0.040f;
+    for (int pass = 0; pass < 2; pass++) {          /* black outline, then magenta */
+        float grow = pass ? 0.0f : 0.016f;
+        float r = pass ? 1.0f : 0.0f, g = pass ? 0.0f : 0.0f, b = pass ? 1.0f : 0.0f;
+        /* shaft */
+        hud_baseline_blit(&dc, (RhiTexture){0}, L + grow, T + grow, ax - fx*L*0.15f/dc.asp, ay - fy*L*0.15f,
+                          atan2f(fy, fx), r, g, b, 0.95f);
+        /* head: two bars swept back from the tip */
+        float tipx = ax + fx*L*0.45f/dc.asp, tipy = ay + fy*L*0.45f;
+        for (int side = -1; side <= 1; side += 2) {
+            float c = cosf(side*0.75f), sn = sinf(side*0.75f);
+            float lx = -fx*c + fy*sn, ly = -fx*sn - fy*c;
+            hud_baseline_blit(&dc, (RhiTexture){0}, L*0.6f + grow, T + grow,
+                              tipx + lx*L*0.28f/dc.asp, tipy + ly*L*0.28f, atan2f(ly, lx), r, g, b, 0.95f);
+        }
+    }
+    hud_baseline_label(&dc, "DIAGNOSTIC ROUTE ARROW - NOT RETAIL UI", ax, ay - 0.15f, 0.030f,
+                       1.0f, 0.0f, 1.0f, 1.0f);
+
+    rp->p->uUseTex = 0.0f; rp->p->uUnlit = 0.0f; rp->p->uEmissiveTex = 0.0f;
+    rp->p->uAlpha = 1.0f; rp->p->uTextureAlpha = 0.0f; rp->p->uFogDensity = fog_density;
+    ug2_vec3(rp->p->uColor, 1.0f, 1.0f, 1.0f);
+    rhi_cmd_restore_state(&saved);
+}
+
 /* ------------------------------------------------- race / money / message */
 
 static void hud_baseline_draw_status(const HudDC *dc, const HudState *s) {

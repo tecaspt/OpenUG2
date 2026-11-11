@@ -7,6 +7,8 @@ HudBaseline *hud_baseline_init(const char *root);
 void hud_baseline_free(HudBaseline **h);
 void hud_baseline_draw(HudBaseline *h,const RProg *rp,GpuMesh *quad,const HudState *s,int w,int height);
 void hud_baseline_set_preview(HudBaseline *h,int on);
+/* --route-arrow-diag: geometric diagnostic arrow, never retail art (no-op unless s->route_diag). */
+void hud_baseline_draw_route_diag(HudBaseline *h,const RProg *rp,GpuMesh *quad,const HudState *s,int w,int height);
 /* Project fitment policy (HA_FIT_*, hud_asset.h) for the engine-drawn items; default wide. */
 void hud_baseline_set_fit_policy(HudBaseline *h,int policy);
 int hud_baseline_preview(const HudBaseline *h);

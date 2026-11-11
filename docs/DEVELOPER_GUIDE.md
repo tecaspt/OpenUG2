@@ -1098,6 +1098,16 @@ correct under camera rotation, and disappear when the route is cleared or the
 player is off-route. Record the source resource, route-state input and a
 same-route screenshot before integrating it into the eventual retail menu/HUD.
 
+Status: the route-state layer exists as `src/route_guide.c` (pure, GL-free).
+`make route-guide-test` covers it synthetically (hairpins, parallel passes,
+circuit seam, off-route/cleared/unselected, camera rotation against
+`cam_view_matrix`); `make route-guide-check` and `make route-minimap-check`
+run it and the minimap against every shipped event (need local data).
+`make route-arrow-census DATA=...` lists the arrow/marker candidates in the
+in-game and global bundles. No HUD package binds any of them to a race
+direction arrow, so `--route-arrow-diag` draws only a magenta geometric
+arrow captioned as not retail UI; it is off by default.
+
 ### Next in-game frontend milestone: driving and race HUD
 
 The current prototype already uses live speed magnitude/truncation, optional
