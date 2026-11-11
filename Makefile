@@ -330,6 +330,12 @@ route-membership-audit: tools/m160_route_audit.c src/world_group_reader.h src/wo
 	@mkdir -p build
 	$(CC) $(CFLAGS) tools/m160_route_audit.c -o build/m160_route_audit -lm
 
+# GL-free route ground-coverage audit (roadmap item 5). Needs retail data to run:
+#   ./build/route_coverage_audit DATA/TRACKS [--source paths|lanes|freeroam]
+route-coverage-audit: tools/route_coverage_audit.c src/world_group_reader.h src/world_scenery.h src/world_instance.c src/world_instance.h src/nfsu2.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) tools/route_coverage_audit.c -o build/route_coverage_audit -lm
+
 wheel-render-test: tools/wheel_render_test.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/render.h src/nfsu2.h src/generated_shaders.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/wheel_render_test.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c -o build/wheel_render_test $(SDL_LIBS) $(GL_LIBS) -lz -lm
@@ -473,7 +479,7 @@ clean:
 	rm -f nfsu2 nfsu2.exe nfsu2-vk nfsu2-vk.exe *.png $(GEN) src/generated_shaders_vk.h
 	rm -rf build
 
-.PHONY: map-bake-test race-ai-test race-events-check run normal menu gles clean debug world-instance-test world-cli-test car-material-test world-render-test world-resident-test district-collision-test wheel-render-test light-state-test world-texture-test world-group-test world-group-audit ai-drive-test ai-drive-cli-test resolution-cli-test render-resolution-test
+.PHONY: route-coverage-audit map-bake-test race-ai-test race-events-check run normal menu gles clean debug world-instance-test world-cli-test car-material-test world-render-test world-resident-test district-collision-test wheel-render-test light-state-test world-texture-test world-group-test world-group-audit ai-drive-test ai-drive-cli-test resolution-cli-test render-resolution-test
 
 .PHONY: headlight-render-test
 headlight-render-test: tools/headlight_render_test.c tools/legacy_draw.h src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/render.h src/nfsu2.h src/generated_shaders.h
