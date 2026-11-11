@@ -897,3 +897,19 @@ dir-scan-test: tools/dir_scan_test.c src/dir_scan.h
 data-path-cli-test: debug
 	sh tools/data_path_cli_test.sh ./$(GAME)
 .PHONY: data-path-cli-test
+
+# Route-state layer for the selected-route arrow (src/route_guide.c): synthetic,
+# data-free. The shipped-route check is route-guide-check (needs DATA).
+route-guide-test: tools/route_guide_test.c src/route_guide.c src/route_guide.h src/camera.c src/camera.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/route_guide_test.c src/route_guide.c src/camera.c -o build/route_guide_test -lm
+	./build/route_guide_test
+
+.PHONY: route-guide-test
+
+# Local asset check: route_guide_eval over every shipped event route (needs DATA).
+route-guide-check: tools/route_guide_check.c src/route_guide.c src/route_guide.h src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c $(HDRS) src/generated_shaders.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/route_guide_check.c src/route_guide.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/route_guide_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
+
+.PHONY: route-guide-check
