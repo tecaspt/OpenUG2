@@ -88,8 +88,9 @@ int route_guide_index(RouteGuideIndex *ix, const RouteGuideRoute *r) {
    tie, which keeps parallel passes of the same street apart. aim is the
    armed gate's along: the arrow never points past it. */
 static void window(const RouteGuideRoute *r, const RouteGuideIndex *ix,
-                   float *lo, float *hi, float *sub, float *aim) {
+                   float *lo, float *hi, float *sub, float *aim, int *gate) {
     float L = ix->length;
+    *gate = -1;
     if (r->ngate <= 0) {
         *lo = *sub = ix->loop ? -L : 0; *hi = ix->loop ? 2*L : L;
         *aim = ix->loop ? INFINITY : L;
@@ -102,7 +103,7 @@ static void window(const RouteGuideRoute *r, const RouteGuideIndex *ix,
     float target = g > 0 ? A[g] : (ix->loop ? L : A[0]);
     float prev = r->lap <= 0 ? A[0] - 4*ROUTE_GUIDE_SLACK
                : g > 0 ? A[g-1] : A[r->ngate-1];
-    *aim = target;
+    *aim = target; *gate = g;
     /* A circuit's window is exactly the lap ending at the armed gate: a pose
        just past that gate (a grid a few metres beyond gate 1, as events 4605
        and 4708 have, or projection jitter on the line) is a lap short of it
@@ -128,7 +129,8 @@ int route_guide_eval(const RouteGuideRoute *r, const RouteGuideIndex *ix,
         (r->ngate > 0 && (r->next_gate < 0 || r->next_gate >= r->ngate))) return 0;
 
     float lo, hi, sub, aim, L = ix->length;
-    window(r, ix, &lo, &hi, &sub, &aim);
+    int armed;
+    window(r, ix, &lo, &hi, &sub, &aim, &armed);
     int edges = edge_count(ix);
     /* Pass 1: nearest distance among in-window edges. */
     float best = INFINITY;
@@ -178,6 +180,13 @@ int route_guide_eval(const RouteGuideRoute *r, const RouteGuideIndex *ix,
     if (st >= aim) { st = aim; at_gate = r->ngate > 0; }
     float target[2]; point_at(r, ix, st, target);
     float vx = target[0] - px, vy = target[1] - py, vl = hypotf(vx, vy);
+    if (at_gate && armed >= 0 && vl < ROUTE_GUIDE_GATE_NEAR) {
+        /* beside the armed gate's centre and not yet through it (a gate on a
+           course corner, a car wide of the line): the bearing to the centre
+           swings sideways or back here, so point through the gate instead */
+        float gx = r->gate[armed].dx, gy = r->gate[armed].dy, gl = hypotf(gx, gy);
+        if (isfinite(gl) && gl > 1e-6f) { vx = gx; vy = gy; vl = gl; }
+    }
     if (vl < 0.5f) {                 /* standing on the aim point: edge tangent */
         float a[2], b[2]; edge_points(r, pick, a, b);
         vx = b[0]-a[0]; vy = b[1]-a[1]; vl = hypotf(vx, vy);

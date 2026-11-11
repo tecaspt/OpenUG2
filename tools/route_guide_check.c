@@ -174,10 +174,13 @@ static void walk(const char *root, const WEvent *e, const Course *c, const WRace
         if (c->loop) err = fminf(err, fminf(fabsf(o.along - truth - c->length), fabsf(o.along - truth + c->length)));
         if (err > 15) st->order++;
         float dga = ga - truth;   /* metres to the armed gate, through the lap seam */
-        if (c->loop && dga < -ROUTE_GUIDE_SLACK) dga += c->length;
+        if (c->loop && dga < 0) dga += c->length;   /* past it uncrossed: a lap away (route_guide.c window) */
         float aim[2]; course_point(c, s + fminf(ROUTE_GUIDE_LOOKAHEAD, fmaxf(0, dga)), aim, NULL);
         float ax = aim[0]-x, ay = aim[1]-y, al = hypotf(ax, ay);
         float dot = al > 1 ? (o.dir[0]*ax + o.dir[1]*ay) / al : tdot;
+        /* beside the armed gate's centre the bearing to it is ill-conditioned
+           (a 3 m offset is most of it): forward there means through the gate */
+        if (o.target_gate && al < ROUTE_GUIDE_GATE_NEAR) dot = o.dir[0]*g->dx + o.dir[1]*g->dy;
         if (dot <= 0) st->backward++;
         if (dot < st->min_aim) st->min_aim = dot;
         /* the nearest-node rule, for comparison */

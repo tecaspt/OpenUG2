@@ -32,6 +32,7 @@
 #define ROUTE_GUIDE_LOOKAHEAD 25.0f  /* metres along the course to the aim point */
 #define ROUTE_GUIDE_OFFROUTE  30.0f  /* metres from the course: hide the arrow */
 #define ROUTE_GUIDE_SLACK     40.0f  /* metres of window beyond the bounding gates */
+#define ROUTE_GUIDE_GATE_NEAR  8.0f  /* metres from the armed gate centre: aim along its normal */
 #define ROUTE_GUIDE_TIE       2.0f   /* metres: edges this close count as a tie */
 #define ROUTE_GUIDE_TIE_HINT  4.0f   /* the same with a previous along: at a self-
                                         crossing the other pass can be a lane nearer */
