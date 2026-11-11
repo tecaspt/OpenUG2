@@ -913,3 +913,11 @@ route-guide-check: tools/route_guide_check.c src/route_guide.c src/route_guide.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/route_guide_check.c src/route_guide.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/route_guide_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
 
 .PHONY: route-guide-check
+.PHONY: route-arrow-census
+
+# Local asset check: minimap route vs authored route nodes and TRACKMAP (needs DATA).
+route-minimap-check: tools/route_minimap_check.c src/hud_asset.c src/hud_texture.c src/ugui/ugui_codec.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c $(HDRS) src/generated_shaders.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/route_minimap_check.c src/hud_asset.c src/hud_texture.c src/ugui/ugui_codec.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/route_minimap_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
+
+.PHONY: route-minimap-check
