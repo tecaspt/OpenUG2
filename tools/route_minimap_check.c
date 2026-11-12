@@ -1,6 +1,6 @@
 /* Local asset check: does the minimap route agree with the authored route?
  *
- *   route_minimap_check DATAROOT [event-id [OUTDIR]]
+ *   route_minimap_check DATAROOT [event-id [OUTDIR]] [--in-race]
  *
  * Prints numbers only; no game file is a fixture and nothing is written.
  * For every shipped event (0x3414c catalog) it compares three things:
@@ -24,6 +24,9 @@
  * run-in and run-out there, and the retail map draws the route from start to
  * finish. Drag races show no minimap (HUD_Drag.fng has no map node), so their
  * TRACKMAP is not compared.
+ * --in-race compares the course the game shows instead of the world-less
+ * decode (in_race_course.h: ai_race_prepare on the loaded neighbourhood);
+ * an event whose race start the game rejects is NOT-RUN.
  * With OUTDIR (one event only) the retail map is written as OUTDIR/<id>.ppm
  * with the authored nodes (yellow) and the course (cyan) drawn over it, for
  * local inspection. Those files derive from retail data: never commit them. */
@@ -32,6 +35,7 @@
 #include "hud_asset.h"
 #include "hud_texture.h"
 #include "map_bake.h"
+#include "in_race_course.h"
 
 #define OVERLAY_TOL 12.0f   /* metres: the AI route's own cross-track limit */
 #define SAMPLE 5.0f
@@ -134,9 +138,26 @@ static int retail_lit(const RetailMap *m, float x, float y, int *peak_out) {
     return peak >= MB_RACE_LOW;
 }
 
+/* The in-race course of one catalog event (its region's city loaded alone). */
+static int course_in_race(const char *troot, const WEvent *ce, N2Path *course) {
+    World w = {0}; char region[64]; snprintf(region, sizeof region, "STREAM%s", ce->reg);
+    w.neighborhood.nreg = 1; snprintf(w.neighborhood.rgn[0].name, 64, "%s", region);
+    int ev = -1; float grid[2];
+    if (world_city_load(&w.city, &w.neighborhood, troot, region))
+        for (int j = 0; j < w.city.nev; j++) if (w.city.ev[j].id == ce->id) ev = j;
+    int ok = ev >= 0 && world_race_start(&w, troot, ev, 1) && in_race_course(&w, troot, ev, course, grid);
+    world_city_free(&w.city);
+    return ok;
+}
+
 int main(int argc, char **argv) {
-    const char *root = argc > 1 ? argv[1] : "..";
-    int only = argc > 2 ? atoi(argv[2]) : 0;
+    const char *pos[3] = {"..", NULL, NULL}; int npos = 0, in_race = 0;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--in-race")) in_race = 1;
+        else if (npos < 3) pos[npos++] = argv[i];
+    }
+    const char *root = pos[0];
+    int only = pos[1] ? atoi(pos[1]) : 0;
     char troot[1024]; snprintf(troot, sizeof troot, "%s/TRACKS", root);
     char gpath[1024]; snprintf(gpath, sizeof gpath, "%s/GLOBAL/GLOBALB.BUN", root);
     long glen = 0; unsigned char *global = n2_read_file(gpath, &glen);
@@ -151,8 +172,9 @@ int main(int argc, char **argv) {
         if (only && e->id != only) continue;
         count++;
         Authored a; N2Path course = {0};
-        if (!authored_read(root, e, &a) || !ai_race_course(troot, e, &course) || course.n < 2) {
-            printf("MINIMAP %d %s %s NOT-RUN (route unavailable)\n", e->id, e->reg, n2_race_name(e->info.kind));
+        if (!authored_read(root, e, &a) || !(in_race ? course_in_race(troot, e, &course) : ai_race_course(troot, e, &course)) || course.n < 2) {
+            printf("MINIMAP %d %s %s NOT-RUN (%s)\n", e->id, e->reg, n2_race_name(e->info.kind),
+                   in_race ? "in-race: the game rejects this race start" : "route unavailable");
             notrun++; free(a.xy); free(a.edge); free(course.xy); continue;
         }
         /* raced span of an open course: start line to finish line */
@@ -226,8 +248,8 @@ int main(int argc, char **argv) {
                 node_total++; node_lit += r;
             }
         }
-        if (have_map && only && argc > 3) {
-            char out[1024]; snprintf(out, sizeof out, "%s/%d.ppm", argv[3], e->id);
+        if (have_map && only && pos[2]) {
+            char out[1024]; snprintf(out, sizeof out, "%s/%d.ppm", pos[2], e->id);
             unsigned char *img = malloc((size_t)px.width * px.height * 3);
             for (size_t i = 0; img && i < (size_t)px.width * px.height; i++) memcpy(img + 3*i, px.rgba + 4*i, 3);
             #define PLOT(X, Y, R, G, B) do { double u_ = ((X) - m.o[0]) / m.o[2] * px.width, v_ = (m.o[1] - (Y)) / m.o[2] * px.height; \

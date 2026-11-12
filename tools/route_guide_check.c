@@ -1,7 +1,7 @@
 /* Local asset check for the route-state layer: every shipped event route.
  * No game file is a fixture and nothing is written; it prints numbers only.
  *
- *   route_guide_check TRACKS [event-id]
+ *   route_guide_check TRACKS [event-id] [--in-race]
  *
  * Per event: the engine's own ordered course (ai_race_course, decoded from the
  * event's 0x34148 nodes / Routes lanes in 0x3414c outline order), the gates
@@ -18,10 +18,14 @@
  *   - be OFF-ROUTE for probes 45 m beside the course (when no other part of
  *     the course is within reach), CLEARED after the finish and UNSELECTED
  *     with no route.
- * The physical drive (collision, opponents) is race_events_check's job. */
+ * The physical drive (collision, opponents) is race_events_check's job.
+ * --in-race walks the course the game shows instead (in_race_course.h:
+ * ai_race_prepare on the loaded neighbourhood, gates bound by it, the player
+ * on its grid slot); an event whose race start the game rejects is NOT-RUN. */
 #include "ai.h"
 #include "world.h"
 #include "route_guide.h"
+#include "in_race_course.h"
 
 #define STEP 2.0f
 #define NORMAL_OFFSET 3.0f
@@ -244,8 +248,13 @@ static void walk(const char *root, const WEvent *e, const Course *c, const WRace
 }
 
 int main(int argc, char **argv) {
-    const char *root = argc > 1 ? argv[1] : "../TRACKS";
-    int only = argc > 2 ? atoi(argv[2]) : 0;
+    const char *pos[2] = {"../TRACKS", NULL}; int npos = 0, in_race = 0;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--in-race")) in_race = 1;
+        else if (npos < 2) pos[npos++] = argv[i];
+    }
+    const char *root = pos[0];
+    int only = pos[1] ? atoi(pos[1]) : 0;
     World catalog = {0};
     const char *regions[] = {"L4RA","L4RB","L4RC","L4RD","L4RF","L4RG"};
     catalog.neighborhood.nreg = 6;
@@ -262,13 +271,16 @@ int main(int argc, char **argv) {
         int ev = -1;
         if (world_city_load(&w.city, &w.neighborhood, root, region))
             for (int j = 0; j < w.city.nev; j++) if (w.city.ev[j].id == ce->id) ev = j;
-        N2Path course = {0};
-        if (ev < 0 || !world_race_start(&w, root, ev, 1) || !ai_race_course(root, &w.city.ev[ev], &course) || course.n < 2) {
-            printf("ROUTE-GUIDE %d %s %s route=0 NOT-RUN\n", ce->id, ce->reg, n2_race_name(ce->info.kind));
+        N2Path course = {0}; float grid_xy[2] = {0, 0};
+        if (ev < 0 || !world_race_start(&w, root, ev, 1) ||
+            !(in_race ? in_race_course(&w, root, ev, &course, grid_xy) : ai_race_course(root, &w.city.ev[ev], &course)) || course.n < 2) {
+            printf("ROUTE-GUIDE %d %s %s route=0 NOT-RUN%s\n", ce->id, ce->reg, n2_race_name(ce->info.kind),
+                   in_race ? " (in-race: the game rejects this race start)" : "");
             unavailable++; free(course.xy); world_city_free(&w.city); continue;
         }
         const WEvent *e = &w.city.ev[ev];
-        int bound = world_race_bind_course(&w.city.race, &course, 22);
+        /* in-race: ai_race_prepare has already bound the gates to its course */
+        int bound = in_race ? 1 : world_race_bind_course(&w.city.race, &course, 22);
         Course c = {&course, NULL, 0, 0, 0};
         int closed = hypotf(course.xy[0]-course.xy[2*course.n-2], course.xy[1]-course.xy[2*course.n-1]) < .01f;
         c.loop = e->circuit && closed;
@@ -279,7 +291,8 @@ int main(int argc, char **argv) {
         c.length = c.cum[c.edges];
         /* grid slot nearest gate 0, as race_events_check places the player */
         float start[2] = {course.xy[0], course.xy[1]}, best = INFINITY;
-        for (int g = 0; g < w.city.race.ngrid; g++) {
+        if (in_race) { start[0] = grid_xy[0]; start[1] = grid_xy[1]; }   /* the player's supported slot */
+        else for (int g = 0; g < w.city.race.ngrid; g++) {
             float d = hypotf(w.city.race.grid[g][0]-w.city.race.gate[0].x, w.city.race.grid[g][1]-w.city.race.gate[0].y);
             if (d < best) { best = d; start[0] = w.city.race.grid[g][0]; start[1] = w.city.race.grid[g][1]; }
         }
