@@ -1,0 +1,20 @@
+out/
+data/
+*.u2pk
+*.ppm
+*.PBP
+*.prx
+*.elf
+*.o
+/converter/psp_convert
+/converter/psp_convert.asan
+/converter/build/
+/converter/*.d
+# Host-test binaries (tests/host/build/) and any other in-tree build dir.
+build/
+# Build products. PARAM.SFO alone is not enough: the bench target names its SFO
+# bench.sfo (see runtime/bench/Makefile), so match the extension.
+*.sfo
+*.SFO
+/dist/
+__pycache__/

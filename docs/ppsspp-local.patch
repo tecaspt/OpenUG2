@@ -1,0 +1,31 @@
+diff --git a/headless/Headless.cpp b/headless/Headless.cpp
+index 293878d..5315606 100644
+--- a/headless/Headless.cpp
++++ b/headless/Headless.cpp
+@@ -552,7 +552,9 @@ int main(int argc, const char* argv[])
+ 	g_Config.bEnableWlan = true;
+ 	g_Config.sMACAddress = "12:34:56:78:9A:BC";
+ 	g_Config.iFirmwareVersion = PSP_DEFAULT_FIRMWARE;
+-	g_Config.iPSPModel = PSP_MODEL_SLIM;
++	// openug2-psp test patch: emulate a PSP-1000 (24 MB user RAM) rather than a
++	// slim. Our runtime never requests extended memory, so the model decides it.
++	g_Config.iPSPModel = PSP_MODEL_FAT;
+ 	g_Config.iGameVolume = VOLUMEHI_FULL;
+ 	g_Config.iReverbVolume = VOLUMEHI_FULL;
+ 	g_Config.internalDataDirectory.clear();
+@@ -570,7 +572,14 @@ int main(int argc, const char* argv[])
+ 	File::CreateDir(g_Config.memStickDirectory);
+ 	CreateSysDirectories();
+ #elif !PPSSPP_PLATFORM(ANDROID)
+-	g_Config.memStickDirectory = Path(std::string(getenv("HOME"))) / ".ppsspp";
++	// openug2-psp test patch: no command-line flag maps ms0: to a host directory,
++	// so point it at the harness directory (override with OPENUG2_MS0). Homebrew
++	// writes its log.txt and screenshots relative to the game folder on ms0:.
++	const char *ms0Override = getenv("OPENUG2_MS0");
++	g_Config.memStickDirectory = (ms0Override && ms0Override[0])
++	                             ? Path(std::string(ms0Override))
++	                             : Path("/home/nike/openug2-dev/psp/openug2-psp/out/ms0");
++	File::CreateDir(g_Config.memStickDirectory);
+ #endif
+ 
+ 	// Try to find the flash0 directory.  Often this is from a subdirectory.
