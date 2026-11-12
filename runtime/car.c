@@ -45,6 +45,15 @@ static uint32_t rgb565_to_8888(uint16_t c)
 
 static const ScePspFVector3 g_mirror = { 1.0f, -1.0f, 1.0f }; /* FR/RR: left->right */
 
+/* Hardware render-bug isolation flags, see car.h car_set_probe. 0 = shipping
+ * path; every branch below is skipped at 0 so the default EBOOT is unchanged. */
+#define PROBE_UPDATE 1
+#define PROBE_FOLD   2
+#define PROBE_NOWHEEL 4
+static int g_probe;
+
+void car_set_probe(int bits) { g_probe = bits; }
+
 static int load_file(Pool *pool, const char *relpath, CarG *car)
 {
 	char path[300];
@@ -106,6 +115,25 @@ static int build_float_verts(Pool *pool, CarG *car)
 		memcpy(o + 8,  &(float){ (float)s[i].x / 32768.0f }, 4);
 		memcpy(o + 12, &(float){ (float)s[i].y / 32768.0f }, 4);
 		memcpy(o + 16, &(float){ (float)s[i].z / 32768.0f }, 4);
+	}
+	/* Probe fold: apply each batch's pos_offset/pos_scale into the position
+	 * floats so draw_batch can skip the model transform. Ranges are disjoint
+	 * (indices are batch-local, 0..vertex_count-1), so no vertex is folded
+	 * twice on the cars we ship. Diagnostic only - never set on hardware
+	 * except to run the M3 render probe. */
+	if (g_probe & PROBE_FOLD) {
+		uint32_t b;
+		for (b = 0; b < car->v.nbatch; b++) {
+			const U2pkBatch *bt = &car->v.batch[b];
+			uint32_t i;
+			for (i = 0; i < bt->vertex_count; i++) {
+				uint8_t *o = d + (size_t)(bt->first_vertex + i) * CAR_VSTRIDE + 8;
+				float p;
+				memcpy(&p, o + 0, 4); p = p * bt->pos_scale[0] + bt->pos_offset[0]; memcpy(o + 0, &p, 4);
+				memcpy(&p, o + 4, 4); p = p * bt->pos_scale[1] + bt->pos_offset[1]; memcpy(o + 4, &p, 4);
+				memcpy(&p, o + 8, 4); p = p * bt->pos_scale[2] + bt->pos_offset[2]; memcpy(o + 8, &p, 4);
+			}
+		}
 	}
 	return 1;
 }
@@ -191,10 +219,14 @@ static void apply_mode(uint32_t mode)
 /* Draw one batch after the caller has pushed the car/wheel transform. */
 static void draw_batch(const CarG *car, const U2pkBatch *b)
 {
-	sceGumTranslate((const ScePspFVector3 *)b->pos_offset);
-	sceGumScale((const ScePspFVector3 *)b->pos_scale);
+	if (!(g_probe & PROBE_FOLD)) {
+		sceGumTranslate((const ScePspFVector3 *)b->pos_offset);
+		sceGumScale((const ScePspFVector3 *)b->pos_scale);
+	}
 	setup_texture(car, b);
 	apply_mode(b->mode);
+	if (g_probe & PROBE_UPDATE)
+		sceGumUpdateMatrix();
 	sceGumDrawArray(GU_TRIANGLES, VERTFMT, b->index_count,
 	                (unsigned int *)(car->v.index + b->first_index),
 	                car->vertf + (size_t)b->first_vertex * CAR_VSTRIDE);
@@ -239,6 +271,8 @@ void car_draw(const CarG *car)
 	int w;
 
 	draw_run(car, ci->batch_first[lod], ci->batch_count[lod], -1);
+	if (g_probe & PROBE_NOWHEEL)
+		return;
 	for (w = 0; w < 4; w++)
 		draw_run(car, ci->wheel_batch_first, ci->wheel_batch_count, w);
 }

@@ -33,6 +33,7 @@ typedef struct {
 	int   shot_at;     /* 1-based frame on which to screenshot */
 	int   have_frames, have_shot;
 	int   is_world;
+	int   probe;       /* car render bug isolation bits, see car_set_probe */
 	char  region[32];  /* world mode: subdir under data/ */
 } Cfg;
 
@@ -109,6 +110,9 @@ static int read_cfg(Cfg *c)
 		s[0] = 0;
 		cfg_get(line, "shot", s, sizeof s);
 		if (s[0]) { c->shot_at = atoi(s); c->have_shot = 1; }
+		s[0] = 0;
+		cfg_get(line, "probe", s, sizeof s);
+		if (s[0]) c->probe = (int)strtol(s, NULL, 0);
 	}
 	return c->have_frames && c->have_shot;
 }
@@ -303,6 +307,9 @@ int main(int argc, char **argv)
 	} else {
 		CarG player, ai;
 		Pool *cars = pool_get(POOL_CARS);
+		car_set_probe(cfg.probe);   /* must precede car_load (fold happens there) */
+		if (cfg.probe)
+			plat_log("M3 PROBE bits=%d (1=updmat 2=fold 4=no-wheel)", cfg.probe);
 		if (!car_load(cars, CAR_REL, 0, &player)) {
 			plat_log("M3 FAIL could not load " CAR_REL " (run psp_convert first)");
 			sceKernelExitGame();

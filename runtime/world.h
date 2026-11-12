@@ -65,6 +65,13 @@ int  world_open(World *w, Pool *pworld, Pool *ptex, const char *region_dir);
 int  world_load_window(World *w, float x, float y);
 /* Cell index (cy*gw+cx) containing a world position, or -1. */
 int  world_cell_at(const World *w, float x, float y);
+/* Highest COLLIDE surface at or below z_from under world (x,y), over the
+ * currently loaded 3x3 window (re-read fresh each call, never a cached blob
+ * pointer). Fills *z_out and a unit up-facing n_out[3]; returns 1 on a hit.
+ * The caller reloads the window when the centre cell changes; the drive spine
+ * does so before each tick. Mirrors host_world_ground on the host. */
+int  world_ground_at(const World *w, float x, float y, float z_from,
+                     float *z_out, float n_out[3]);
 /* Draw the loaded window under the current VIEW/PROJECTION (camera already
  * set), enabling backface culling. Returns the number of batches submitted. */
 int  world_draw(const World *w);

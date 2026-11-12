@@ -22,6 +22,7 @@
 #include <math.h>
 #include "world.h"
 #include "platform.h"
+#include "ground.h"
 
 #define VERTFMT (GU_TEXTURE_16BIT  | GU_COLOR_8888 | GU_VERTEX_32BITF | \
                  GU_INDEX_16BIT    | GU_TRANSFORM_3D)
@@ -176,6 +177,49 @@ int world_cell_at(const World *w, float x, float y)
 	if (cx < 0 || cy < 0 || cx >= w->gw || cy >= w->gh)
 		return -1;
 	return cy * w->gw + cx;
+}
+
+/* Highest COLLIDE surface at or below z_from under world (x,y), searched over
+ * the cells of the currently loaded 3x3 window. Returns 1 and writes the
+ * height + a unit up-facing normal on a hit, 0 on a miss.
+ *
+ * Resolves each cell's COLLIDE blob from w->win[] fresh on every call - it
+ * never caches a blob pointer - because a window reload resets POOL_WORLD to
+ * the index floor and re-bump-allocates the cell blobs, so any pointer kept
+ * across a reload would dangle. The caller owns reload timing; the drive spine
+ * reloads when the centre cell changes, so the window always covers the query.
+ * Mirrors host_world_ground on the host so the PSP and host ground cannot drift. */
+int world_ground_at(const World *w, float x, float y, float z_from,
+                    float *z_out, float n_out[3])
+{
+	int i, found = 0;
+	float best = 0.0f, bn[3] = { 0, 0, 1 };
+
+	for (i = 0; i < w->nwin; i++) {
+		const WorldCell *cell = &w->win[i];
+		const U2pkSection *cs;
+		float z, n[3];
+
+		cs = u2pk_find_section(&cell->v, U2PK_S_COLLIDE);
+		if (!cs)
+			continue;
+		if (u2pk_ground_at(cell->v.buf + cs->offset, cs->size, x, y, z_from,
+		                   &z, n))
+			if (!found || z > best) {
+				best = z;
+				bn[0] = n[0];
+				bn[1] = n[1];
+				bn[2] = n[2];
+				found = 1;
+			}
+	}
+	if (!found)
+		return 0;
+	*z_out = best;
+	n_out[0] = bn[0];
+	n_out[1] = bn[1];
+	n_out[2] = bn[2];
+	return 1;
 }
 
 /* Re-cut one cell's s16 vertices into 20-byte GE float vertices (POOL_WORLD). */

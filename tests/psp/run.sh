@@ -37,6 +37,8 @@ if [ -d "$SRC_DIR/data" ]; then
         cp -R "$SRC_DIR"/data/* "$GAME/data/" 2>/dev/null
 fi
 printf 'frames=%s\nshot=%s\n' "$FRAMES" "$SHOT" > "$GAME/data/autotest.cfg"
+# Optional render-bug probe bits (car mode only); unset means the shipping path.
+[ -n "${PROBE:-}" ] && printf 'probe=%s\n' "$PROBE" >> "$GAME/data/autotest.cfg"
 
 LOG="$REPO/out/$TEST.log"
 mkdir -p "$REPO/out"

@@ -16,5 +16,8 @@ build/
 # bench.sfo (see runtime/bench/Makefile), so match the extension.
 *.sfo
 *.SFO
+# The PSP Makefiles emit a default $(TARGET).conf alongside the SFO (game.conf,
+# bench.conf, replay.conf). No .conf is tracked, so ignore the extension.
+*.conf
 /dist/
 __pycache__/

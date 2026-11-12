@@ -25,4 +25,18 @@ int car_load(Pool *pool, const char *relpath, int lod, CarG *out);
  * positions. Leaves GU_MODEL matrix dirty; callers reset it. */
 void car_draw(const CarG *car);
 
+/* Hardware render bug isolation - the emulator draws these all identically, so
+ * a bit only changes what a real GE sees. Select with "probe=<n>" in
+ * data/autotest.cfg (works without frames=/shot=, so on hardware too). Call
+ * before car_load so the fold happens as the verts are cut. 0 (default) is the
+ * shipping path. Bits:
+ *   1  call sceGumUpdateMatrix() before each DrawArray (test model-matrix push)
+ *   2  fold each batch's pos_offset/pos_scale into the float positions at load,
+ *      then draw with the batch transform skipped - the body ends up under an
+ *      identity model matrix, the config M0 proved correct on hardware
+ *   4  draw the body only, skipping the four wheels (isolates the FR/RR
+ *      negative-determinant mirror); combine 2|4=6 for a pure identity body
+ */
+void car_set_probe(int bits);
+
 #endif /* OPENUG2_CAR_H */

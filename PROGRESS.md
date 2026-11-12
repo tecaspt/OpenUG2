@@ -777,3 +777,130 @@ Files: `runtime/world.[ch]`, `runtime/main.c`, `runtime/Makefile`,
 `converter/region_convert.c`, `converter/region_conv.h`, `converter/psp_convert.c`,
 `tests/psp/m4.sh`, `tests/psp/run.sh`, `tools/u2pk_cell_max.py`,
 `tools/ppm_world_check.py`, `scripts/mkdist.sh`.
+
+## M3 hardware follow-up — the distortion is real-GE only (2026-11-12b)
+
+The user's PSP-1000 ran `dist/M3` cleanly (`dist/logM3.txt`: car loaded, 724
+frames, no error, "car is red under the distortions") but the car SHAPE is
+distorted on hardware while the emulator draws the golden correctly. The
+16-bit→float change (0dbc87a) did not fix it, so this was attacked as a
+hypothesis chain rather than another blind edit. Three causes were **eliminated
+with data** using the new `tools/u2pk_batches.py` (which applies the runtime's
+`/32768` and prints each batch's true-metre extent + index locality):
+
+- **Not a data bug.** The body batch is `3.87×1.84×1.07 m` (a real Miata), the
+  wheel batch `0.58×0.19×0.58 m`; no absurd `pos_scale`/`pos_offset`.
+- **Not a wrong index base.** Indices are batch-local (`0..vertex_count-1`) and
+  match the `vertf + first_vertex*CAR_VSTRIDE` base the runtime passes.
+- **Not misaligned float pointers.** Every `first_vertex` is a multiple of 4, so
+  `first_vertex*20` keeps every batch base 16-byte aligned off the aligned buffer.
+- **Matrix mode is correct.** `GU_MODEL` is set before every transform
+  (`car.c:218`, `world.c:349`); `main.c` leaves the mode at `GU_VIEW` after the
+  camera, which the next `GU_MODEL` call recovers. The 20-byte layout
+  (`TEX_16BIT|COLOR_8888|VERTEX_32BITF`) with `Translate·Scale` before
+  `sceGumDrawArray` and **no** `sceGumUpdateMatrix` is the canonical pspsdk 3D
+  pattern — libgu pushes the model matrix itself.
+
+What is left is the only structural difference from M0, which the user's hardware
+**drew correctly**: M0 drew immediate-mode under an identity model matrix, while
+M3/M4 apply a per-batch `Translate(pos_offset)·Scale(pos_scale)`. The emulator
+tolerates whatever the real GE is doing with that; the emulator cannot be made to
+reproduce it, so the fix must be localised on hardware.
+
+**Probe shipped for one-run localisation.** `probe=<n>` in `data/autotest.cfg`
+(parsed even when autotest is off, so it works on the stick) selects car.c
+isolation bits, **all skipped at `probe=0`** so the shipping EBOOT is unchanged:
+`1`=explicit `sceGumUpdateMatrix` before each draw; `2`=CPU-fold each batch's
+`pos_offset·pos_scale` into the float verts and drop the per-batch model
+transform → the body draws under an **identity** matrix (M0's proven config);
+`4`=body only, no wheels (isolates the FR/RR negative-determinant mirror).
+`dist/M3/` carries the new EBOOT + ready `probe0/1/2/4/6.cfg` + `PROBE.txt`.
+Self-verified in PPSSPP: `probe=0` matches the golden exactly (mse 0.000) and
+`probe=2` renders identically (mse 0.10, float-rounding only) — the fold is
+mathematically identity, so the probe changes only what a real GE sees.
+
+**Status:** M3 *runs* on hardware (PASS) but the *picture* is a confirmed,
+hardware-only render defect — **open, deferred pending one probe run**. The
+M3 emulator acceptance (items 1–7) stays PASS; the golden is a regression
+baseline, and a real PSP-1000 is the only judge of the picture.
+
+## M5 — drive in the slice
+
+M5's **numeric spine is built and host-validated**. The **visual** acceptance
+stays inherited-open from the M3 hardware render defect above until the shipped
+probe localises it, so M5 is reported as "physics + replay implemented and
+validated host↔PSP", with no "picture confirmed on hardware" claim.
+
+### The interface correction (the load-bearing part)
+
+M5 step 1, read literally, reuses M2's `bench_phys.c`, whose
+`stage1_drive_step(...)` call passes `NULL, NULL` for the two trailing pointer
+args and a fixed `ride.contact_mask=15`. Reading the vendored signature and body
+(`third_party/OpenUG2/src/drive_stage1.c`) showed those two args are **`PhysSurface`
+(grip) and `PhysVehicle` (chassis multipliers)** — both already accept NULL (NULL
+surface → `PHYS_SURF_ROAD`, NULL vehicle → neutral 1.0 mults). They are **not**
+ground callbacks. Ground reaches the arcade drive model *only* through
+`PhysRideState.contact_mask`: `env.wheel[k].contact = (mask>>k)&1` feeds the
+lateral model's grip, and `phys_stage1_drive_step` routes to the grounded
+`chassis_step` path only `if (mask)`. M2's `contact_mask=15` was a fake "all four
+wheels on tarmac"; M5 replaces that with a real per-wheel fit.
+
+The grounded chassis path (`phys_stage1_chassis_step`→`chassis_step`, stage1=1)
+writes **pos[0], pos[1], heading, speed** and nothing else — never pos[2].
+pos[2]/pitch/roll are the sprung-ride body state, consumed by the camera, not by
+the drive step. That is what each side of the interface owns.
+
+### The shared, IO-free spine (`shared/drive.c`) + host replay
+
+`shared/drive.c` is the one drive object both arms run: `drive_init` /
+`drive_step` take a `DriveGround` callback and a user pointer, use the M2 physics
+fixture (so host↔PSP share one physics config), and do IO, statics or clocks
+nowhere. Frame order mirrors `main.c`: (1) `stage1_drive_step` on the **prior**
+frame's mask (the production one-frame lag) → moves XY/heading/speed; (2) gather
+reachable support at the **new** XY; (3) `phys_ride_init` (first) /
+`phys_ride_step` (after) → `pos[2]=ride.z`, new mask for next tick.
+
+The per-wheel ground candidate uses the **tight, live-wheel** window
+`[wheel_plane − phys_ride_reach_down, wheel_plane + REACH_UP]`, NOT a body+2 m
+band — a "highest ≤ z_from from body+2 m" search is exactly how a stacked
+overpass latches (physics.h documents a deck 7.53 m overhead climbing at
+0.5 m/frame; M130 a 12.96 m teleport on L4RB). Reusing the single
+`u2pk_ground_at` primitive is correct only because its ceiling is now the wheel
+plane. `tests/host/host_world.[ch]` extracts the COLLIDE 3×3 search out of
+`replay_host.c` so the replay and drive harnesses share one ground path.
+
+`tests/host/drive_replay.c` runs the script **twice from cold** and diffs the two
+final poses bit-for-bit. On L4RH pose 1, 600 frames, ASan/UBSan clean: real
+ground-derived mask (masksum 5421/601, avg ~9.0, varies over seams/slopes — not a
+fake 15), stays grounded (air=0), crosses a 96 m cell boundary, tracks the ~6 m
+descent, 88.9 m travel; run A == run B exact.
+
+### PSP replay EBOOT (`runtime/replay.c`)
+
+Drives the same `shared/drive.c` through the retail streaming window.
+`world_ground_at` (new in `runtime/world.c`) folds the COLLIDE sections of the
+current 3×3 window through `u2pk_ground_at`, keeping the highest, and re-reads
+`w->win[]` fresh each call so a mid-tick reload can never deref a freed blob.
+The EBOOT reloads the window when the centre cell changes, runs the script twice,
+and compares bit-for-bit. `tests/psp/m5.sh` drives both arms.
+
+### M5 acceptance (L4RH pose 1, 600 frames — emulator)
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | host vs PSP final pose ≤0.5 m/axis | **PASS — BIT-IDENTICAL** (`\|ΔXY\|=0.000 m`, Δz=0, Δyaw=0) |
+| 2 | replay determinism | **PASS** — PSP run-twice bit-identical; host run-twice exact |
+| 3 | total pool high-water ≤17 MB | **PASS** — 924 KB peak (3×3 window under the 15000-tri cap) |
+| 4 | drive-tick ≪ 33.333 ms | **PASS** — 1086 µs/tick (differenced host wall clock, 60 vs 600 frames) |
+
+Both arms print the same final line: `x=546.330078 y=-14.7909584 z=-0.0990843326
+yaw=-2.1868999 masksum=5421 contact=601 air=0`. The shipping `runtime/EBOOT.PBP`
+is unchanged (`world_ground_at` gc-sections out of the game path; the game still
+links byte-identical).
+
+**Visual acceptance is not claimed** — it is the same render path as M3, which is
+open pending the one hardware probe run. Files: `shared/drive.[ch]`,
+`shared/ground.[ch]`, `runtime/world.[ch]`, `runtime/replay.c`,
+`runtime/replay/Makefile`, `tests/host/host_world.[ch]`,
+`tests/host/drive_replay.c`, `tests/host/replay_host.c`, `tools/gen_replay.py`,
+`tests/psp/m5.sh`.
