@@ -162,19 +162,25 @@ int main(int argc,char **argv) {
     catalog.neighborhood.nreg=6;
     for(int k=0;k<6;k++)snprintf(catalog.neighborhood.rgn[k].name,64,"STREAM%s",regions[k]);
     world_load_events(&catalog,root);
-    int count=0,decoded=0,completed=0;
+    int count=0,decoded=0,completed=0,nomode=0;
     for(int k=0;k<catalog.city.nev;k++) {
         WEvent *e=catalog.city.ev+k;if(only && e->id!=only)continue;
         N2Path p={0};int route=ai_race_course(root,e,&p),spawned=0,finished=0,ok=0;
-        count++;decoded+=route;free(p.xy);
-        if(simulate && route)ok=drive(root,e,&spawned,&finished,source,difficulty,pace,laps);
+        /* No GLOBALB 0x34201 track row and no classified route twin: the data
+           defines no mode, field or finish rule, so there is no race to drive.
+           Shipped case: 4341 (L4RC), which also has no TRACKMAP, no BARRIERS
+           group, and a 0x34146 grid 43 m below its venue's road. */
+        int undefined=simulate && e->info.kind==N2_RACE_UNKNOWN;
+        count++;decoded+=route;nomode+=undefined;free(p.xy);
+        if(simulate && route && !undefined)ok=drive(root,e,&spawned,&finished,source,difficulty,pace,laps);
         completed+=ok;
         printf("EVENT-CHECK %d %s %s route=%d spawned=%d finished=%d/%d %s\n",
             e->id,e->reg,n2_race_name(e->info.kind),route,spawned,finished,e->info.downhill?1:spawned,
-            simulate?(ok?"PASS":"INCOMPLETE"):(route?"DECODED":"UNAVAILABLE"));
+            simulate?(undefined?"NO-MODE":ok?"PASS":"INCOMPLETE"):(route?"DECODED":"UNAVAILABLE"));
         fflush(stdout);
     }
-    printf("EVENT-CHECK SUMMARY events=%d decoded=%d completed=%d simulation=%d\n",count,decoded,completed,simulate);
+    printf("EVENT-CHECK SUMMARY events=%d decoded=%d completed=%d simulation=%d no-mode=%d\n",
+        count,decoded,completed,simulate,nomode);
     if(g_ca.log)fclose(g_ca.log);
-    free(source);return !count || (simulate?completed!=count:decoded!=count);
+    free(source);return !count || (simulate?completed+nomode!=count:decoded!=count);
 }
