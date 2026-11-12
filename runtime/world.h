@@ -75,5 +75,11 @@ int  world_ground_at(const World *w, float x, float y, float z_from,
 /* Draw the loaded window under the current VIEW/PROJECTION (camera already
  * set), enabling backface culling. Returns the number of batches submitted. */
 int  world_draw(const World *w);
+/* Render-bug isolation bits, see car.h car_set_probe. Default 0 folds each
+ * batch's pos_offset/pos_scale into the float vertices so the world draws under
+ * an identity model matrix (the config a real PSP-1000 drew correctly in M0);
+ * bit 2 (PROBE_MODEL) restores the model-matrix path for an A/B hardware test.
+ * Must be set before world_load_window (the fold happens as cells are cut). */
+void world_set_probe(int bits);
 
 #endif

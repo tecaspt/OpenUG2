@@ -33,6 +33,15 @@
  * would leave it misaligned at offset 6. Identical to car.c. */
 #define WORLD_VSTRIDE 20
 
+/* Default render path folds each batch's pos_offset/pos_scale into the float
+ * vertices (build_cell_verts) so world_draw submits them under an identity
+ * model matrix - see car.c's PROBE_MODEL note for why. Bit 2 restores the
+ * model-matrix path for a hardware A/B. Set via world_set_probe before cells
+ * are cut (world_load_window). */
+#define PROBE_MODEL 2
+static int g_probe;
+void world_set_probe(int bits) { g_probe = bits; }
+
 /* File stores colour as GU_COLOR_5650 (R in the low bits); expand to the GE's
  * 8888 order (also R-in-low, 0xAABBGGRR) so MODULATE matches. See car.c. */
 static uint32_t rgb565_to_8888(uint16_t c)
@@ -245,6 +254,27 @@ static int build_cell_verts(Pool *pool, WorldCell *cell)
 		memcpy(o + 12, &(float){ (float)src[i].y / 32768.0f }, 4);
 		memcpy(o + 16, &(float){ (float)src[i].z / 32768.0f }, 4);
 	}
+	/* Default fold (see the PROBE_MODEL note above): apply each batch's
+	 * pos_offset/pos_scale into the position floats so world_draw can submit
+	 * the batch under an identity model matrix. Every batch in a cell shares
+	 * the same pos_offset/pos_scale and batch vertex ranges are disjoint and
+	 * contiguous (region_convert emits fresh vertices per triangle), so no
+	 * vertex is folded twice; padding vertices between batches are unreferenced
+	 * and folding them is harmless. */
+	if (!(g_probe & PROBE_MODEL)) {
+		uint32_t b;
+		for (b = 0; b < cell->v.nbatch; b++) {
+			const U2pkBatch *bt = &cell->v.batch[b];
+			uint32_t i;
+			for (i = 0; i < bt->vertex_count; i++) {
+				uint8_t *o = d + (size_t)(bt->first_vertex + i) * WORLD_VSTRIDE + 8;
+				float p;
+				memcpy(&p, o + 0, 4); p = p * bt->pos_scale[0] + bt->pos_offset[0]; memcpy(o + 0, &p, 4);
+				memcpy(&p, o + 4, 4); p = p * bt->pos_scale[1] + bt->pos_offset[1]; memcpy(o + 4, &p, 4);
+				memcpy(&p, o + 8, 4); p = p * bt->pos_scale[2] + bt->pos_offset[2]; memcpy(o + 8, &p, 4);
+			}
+		}
+	}
 	cell->vertf = d;
 	return 1;
 }
@@ -390,10 +420,15 @@ int world_draw(const World *w)
 				const U2pkBatch *b = &cell->v.batch[k];
 				if ((int)b->mode != pass)
 					continue;
+				/* Identity model matrix by default: the fold already put the
+				 * vertices in world position. PROBE_MODEL restores the batch
+				 * transform for the A/B hardware probe. */
 				sceGumMatrixMode(GU_MODEL);
 				sceGumLoadIdentity();
-				sceGumTranslate((const ScePspFVector3 *)b->pos_offset);
-				sceGumScale((const ScePspFVector3 *)b->pos_scale);
+				if (g_probe & PROBE_MODEL) {
+					sceGumTranslate((const ScePspFVector3 *)b->pos_offset);
+					sceGumScale((const ScePspFVector3 *)b->pos_scale);
+				}
 				setup_texture(w, b);
 				apply_mode(b->mode);
 				sceGumDrawArray(GU_TRIANGLES, VERTFMT, b->index_count,

@@ -824,6 +824,37 @@ hardware-only render defect — **open, deferred pending one probe run**. The
 M3 emulator acceptance (items 1–7) stays PASS; the golden is a regression
 baseline, and a real PSP-1000 is the only judge of the picture.
 
+### The identity-model-matrix fold is now the default path (2026-11-12c)
+
+`world.c` was found to use the **same** per-batch `T(pos_offset)·S(pos_scale)`
+model transform as `car.c`, so the defect almost certainly squashes roads and
+buildings too, not just the car — fixing the car alone would waste the user's
+one hardware run on a half-correct picture. The fold is therefore promoted from
+a probe to the **shipping default in both files**: at load the CPU bakes each
+batch's `pos_offset·scale+offset` into the float vertices and the batch is drawn
+under an **identity model matrix** — the single config M0 proved draws correctly
+on a real PSP-1000, and the only non-identity transform before was that
+anisotropic scale (car body batch scale e.g. `(1.94, 0.92, 0.54)` over full-range
+verts; world cells scale by ~48 m about centres up to ±600 m). `probe=2`
+(`PROBE_MODEL`) restores the old model-matrix path verbatim so one hardware run
+can A/B the two without a rebuild; it reproduces the prior goldens bit-for-bit.
+
+Host-verified in PPSSPP (software GE): the car matches the golden at **mse 0.10**
+(unchanged from the old probe-2 measurement); the world is the **same scene**
+(identical ground coverage and dominant-colour mix) at **mse 0.6–3.0** vs the old
+goldens — a sub-pixel edge shift because the CPU float placement is *more*
+precise than the GE's fixed-point transform at the large per-cell offsets, and
+`probe=2` still reproduces those goldens exactly (mse 0). It is still an
+emulator pass: the emulator never showed the defect, so the fold is the best-
+evidence fix, not a hardware-confirmed one. `dist/M5/` ships the fold default as
+two self-contained, pre-staged entries - "OpenUG2 Car" (data/car.u2pk) and
+"OpenUG2 World" (data/L4RH + 3 poses, held ~3 s each so the eye can see it and
+it writes m4_p*.ppm to the card) - so a non-technical run confirms or rejects the
+fix in one pass; `probe=2` stays available dev-side (autotest.cfg) for an A/B if
+the picture still distorts. If it does, the next diagnostics (documented in
+`car.h`) are `GU_TEXTURE_32BITF` UVs and an absolute (non-batch-local) index
+base.
+
 ## M5 — drive in the slice
 
 M5's **numeric spine is built and host-validated**. The **visual** acceptance

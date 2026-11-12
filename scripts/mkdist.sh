@@ -302,5 +302,74 @@ Do NOT create data/autotest.cfg here: that is only what the emulator harness
 uses to cap frames and pick a screenshot frame.
 TXT
 
-echo "mkdist: dist/M0 (1 EBOOT), dist/M1 ($n EBOOTs), dist/M2 (1 EBOOT), dist/M3 and dist/M4 (EBOOT + psp_convert) written"
-du -sh "$repo/dist/M0" "$repo/dist/M1" "$repo/dist/M2" "$repo/dist/M3" "$repo/dist/M4"
+# ---------------------------------------------------------------- M5 ----------
+# dist/M5 is the "try the fix" package: the identity-model-matrix fold default
+# (see PROGRESS.md, "The identity-model-matrix fold...") staged for a
+# non-developer. Two self-contained GAME folders with the data prebuilt from the
+# out/ artifacts - nothing to type on a command line. The two EBOOTs are the same
+# binary; only the embedded PARAM.SFO TITLE differs so the PSP XMB shows two
+# clearly-named icons. Built only when its inputs are present.
+car_src="$repo/runtime/data/car.u2pk"
+wld_src="$repo/out/m4/L4RH"
+if [ -f "$car_src" ] && [ -d "$wld_src" ] && [ -f "$wld_src/index.u2pk" ]; then
+  m5="$repo/dist/M5"; rm -rf "$m5"
+  car="$m5/PSP/GAME/UG2CAR"; wld="$m5/PSP/GAME/UG2WORLD"
+  mkdir -p "$car/data" "$wld/data/L4RH"
+  . /home/nike/openug2-dev/psp/env-psp.sh 2>/dev/null || true
+  ( cd "$repo/runtime" && make clean >/dev/null 2>&1 &&
+      make PSP_EBOOT_TITLE='OpenUG2 Car'   EBOOT.PBP >/dev/null 2>&1 ) &&
+      cp "$repo/runtime/EBOOT.PBP" "$car/EBOOT.PBP"
+  ( cd "$repo/runtime" && make clean >/dev/null 2>&1 &&
+      make PSP_EBOOT_TITLE='OpenUG2 World' EBOOT.PBP >/dev/null 2>&1 ) &&
+      cp "$repo/runtime/EBOOT.PBP" "$wld/EBOOT.PBP"
+  # leave runtime/EBOOT.PBP as the canonical "OpenUG2" build
+  ( cd "$repo/runtime" && make clean >/dev/null 2>&1 && make EBOOT.PBP >/dev/null 2>&1 )
+  cp "$car_src" "$car/data/car.u2pk"
+  cp "$wld_src/index.u2pk" "$wld_src/cells.u2pk" "$wld_src/tex.u2pk" "$wld/data/L4RH/"
+  printf 'region=L4RH\npose=-597.21 72.22 7.81 0.8876\npose=597.70 57.76 7.84 -2.1869\npose=-3.48 -228.83 2.17 -0.6760\n' > "$wld/data/world.cfg"
+  # hold each pose ~3 s so it is visible on hardware, and screenshot it to the card
+  printf 'frames=180\nshot=180\n' > "$wld/data/autotest.cfg"
+  [ -f "$repo/out/m3.ppm" ] && cp "$repo/out/m3.ppm" "$m5/golden-m5.ppm"
+  cat > "$m5/README.txt" <<'TXT'
+OpenUG2 on the PSP - "try the fix" build
+========================================
+
+WHAT CHANGED, IN PLAIN WORDS
+  On your PSP, the car looked squashed / stretched / wrongly shaped. I found a
+  likely reason: the way the program told the graphics chip where to put things.
+  I changed it so the program does that maths itself and hands the chip the
+  finished, ready-to-draw numbers. The one time we ever drew something that
+  looked RIGHT on your real PSP, that "hand it finished numbers" way is exactly
+  what was used. So this is my best fix - but only your real PSP can prove it,
+  because this problem does NOT show up on my PC test setup.
+
+WHAT TO DO  (no typing on a computer needed)
+  1. Put this PSP folder onto the root of your PSP memory card. You will then
+     have PSP/GAME/UG2CAR and PSP/GAME/UG2WORLD. (Any older PSP/GAME/OPENUG2 can
+     stay - these are new, differently-named folders.)
+  2. On the PSP go to Game > Memory Stick. You will see two new icons:
+     "OpenUG2 Car" and "OpenUG2 World".
+
+STEP 1 - run "OpenUG2 World" FIRST
+  - Three views, one at a time, of roads and ground to a hazy horizon; each stays
+    a few seconds. It saves m4_p0.ppm m4_p1.ppm m4_p2.ppm to PSP/GAME/UG2WORLD.
+    If you can, send those 3 files back to me - they are what your PSP drew.
+
+STEP 2 - run "OpenUG2 Car"
+  - A car turns slowly; the LEFT stick swings the camera, START exits. Judge the
+    SHAPE: a normal car with four round wheels, or squashed / torn like before?
+
+WHAT I NEED - two short answers
+  CAR:   proper car now, or still squashed?
+  WORLD: roads/ground flat and normal, or wrong?
+  On a black screen or an error, also send PSP/GAME/UG2WORLD/log.txt (or .../UG2CAR/log.txt).
+
+NOT A BUG: the car body is always RED (no paint system yet) - judge the shape,
+not the colour. golden-m5.ppm is a PC-emulator reference, not from your PSP.
+TXT
+else
+  echo "mkdist: skipping dist/M5 (need runtime/data/car.u2pk and out/m4/L4RH/*.u2pk)" >&2
+fi
+
+echo "mkdist: dist/M0 (1 EBOOT), dist/M1 ($n EBOOTs), dist/M2 (1 EBOOT), dist/M3 and dist/M4 (EBOOT + psp_convert), dist/M5 (car + world, pre-staged) written"
+du -sh "$repo/dist/M0" "$repo/dist/M1" "$repo/dist/M2" "$repo/dist/M3" "$repo/dist/M4" "$repo/dist/M5"

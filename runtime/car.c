@@ -45,11 +45,20 @@ static uint32_t rgb565_to_8888(uint16_t c)
 
 static const ScePspFVector3 g_mirror = { 1.0f, -1.0f, 1.0f }; /* FR/RR: left->right */
 
-/* Hardware render-bug isolation flags, see car.h car_set_probe. 0 = shipping
- * path; every branch below is skipped at 0 so the default EBOOT is unchanged. */
-#define PROBE_UPDATE 1
-#define PROBE_FOLD   2
-#define PROBE_NOWHEEL 4
+/* Hardware render-bug isolation flags, see car.h car_set_probe.
+ *
+ * The DEFAULT (probe=0) folds each batch's pos_offset/pos_scale into the float
+ * vertices and draws under an identity model matrix. Reason: a real PSP-1000
+ * distorted the car whose only non-identity transform was that per-batch model
+ * matrix, while the M0 demo - which drew with an identity model matrix - looked
+ * correct on the same hardware. Folding is mathematically identity (same
+ * s16/32768*scale+offset, just done on the CPU instead of the GE), so PPSSPP
+ * renders it the same; it moves the shipping path onto the one config proven to
+ * draw correctly on hardware. PROBE_MODEL below restores the old model-matrix
+ * path so a hardware run can A/B the two without a rebuild. */
+#define PROBE_UPDATE  1   /* extra sceGumUpdateMatrix before each draw */
+#define PROBE_MODEL   2   /* restore the old per-batch model matrix (no fold) */
+#define PROBE_NOWHEEL 4   /* body only, skip the wheel batches */
 static int g_probe;
 
 void car_set_probe(int bits) { g_probe = bits; }
@@ -116,12 +125,12 @@ static int build_float_verts(Pool *pool, CarG *car)
 		memcpy(o + 12, &(float){ (float)s[i].y / 32768.0f }, 4);
 		memcpy(o + 16, &(float){ (float)s[i].z / 32768.0f }, 4);
 	}
-	/* Probe fold: apply each batch's pos_offset/pos_scale into the position
-	 * floats so draw_batch can skip the model transform. Ranges are disjoint
-	 * (indices are batch-local, 0..vertex_count-1), so no vertex is folded
-	 * twice on the cars we ship. Diagnostic only - never set on hardware
-	 * except to run the M3 render probe. */
-	if (g_probe & PROBE_FOLD) {
+	/* Default fold: apply each batch's pos_offset/pos_scale into the position
+	 * floats so draw_batch can draw under an identity model matrix (see the
+	 * PROBE_MODEL note above). Ranges are disjoint (indices are batch-local,
+	 * 0..vertex_count-1), so no vertex is folded twice on the cars we ship.
+	 * PROBE_MODEL restores the un-folded verts for the A/B hardware probe. */
+	if (!(g_probe & PROBE_MODEL)) {
 		uint32_t b;
 		for (b = 0; b < car->v.nbatch; b++) {
 			const U2pkBatch *bt = &car->v.batch[b];
@@ -216,10 +225,12 @@ static void apply_mode(uint32_t mode)
 	}
 }
 
-/* Draw one batch after the caller has pushed the car/wheel transform. */
+/* Draw one batch after the caller has pushed the car/wheel transform. With the
+ * default fold the batch is already in world position, so no model transform is
+ * pushed here (identity model matrix). PROBE_MODEL restores it for the probe. */
 static void draw_batch(const CarG *car, const U2pkBatch *b)
 {
-	if (!(g_probe & PROBE_FOLD)) {
+	if (g_probe & PROBE_MODEL) {
 		sceGumTranslate((const ScePspFVector3 *)b->pos_offset);
 		sceGumScale((const ScePspFVector3 *)b->pos_scale);
 	}

@@ -303,13 +303,18 @@ int main(int argc, char **argv)
 			sceKernelExitGame();
 			return 1;
 		}
+		world_set_probe(cfg.probe);   /* before window loads (fold happens there) */
+		if (cfg.probe)
+			plat_log("PROBE bits=%d (default=fold/identity; 2=model-matrix 1=updmat 4=no-wheel)",
+			         cfg.probe);
 		run_world(&world, poses, npose, &cfg);
 	} else {
 		CarG player, ai;
 		Pool *cars = pool_get(POOL_CARS);
 		car_set_probe(cfg.probe);   /* must precede car_load (fold happens there) */
 		if (cfg.probe)
-			plat_log("M3 PROBE bits=%d (1=updmat 2=fold 4=no-wheel)", cfg.probe);
+			plat_log("PROBE bits=%d (default=fold/identity; 2=model-matrix 1=updmat 4=no-wheel)",
+			         cfg.probe);
 		if (!car_load(cars, CAR_REL, 0, &player)) {
 			plat_log("M3 FAIL could not load " CAR_REL " (run psp_convert first)");
 			sceKernelExitGame();
