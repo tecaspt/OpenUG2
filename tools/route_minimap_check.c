@@ -19,6 +19,11 @@
  *     show its bright route (luminance >= MB_RACE_LOW, the value map_bake.h
  *     uses for "the route begins") within OVERLAY_TOL m of every course
  *     sample and of every authored node the course covers.
+ * An open course is compared only between the start and finish lines (the
+ * event outline's first and last points projected onto it): the decoder adds
+ * run-in and run-out there, and the retail map draws the route from start to
+ * finish. Drag races show no minimap (HUD_Drag.fng has no map node), so their
+ * TRACKMAP is not compared.
  * With OUTDIR (one event only) the retail map is written as OUTDIR/<id>.ppm
  * with the authored nodes (yellow) and the course (cyan) drawn over it, for
  * local inspection. Those files derive from retail data: never commit them. */
@@ -47,15 +52,18 @@ static int authored_read(const char *root, const WEvent *e, Authored *a) {
     for (int k = 0; k < n; k++) { memcpy(a->xy + 2*k, b + 24*k, 4); memcpy(a->xy + 2*k + 1, b + 24*k + 4, 4); }
     for (int k = 0; k < n; k++) {
         unsigned seg = b[24*k+8] | (unsigned)b[24*k+9] << 8;
-        int cand[4], m = 0;
-        if (k + 1 < n && (unsigned)(b[24*(k+1)+8] | (unsigned)b[24*(k+1)+9] << 8) == seg) cand[m++] = k + 1;
+        int cand[4], m = 0, chain = 0;
+        if (k + 1 < n && (unsigned)(b[24*(k+1)+8] | (unsigned)b[24*(k+1)+9] << 8) == seg) cand[m++] = k + 1, chain = 1;
         for (int j = 0; j < 3; j++) {
             unsigned v = b[24*k+12+2*j] | (unsigned)b[24*k+13+2*j] << 8;
             if (v != 0xffffu && v < (unsigned)n && (int)v != k) cand[m++] = (int)v;
         }
         for (int q = 0; q < m; q++) {
             int o = cand[q];
-            if (hypotf(a->xy[2*o]-a->xy[2*k], a->xy[2*o+1]-a->xy[2*k+1]) > 120) continue;
+            /* consecutive nodes of one segment are one authored polyline, however
+               sparse (straights and drag strips space them 120-730 m apart);
+               only a link slot to another node is limited to a local junction */
+            if (!(q == 0 && chain) && hypotf(a->xy[2*o]-a->xy[2*k], a->xy[2*o+1]-a->xy[2*k+1]) > 120) continue;
             a->edge[2*a->ne] = k; a->edge[2*a->ne+1] = o; a->ne++;
         }
     }
@@ -74,16 +82,21 @@ static float authored_dist(const Authored *a, float x, float y) {
     return best;
 }
 
-static float course_dist(const N2Path *c, float x, float y) {
-    float best = INFINITY;
+/* Distance to the course; *along gets the course metres of the nearest point
+   (ties go to the later point when late is set). */
+static float course_dist_along(const N2Path *c, float x, float y, int late, float *along) {
+    float best = INFINITY, at = 0;
     for (int i = 0; i + 1 < c->n; i++) {
         const float *p = c->xy + 2*i, *q = p + 2;
         float dx = q[0]-p[0], dy = q[1]-p[1], l2 = dx*dx + dy*dy;
         float t = l2 > 1e-8f ? ((x-p[0])*dx + (y-p[1])*dy) / l2 : 0; t = fmaxf(0, fminf(1, t));
-        float d = hypotf(p[0] + t*dx - x, p[1] + t*dy - y); if (d < best) best = d;
+        float d = hypotf(p[0] + t*dx - x, p[1] + t*dy - y);
+        if (d < best || (late && d <= best)) { best = d; if (along) *along = at + t*sqrtf(l2); }
+        at += sqrtf(l2);
     }
     return best;
 }
+static float course_dist(const N2Path *c, float x, float y) { return course_dist_along(c, x, y, 0, NULL); }
 
 /* hud.c track_map_origin: TrackInfo rows (0x34201, 296 bytes) in GLOBALB. */
 static int map_origin(const unsigned char *g, long len, int event, double o[3]) {
@@ -142,8 +155,15 @@ int main(int argc, char **argv) {
             printf("MINIMAP %d %s %s NOT-RUN (route unavailable)\n", e->id, e->reg, n2_race_name(e->info.kind));
             notrun++; free(a.xy); free(a.edge); free(course.xy); continue;
         }
+        /* raced span of an open course: start line to finish line */
+        float span_lo = -INFINITY, span_hi = INFINITY;
+        if (!e->circuit && e->npoly >= 2) {
+            course_dist_along(&course, e->poly[0][0], e->poly[0][1], 0, &span_lo);
+            course_dist_along(&course, e->poly[e->npoly-1][0], e->poly[e->npoly-1][1], 1, &span_hi);
+            if (!(span_hi > span_lo)) span_lo = -INFINITY, span_hi = INFINITY;
+        }
         /* 1. overlay vs authored */
-        int samples = 0, outside = 0; float worst = 0, sum = 0;
+        int samples = 0, outside = 0; float worst = 0, sum = 0, run = 0;
         float *dev = NULL; int cap = 0;
         for (int i = 0; i + 1 < course.n; i++) {
             const float *p = course.xy + 2*i, *q = p + 2;
@@ -151,12 +171,14 @@ int main(int argc, char **argv) {
             int steps = (int)ceilf(l / SAMPLE); if (steps < 1) steps = 1;
             for (int s = 0; s < steps; s++) {
                 float t = (float)s / steps, x = p[0] + t*(q[0]-p[0]), y = p[1] + t*(q[1]-p[1]);
+                if (run + t*l < span_lo || run + t*l > span_hi) continue;
                 float d = authored_dist(&a, x, y);
                 if (samples == cap) { cap = cap ? cap*2 : 1024; dev = realloc(dev, (size_t)cap * sizeof *dev); }
                 dev[samples++] = d; sum += d;
                 if (d > worst) worst = d;
                 if (d > OVERLAY_TOL) outside++;
             }
+            run += l;
         }
         /* p95 by partial selection sort is fine at these sizes */
         for (int i = 0; i < samples; i++) for (int j = i+1; j < samples; j++) if (dev[j] < dev[i]) { float t = dev[i]; dev[i] = dev[j]; dev[j] = t; }
@@ -164,13 +186,15 @@ int main(int argc, char **argv) {
         free(dev);
         int covered = 0;
         for (int n = 0; n < a.n; n++) covered += course_dist(&course, a.xy[2*n], a.xy[2*n+1]) <= OVERLAY_TOL;
+        /* the drag HUD package has no map node: no TRACKMAP is shown in a drag */
+        int drag = e->info.kind == N2_RACE_DRAG;
         int capacity_ok = course.n <= HA_LIMIT;
         /* 3. retail TRACKMAP */
         char mname[32], mpath[1024]; snprintf(mname, sizeof mname, "TRACKMAP%d", e->id);
         snprintf(mpath, sizeof mpath, "%s/TRACKS/%s.BIN", root, mname);
         long mlen = 0; unsigned char *mdata = n2_read_file(mpath, &mlen);
         HaPixels px = {0}; RetailMap m = {&px, {0,0,0}, 1};
-        int have_map = mdata && global && map_origin(global, glen, e->id, m.o) &&
+        int have_map = !drag && mdata && global && map_origin(global, glen, e->id, m.o) &&
                        ha_texture_find(mdata, (size_t)mlen, ha_hash(mname), &px) == 1;
         int lit = 0, lit_total = 0, off_image = 0, node_lit = 0, node_total = 0;
         int out_lit = 0, out_total = 0;
@@ -179,12 +203,14 @@ int main(int argc, char **argv) {
             maps++;
             mpt = (float)(m.o[2] / px.width);
             m.radius = (int)ceilf(OVERLAY_TOL / mpt); if (m.radius < 1) m.radius = 1;
+            run = 0;
             for (int i = 0; i + 1 < course.n; i++) {
                 const float *p = course.xy + 2*i, *q = p + 2;
                 float l = hypotf(q[0]-p[0], q[1]-p[1]);
                 int steps = (int)ceilf(l / SAMPLE); if (steps < 1) steps = 1;
-                for (int s = 0; s < steps; s++) {
+                for (int s = 0; s < steps; s++, run += l / steps) {
                     float t = (float)s / steps, x = p[0] + t*(q[0]-p[0]), y = p[1] + t*(q[1]-p[1]);
+                    if (run < span_lo || run > span_hi) continue;
                     int r = retail_lit(&m, x, y, NULL);
                     if (r < 0) { off_image++; continue; }
                     lit_total++; lit += r;
@@ -193,7 +219,8 @@ int main(int argc, char **argv) {
                 }
             }
             for (int n = 0; n < a.n; n++) {
-                if (course_dist(&course, a.xy[2*n], a.xy[2*n+1]) > OVERLAY_TOL) continue;
+                float at = 0;
+                if (course_dist_along(&course, a.xy[2*n], a.xy[2*n+1], 0, &at) > OVERLAY_TOL || at < span_lo || at > span_hi) continue;
                 int r = retail_lit(&m, a.xy[2*n], a.xy[2*n+1], NULL);
                 if (r < 0) continue;
                 node_total++; node_lit += r;
@@ -223,7 +250,7 @@ int main(int argc, char **argv) {
                "off-image=%d nodes-lit=%d/%d outside-lit=%d/%d %s\n",
                e->id, e->reg, n2_race_name(e->info.kind), course.n, a.n, samples, worst, p95,
                samples ? sum / samples : 0, outside, covered, a.n, capacity_ok ? "ok" : "OVER",
-               have_map ? "yes" : "none", mpt, lit, lit_total, off_image, node_lit, node_total, out_lit, out_total,
+               have_map ? "yes" : drag ? "drag-hud-none" : "none", mpt, lit, lit_total, off_image, node_lit, node_total, out_lit, out_total,
                ok ? "PASS" : "FAIL");
         fflush(stdout);
         free(px.rgba); free(mdata); free(a.xy); free(a.edge); free(course.xy);
