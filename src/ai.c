@@ -1882,10 +1882,11 @@ static int race_ground_at(N2Scene *scene,float x,float y,float ref,float *z);
 
 /* world.c binds a checkpoint 22 m to either side of its outline point. */
 #define RACE_GATE_REACH 22.0f
-static int race_course_read_mode(const char *root,const WEvent *event,N2Path *out,int full,
+static int race_course_decode(const char *root,const WEvent *event,N2Path *out,int full,
         const AiTrafficWorld *world,const AiCar *body,float *widest,int lane_terrain,
-        int repair_distance,int *unsupported_out) {
+        int repair_distance,int *unsupported_out,int gated,double *excess_out) {
     if(unsupported_out)*unsupported_out=0;
+    if(excess_out)*excess_out=0;
     if(!root || !event || !out)return 0;
     N2Path raw={0};
     if(race_route_load(root,event,&raw)){*out=raw;return 1;}
@@ -1981,6 +1982,7 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
        progress and a sample at that progress lies inside the gate, samples
        outside it cost their squared distance beyond it. A course already
        inside every gate keeps its cost order and is unchanged. */
+    unsigned char coverable[WORLD_EVPOLY]={0};
     for(int g=0;ok && g<event->npoly-(event->circuit!=0) && g<WORLD_EVPOLY;g++) {
         const float *p=event->poly[g];float nearest=INFINITY,at=0;
         if(!isfinite(p[0]) || !isfinite(p[1]))continue;
@@ -1994,6 +1996,8 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
             if(error<nearest){nearest=error;at=distance[k]+t*span;}
         }
         if(nearest>RACE_GATE_REACH)continue;
+        coverable[g]=1;
+        if(!gated)continue;
         if(event->circuit){at=fmodf(at,length);if(at<0)at+=length;}
         int row=-1,inside=0;float off=2.5f;
         for(int j=0;j<layers;j++)if(fabsf(choices[j*CHOICES].along-at)<=off){off=fabsf(choices[j*CHOICES].along-at);row=j;}
@@ -2284,6 +2288,18 @@ static int race_course_read_mode(const char *root,const WEvent *event,N2Path *ou
             }
         }
     }
+    /* Squared distance beyond the gate reach of each outline point that some
+       lane passes within reach of, measured on the whole decoded course. */
+    for(int g=0;excess_out && path.xy && g<event->npoly-(event->circuit!=0) && g<WORLD_EVPOLY;g++) {
+        if(!coverable[g])continue;
+        const float *p=event->poly[g];float d=INFINITY;
+        for(int j=0;j+1<path.n;j++) {
+            float dx=path.xy[2*j+2]-path.xy[2*j],dy=path.xy[2*j+3]-path.xy[2*j+1],len2=dx*dx+dy*dy;
+            float t=len2>1e-8f?fmaxf(0,fminf(1,((p[0]-path.xy[2*j])*dx+(p[1]-path.xy[2*j+1])*dy)/len2)):0;
+            d=fminf(d,hypotf(path.xy[2*j]+t*dx-p[0],path.xy[2*j+1]+t*dy-p[1]));
+        }
+        if(d>RACE_GATE_REACH)*excess_out+=(double)(d-RACE_GATE_REACH)*(d-RACE_GATE_REACH);
+    }
     ok=ai_drive_route_valid(&path);
     free(checks);free(check_offsets);free(choices);free(counts);ai_roads_free(&lanes);free(distance);free(height);
     if(!ok){free(path.xy);return 0;}
@@ -2302,6 +2318,49 @@ static int race_course_reversals(const N2Path *p) {
         n+=ul>.5f && vl>.5f && (ux*vx+uy*vy)<-.5f*ul*vl;
     }
     return n;
+}
+
+/* Widest sideways jump across lanes: a step whose sideways component, against
+   the mean heading of its two neighbouring steps, exceeds both its forward
+   component and twice the longer neighbouring step. A coarsely sampled bend
+   (long steps on both sides) is not a jump. A closed course wraps its seam. */
+static float race_course_hop(const N2Path *p,int circuit) {
+    if(!p || !p->xy || p->n<4)return 0;
+    int closed=circuit && hypotf(p->xy[0]-p->xy[2*p->n-2],p->xy[1]-p->xy[2*p->n-1])<.01f;
+    int n=p->n-closed;float worst=0;
+    for(int j=closed?0:1;j<(closed?n:n-2);j++) {
+        const float *a=p->xy+2*((j-1+n)%n),*b=p->xy+2*(j%n),*c=p->xy+2*((j+1)%n),*d=p->xy+2*((j+2)%n);
+        float ix=b[0]-a[0],iy=b[1]-a[1],ox=d[0]-c[0],oy=d[1]-c[1];
+        float il=hypotf(ix,iy),ol=hypotf(ox,oy);if(il<.5f || ol<.5f)continue;
+        float dx=ix/il+ox/ol,dy=iy/il+oy/ol,dl=hypotf(dx,dy);if(dl<.001f)continue;
+        dx/=dl;dy/=dl;
+        float jx=c[0]-b[0],jy=c[1]-b[1],along=jx*dx+jy*dy,side=fabsf(jx*dy-jy*dx);
+        if(side>along && side>2*fmaxf(il,ol))worst=fmaxf(worst,side);
+    }
+    return worst;
+}
+
+/* Lanes beside the course carry race progress too, so the cheapest chain can
+   leave the course and skip its checkpoints. Only then decode again with the
+   checkpoint cost, and keep that course only if it passes the checkpoints
+   closer without adding unsupported samples, reversals or a sideways jump
+   wider than one sample spacing (a single lane change). At a circuit grid such
+   a jump sits on the seam, where race_course_ease cannot spread it. */
+#define RACE_HOP_FREE 5.0f
+static int race_course_read_mode(const char *root,const WEvent *event,N2Path *out,int full,
+        const AiTrafficWorld *world,const AiCar *body,float *widest,int lane_terrain,
+        int repair_distance,int *unsupported_out) {
+    int bad=0,gated_bad=0;double excess=0,gated_excess=0;N2Path gated={0};
+    if(!race_course_decode(root,event,out,full,world,body,widest,lane_terrain,repair_distance,&bad,0,&excess))return 0;
+    if(excess>0 && race_course_decode(root,event,&gated,full,world,body,widest,lane_terrain,repair_distance,&gated_bad,1,&gated_excess) &&
+       gated_excess<excess && gated_bad<=bad &&
+       race_course_reversals(&gated)<=race_course_reversals(out) &&
+       race_course_hop(&gated,event->circuit)<=fmaxf(race_course_hop(out,event->circuit),RACE_HOP_FREE)) {
+        free(out->xy);*out=gated;bad=gated_bad;gated.xy=NULL;
+    }
+    free(gated.xy);
+    if(unsupported_out)*unsupported_out=bad;
+    return 1;
 }
 
 /* With loaded geometry, decode strictly and with lane terrain admitted, and keep

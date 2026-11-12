@@ -695,6 +695,29 @@ static void checkpoint_course_test(const char *root) {
     puts("checkpoint course: faster-progress side road cannot skip a gate PASS");
 }
 
+/* A road beside the course joins it only by a sideways jump: 17 m across one
+   5 m progress step, as event 4002's carriageways do at its grid. Passing a
+   checkpoint on that road must not buy the jump; the course stays put. */
+static void checkpoint_hop_test(const char *root) {
+    enum { N=5, RECORD=140+56*N, SIZE=16+2*RECORD };
+    unsigned char bytes[SIZE]={0};uint32_t heads[]={0x80034120,SIZE-8,0x34121,SIZE-16};memcpy(bytes,heads,16);
+    const float lanes[2][N][3]={
+        {{0,0,0},{75,0,75},{150,0,150},{225,0,225},{300,0,300}},
+        {{20,17,20},{60,17,60},{150,75,150},{240,17,240},{280,17,280}}};
+    for(int lane=0;lane<2;lane++)for(int j=0;j<N;j++){
+        unsigned char *record=bytes+24+lane*RECORD;uint32_t pair=N|(N<<16);memcpy(record+44,&pair,4);
+        memcpy(record+128+56*j+4,lanes[lane][j],sizeof lanes[lane][j]);
+        uint16_t widths[]={32*256,32*256};memcpy(record+128+56*j+24,widths,4);
+    }
+    char file[512];snprintf(file,sizeof file,"%s/ROUTESTEST/Routes1F.bin",root);
+    FILE *f=fopen(file,"wb");assert(f);assert(fwrite(bytes,1,SIZE,f)==SIZE);assert(!fclose(f));
+    WEvent event={.id=1,.reg="TEST",.npoly=3,.poly={{0,0},{150,75},{300,0}},.info={.kind=N2_RACE_SPRINT}};
+    N2Path path={0};assert(ai_race_course(root,&event,&path));
+    for(int j=0;j<path.n;j++)assert(fabsf(path.xy[2*j+1])<.01f);
+    free(path.xy);
+    puts("checkpoint course: a checkpoint cannot buy a sideways jump PASS");
+}
+
 /* Source settings affect intent/pace while the shared physical limits remain. */
 static void source_ai_test(const char *root){
     RaceAiSource source={.count=1};
@@ -2593,6 +2616,7 @@ int main(void) {
     rising_deck_course_test(root);
     fallback_chicane_test(root);
     checkpoint_course_test(root);
+    checkpoint_hop_test(root);
     progress_outlier_course_test(root,0);
     progress_outlier_course_test(root,1);
     route_height_test(root);
