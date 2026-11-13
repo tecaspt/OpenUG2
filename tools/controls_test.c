@@ -216,6 +216,87 @@ static void load_state(StInputDevice *d, const J *binding, const J *axes) {
     d->combined_mode = (uint8_t)jnum(axes, "combined_mode", 0);
 }
 
+/* ---- standard (game controller) layout ----------------------------------------------------------------------- */
+static CbPadInfo std_info(void) {                      /* an Xbox-style pad as SDL would map it */
+    CbPadInfo i;
+    memset(&i, 0, sizeof i);
+    i.buttons = 11;
+    i.axes_mask = 0x3F;
+    i.std = 1;
+    static const int8_t ctl[CB_STD_COUNT] = { 0, 1, 2, 3, 6, 7, 8, 9, 4, 5, 14, 15, 16 + CB_DIR_UP, 16 + CB_DIR_DOWN, 16 + CB_DIR_LEFT, 16 + CB_DIR_RIGHT };
+    memcpy(i.std_ctl, ctl, sizeof ctl);
+    i.std_steer_axis = 0;
+    i.std_pedal_axis = 3;
+    i.vbtn_axis[0] = 2;
+    i.vbtn_axis[1] = 5;
+    return i;
+}
+
+static void test_pad_std(void) {
+    static const int want[CB_STD_COUNT] = { CB_ACT_THROTTLE, CB_ACT_LOOK_BACK, CB_ACT_BRAKE, CB_ACT_CAMERA, CB_ACT_RESET_CAR, CB_ACT_NONE,
+        CB_ACT_HYD_PRESSURE, CB_ACT_HYD_BOUNCE, CB_ACT_NITROUS, CB_ACT_HANDBRAKE, CB_ACT_SHIFT_DOWN, CB_ACT_SHIFT_UP,
+        CB_ACT_ENTER_RACE, CB_ACT_WORLD_MAP, CB_ACT_STEER_LEFT, CB_ACT_STEER_RIGHT };
+    CbPadInfo info = std_info();
+    StInputDevice d;
+    memset(&d, 0, sizeof d);
+    memset(d.binding, 0x55, sizeof d.binding);
+    cb_pad_defaults(&d, &info);
+    int bound = 0;
+    for (int e = 0; e < CB_STD_COUNT; e++) {
+        CHECK(d.binding[info.std_ctl[e]] == want[e], "std element %d -> action %d (got %d)", e, want[e], d.binding[info.std_ctl[e]]);
+        if (want[e]) bound++;
+    }
+    int n = 0;
+    for (int k = 0; k < 32; k++) if (d.binding[k]) n++;
+    CHECK(n == bound && n == 15, "exactly the 15 elements are bound, Start and the rest are free (%d)", n);
+    CHECK(d.assigned[CB_ROLE_STEER] && d.axis[CB_ROLE_STEER] == 0 && d.dir[CB_ROLE_STEER] == 1, "std: left stick X steers");
+    CHECK(d.assigned[CB_ROLE_COMBINED] && d.axis[CB_ROLE_COMBINED] == 12 && d.dir[CB_ROLE_COMBINED] == 1 && d.combined_mode, "std: right stick Y is the combined pedals");
+    /* an element without a control is skipped, the others stay */
+    CbPadInfo part = std_info();
+    part.std_ctl[CB_STD_L1] = -1;
+    part.std_pedal_axis = -1;
+    memset(&d, 0, sizeof d);
+    cb_pad_defaults(&d, &part);
+    n = 0;
+    for (int k = 0; k < 32; k++) if (d.binding[k]) n++;
+    CHECK(n == 14 && d.binding[4] == CB_ACT_NONE && d.binding[0] == CB_ACT_THROTTLE, "std_ctl -1 is skipped (%d bound)", n);
+    CHECK(!d.assigned[CB_ROLE_COMBINED] && d.assigned[CB_ROLE_STEER], "std_pedal_axis -1: pedals not assigned");
+    /* a wheel ignores std, a known vid/pid keeps its table, std = 0 ignores the tables */
+    CbPadInfo wh = std_info(), ref = std_info();
+    wh.wheel = 1;
+    ref.wheel = 1;
+    ref.std = 0;
+    StInputDevice a, b;
+    memset(&a, 0, sizeof a); memset(&b, 0, sizeof b);
+    cb_pad_defaults(&a, &wh);
+    cb_pad_defaults(&b, &ref);
+    CHECK(!memcmp(&a, &b, sizeof a), "a wheel ignores std");
+    CbPadInfo off = std_info(), plain = std_info();
+    off.std = 0;
+    memset(&plain, 0, sizeof plain);
+    plain.buttons = off.buttons; plain.axes_mask = off.axes_mask;
+    memset(&a, 0, sizeof a); memset(&b, 0, sizeof b);
+    cb_pad_defaults(&a, &off);
+    cb_pad_defaults(&b, &plain);
+    CHECK(!memcmp(&a, &b, sizeof a), "std = 0: the tables are ignored, output is the positional default");
+    CbPadInfo kn = std_info(), knref = std_info();
+    kn.vid = knref.vid = 0x046D; kn.pid = knref.pid = 0xC216;
+    knref.std = 0;
+    memset(&a, 0, sizeof a); memset(&b, 0, sizeof b);
+    cb_pad_defaults(&a, &kn);
+    cb_pad_defaults(&b, &knref);
+    CHECK(!memcmp(&a, &b, sizeof a) && a.binding[0] == 2, "a known vid/pid pad keeps its own table");
+    /* Reset Keys To Default: a second call gives the same record, the guid is kept */
+    memset(&a, 0, sizeof a);
+    memset(a.guid, 0xCD, 16);
+    cb_pad_defaults(&a, &info);
+    b = a;
+    a.binding[0] = CB_ACT_HUD;
+    a.axis[CB_ROLE_STEER] = 8;
+    cb_pad_defaults(&a, &info);
+    CHECK(!memcmp(&a, &b, sizeof a) && a.guid[7] == 0xCD, "defaults twice: same record, guid kept");
+}
+
 /* ---- tvc05: joystick defaults ------------------------------------------------------------------------------ */
 static void test_pad_defaults(void) {
     J *v = jload("tvc05_joystick_defaults.json");
@@ -251,17 +332,18 @@ static void test_pad_defaults(void) {
         for (int j = 20; j < 32; j++) CHECK(d.binding[j] == 0, "known device %s:%s binding[%d]", jstrv(c, "vid"), jstrv(c, "pid"), j);
     }
     /* the guid survives a reset to defaults */
-    CbPadInfo info = { 0, 0, 4, 0x3, 0 };
+    CbPadInfo info = { .buttons = 4, .axes_mask = 0x3 };
     StInputDevice d;
     memset(&d, 0, sizeof d);
     memset(d.guid, 0xAB, 16);
     cb_pad_defaults(&d, &info);
     CHECK(d.guid[0] == 0xAB && d.guid[15] == 0xAB, "defaults keep the guid");
     /* a device without axes keeps the open defaults and no assigned flag */
-    CbPadInfo noax = { 0, 0, 4, 0, 0 };
+    CbPadInfo noax = { .buttons = 4 };
     cb_pad_defaults(&d, &noax);
     CHECK(!d.assigned[0] && !d.assigned[3] && d.combined_mode == 1 && d.axis[3] == 4, "no axes: open defaults only");
     jfree(v);
+    test_pad_std();
 }
 
 /* ---- tvc06: joystick capture -------------------------------------------------------------------------------- */

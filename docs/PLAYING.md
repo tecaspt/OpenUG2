@@ -77,6 +77,32 @@ In the pause menu, use the arrow keys and Enter. On a controller, Start
 pauses or resumes, the D-pad navigates, A selects, and B goes back. Where
 available, open **Options → Controls** to change bindings.
 
+### Default controller layout
+
+A controller that SDL recognises as a game controller starts with this layout.
+The left stick steers. The right stick accelerates (up) and brakes (down).
+Start pauses.
+
+| Action | Xbox / Steam Deck | PlayStation |
+| --- | --- | --- |
+| Accelerate | A | Cross |
+| Brake / reverse | X | Square |
+| Look back | B | Circle |
+| Change camera | Y | Triangle |
+| Nitrous | Left bumper | L1 |
+| Handbrake | Right bumper | R1 |
+| Shift down | Left trigger | L2 |
+| Shift up | Right trigger | R2 |
+| Reset car | View / Back | Select / Share |
+| Hydraulics pressure | Left stick click | L3 |
+| Hydraulics bounce | Right stick click | R3 |
+| Enter race | D-pad up | D-pad up |
+| World map | D-pad down | D-pad down |
+| Steer left / right | D-pad left / right | D-pad left / right |
+
+The layout follows the PlayStation 2 release. Change it in **Options →
+Controls**; **Reset Keys To Default** restores it.
+
 ## Developer menu (ImGui)
 
 Press `1` in a debug build to open the **NFSU2 Master Inspector**. Add

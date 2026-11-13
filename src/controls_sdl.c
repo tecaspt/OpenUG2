@@ -8,6 +8,7 @@
 #include "controls_store.h"
 
 #define AXIS_DEADZONE 0.15f
+#define CX_TRIGGER_PRESS 8192           /* an analog trigger counts as a pressed button past this raw value (of 32767) */
 
 /* ---- devices --------------------------------------------------------------------------------------- */
 
@@ -23,6 +24,54 @@ static int hat_centidegrees(Uint8 h) {
     case SDL_HAT_LEFTUP: return 31500;
     default: return -1;
     }
+}
+
+/* Binding index of a game-controller button/hat bind, or -1: a raw button < 16 or a single hat direction. */
+static int std_index(SDL_GameControllerButtonBind b) {
+    if (b.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return b.value.button >= 0 && b.value.button < CB_BIND_BUTTONS ? b.value.button : -1;
+    if (b.bindType == SDL_CONTROLLER_BINDTYPE_HAT && b.value.hat.hat >= 0 && b.value.hat.hat < CB_BIND_POVS) {
+        switch (b.value.hat.hat_mask) {
+        case SDL_HAT_DOWN: return CB_BIND_BUTTONS + 4 * b.value.hat.hat + CB_DIR_DOWN;
+        case SDL_HAT_UP: return CB_BIND_BUTTONS + 4 * b.value.hat.hat + CB_DIR_UP;
+        case SDL_HAT_LEFT: return CB_BIND_BUTTONS + 4 * b.value.hat.hat + CB_DIR_LEFT;
+        case SDL_HAT_RIGHT: return CB_BIND_BUTTONS + 4 * b.value.hat.hat + CB_DIR_RIGHT;
+        default: break;
+        }
+    }
+    return -1;
+}
+
+/* Fills the standard-layout tables of `info` from the controller mapping; std stays 0 unless A and the left stick X resolved. */
+static void fill_std(CbPadInfo *info, SDL_GameController *gc, SDL_Joystick *j) {
+    static const SDL_GameControllerButton btn[CB_STD_COUNT] = {
+        SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
+        SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+        SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_INVALID, SDL_CONTROLLER_BUTTON_INVALID,
+        SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT };
+    info->std = 0;
+    memset(info->std_ctl, -1, sizeof info->std_ctl);
+    info->std_steer_axis = info->std_pedal_axis = -1;
+    memset(info->vbtn_axis, -1, sizeof info->vbtn_axis);
+    for (int e = 0; e < CB_STD_COUNT; e++)
+        if (btn[e] != SDL_CONTROLLER_BUTTON_INVALID) info->std_ctl[e] = (int8_t)std_index(SDL_GameControllerGetBindForButton(gc, btn[e]));
+    for (int k = 0; k < CB_VBTN_COUNT; k++) {            /* triggers: a button on some pads, an axis on most */
+        SDL_GameControllerButtonBind b = SDL_GameControllerGetBindForAxis(gc, k ? SDL_CONTROLLER_AXIS_TRIGGERRIGHT : SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+        int e = k ? CB_STD_R2 : CB_STD_L2;
+        if (b.bindType == SDL_CONTROLLER_BINDTYPE_AXIS) {
+            if (SDL_JoystickNumButtons(j) <= CB_VBTN_FIRST && b.value.axis >= 0 && b.value.axis < 128) {   /* raw 14/15 must not exist */
+                info->vbtn_axis[k] = (int8_t)b.value.axis;
+                info->std_ctl[e] = (int8_t)(CB_VBTN_FIRST + k);
+            }
+        } else info->std_ctl[e] = (int8_t)std_index(b);
+    }
+    SDL_GameControllerButtonBind sx = SDL_GameControllerGetBindForAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
+    SDL_GameControllerButtonBind py = SDL_GameControllerGetBindForAxis(gc, SDL_CONTROLLER_AXIS_RIGHTY);
+    if (sx.bindType == SDL_CONTROLLER_BINDTYPE_AXIS && sx.value.axis >= 0 && sx.value.axis < CB_AXIS_COUNT) info->std_steer_axis = (int8_t)sx.value.axis;
+    if (py.bindType == SDL_CONTROLLER_BINDTYPE_AXIS && py.value.axis >= 0 && py.value.axis < CB_AXIS_COUNT) info->std_pedal_axis = (int8_t)py.value.axis;
+    if (info->std_ctl[CB_STD_SOUTH] >= 0 && info->std_steer_axis >= 0) { info->std = 1; return; }
+    memset(info->std_ctl, -1, sizeof info->std_ctl);
+    info->std_steer_axis = info->std_pedal_axis = -1;
+    memset(info->vbtn_axis, -1, sizeof info->vbtn_axis);
 }
 
 static void open_pad(CxInput *c, int device_index, int slot) {
@@ -47,6 +96,7 @@ static void open_pad(CxInput *c, int device_index, int slot) {
     for (int a = 0; a < axes && a < CB_AXIS_COUNT; a++) p->info.axes_mask |= 1u << a;   /* raw SDL indices (D3) */
     p->info.wheel = SDL_JoystickGetType(j) == SDL_JOYSTICK_TYPE_WHEEL;
     memcpy(p->dev.guid, p->guid, 16);
+    if (c->gc[slot] && !p->info.wheel) fill_std(&p->info, c->gc[slot], j);
     cb_pad_defaults(&p->dev, &p->info);
     p->present = 1;
 }
@@ -137,6 +187,12 @@ void cx_platform(CxInput *c, CmPlatform *out) {
 
 /* ---- sampling ------------------------------------------------------------------------------------------- */
 
+/* Virtual button 14 + k (a trigger fed by an analog axis) of pad i is held. */
+static int vbtn_down(const CxInput *c, int i, int k) {
+    const CbPadInfo *in = &c->b.pad[i].info;
+    return in->std && in->vbtn_axis[k] >= 0 && c->joy[i] && SDL_JoystickGetAxis(c->joy[i], in->vbtn_axis[k]) > CX_TRIGGER_PRESS;
+}
+
 void cx_sample(const CxInput *c, int i, CbPadSample *out) {
     memset(out, 0, sizeof *out);
     for (int p = 0; p < CB_BIND_POVS; p++) out->pov[p] = -1;
@@ -146,6 +202,7 @@ void cx_sample(const CxInput *c, int i, CbPadSample *out) {
     for (int b = 0; b < nb && b < CB_BIND_BUTTONS; b++) if (SDL_JoystickGetButton(j, b)) out->buttons |= 1u << b;
     for (int h = 0; h < nh && h < CB_BIND_POVS; h++) out->pov[h] = hat_centidegrees(SDL_JoystickGetHat(j, h));
     for (int a = 0; a < na && a < CB_AXIS_COUNT; a++) out->axis[a] = SDL_JoystickGetAxis(j, a);
+    for (int k = 0; k < CB_VBTN_COUNT; k++) if (vbtn_down(c, i, k)) out->buttons |= 1u << (CB_VBTN_FIRST + k);
 }
 
 /* ---- driving queries -------------------------------------------------------------------------------------- */
@@ -153,6 +210,8 @@ void cx_sample(const CxInput *c, int i, CbPadSample *out) {
 static int pad_control_down(const CxInput *c, int i, int control) {
     SDL_Joystick *j = c->joy[i];
     if (!j) return 0;
+    if (control >= CB_VBTN_FIRST && control < CB_VBTN_FIRST + CB_VBTN_COUNT && c->b.pad[i].info.std && c->b.pad[i].info.vbtn_axis[control - CB_VBTN_FIRST] >= 0)
+        return vbtn_down(c, i, control - CB_VBTN_FIRST);
     if (control < CB_BIND_BUTTONS) return control < SDL_JoystickNumButtons(j) && SDL_JoystickGetButton(j, control);
     int p = (control - CB_BIND_BUTTONS) / 4, d = (control - CB_BIND_BUTTONS) % 4;
     if (p >= SDL_JoystickNumHats(j)) return 0;
@@ -184,6 +243,18 @@ uint32_t cx_joy_edges(CxInput *c, const SDL_Event *e) {
             if (!c->joy[i] || SDL_JoystickInstanceID(c->joy[i]) != e->jbutton.which) continue;
             int b = e->jbutton.button;
             if (b >= 0 && b < CB_BIND_BUTTONS) { int a = c->b.pad[i].dev.binding[b]; if (a > 0 && a < 32) out |= 1u << a; }
+        }
+    } else if (e->type == SDL_JOYAXISMOTION) {
+        for (int i = 0; i < CB_MAX_PADS; i++) {
+            if (!c->joy[i] || SDL_JoystickInstanceID(c->joy[i]) != e->jaxis.which || !c->b.pad[i].info.std) continue;
+            for (int k = 0; k < CB_VBTN_COUNT; k++) {
+                if (c->b.pad[i].info.vbtn_axis[k] != e->jaxis.axis) continue;
+                Uint8 now = e->jaxis.value > CX_TRIGGER_PRESS;
+                int fresh = now && !c->vbtn_prev[i][k];
+                c->vbtn_prev[i][k] = now;
+                int a = c->b.pad[i].dev.binding[CB_VBTN_FIRST + k];
+                if (fresh && a > 0 && a < 32) out |= 1u << a;
+            }
         }
     } else if (e->type == SDL_JOYHATMOTION) {
         static const Uint8 mask[4] = { SDL_HAT_DOWN, SDL_HAT_UP, SDL_HAT_LEFT, SDL_HAT_RIGHT };

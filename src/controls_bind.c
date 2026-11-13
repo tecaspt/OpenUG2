@@ -172,6 +172,18 @@ static int popcount(unsigned v) { int n = 0; for (; v; v >>= 1) n += v & 1; retu
 static int has_axis(const CbPadInfo *i, int slot) { return (i->axes_mask >> slot) & 1; }
 enum { AX_X = 0, AX_Y = 1, AX_Z = 2, AX_RZ = 5, AX_S0 = 6 };
 
+static int known_pad(const CbPadInfo *info) {
+    for (int k = 0; k < N_KNOWN; k++) if (k_known[k].vid == info->vid && k_known[k].pid == info->pid) return 1;
+    return 0;
+}
+
+/* Action of each standard element (CB_STD_*); -1 = unbound (Start). */
+static const int std_action[CB_STD_COUNT] = {
+    CB_ACT_THROTTLE, CB_ACT_LOOK_BACK, CB_ACT_BRAKE, CB_ACT_CAMERA, CB_ACT_RESET_CAR, -1, CB_ACT_HYD_PRESSURE, CB_ACT_HYD_BOUNCE,
+    CB_ACT_NITROUS, CB_ACT_HANDBRAKE, CB_ACT_SHIFT_DOWN, CB_ACT_SHIFT_UP,
+    CB_ACT_ENTER_RACE, CB_ACT_WORLD_MAP, CB_ACT_STEER_LEFT, CB_ACT_STEER_RIGHT,
+};
+
 static void pad_default_bindings(StInputDevice *d, const CbPadInfo *info) {
     for (int k = 0; k < N_KNOWN; k++) {
         if (k_known[k].vid != info->vid || k_known[k].pid != info->pid) continue;
@@ -220,6 +232,26 @@ void cb_pad_defaults(StInputDevice *d, const CbPadInfo *info) {
     d->axis[CB_ROLE_COMBINED] = 4 * AX_Y;
     d->dir[CB_ROLE_COMBINED] = 1;
     d->combined_mode = 1;
+    if (info->std && !info->wheel && !known_pad(info)) {            /* PlayStation 2 release layout instead of the positional one; Start stays free: the host pauses on the controller Start event */
+        for (int e = 0; e < CB_STD_COUNT; e++) {
+            int ctl = info->std_ctl[e];
+            if (ctl < 0 || ctl >= 32 || std_action[e] < 0) continue;
+            d->binding[ctl] = std_action[e];
+        }
+        if (!info->axes_mask) return;
+        if (info->std_steer_axis >= 0 && info->std_steer_axis < CB_AXIS_COUNT) {
+            d->axis[CB_ROLE_STEER] = 4 * info->std_steer_axis;
+            d->dir[CB_ROLE_STEER] = 1;
+            d->assigned[CB_ROLE_STEER] = 1;
+        }
+        if (info->std_pedal_axis >= 0 && info->std_pedal_axis < CB_AXIS_COUNT) {
+            d->axis[CB_ROLE_COMBINED] = 4 * info->std_pedal_axis;
+            d->dir[CB_ROLE_COMBINED] = 1;
+            d->combined_mode = 1;
+            d->assigned[CB_ROLE_COMBINED] = 1;
+        }
+        return;
+    }
     pad_default_bindings(d, info);
     if (!info->axes_mask) return;
     d->axis[CB_ROLE_STEER] = 4 * AX_X;

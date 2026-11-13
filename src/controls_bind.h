@@ -72,11 +72,21 @@ int cb_kb_keys(const CbKeyTable *t, int action, int out[2]);
 enum { CB_DIR_DOWN = 0, CB_DIR_UP = 1, CB_DIR_LEFT = 2, CB_DIR_RIGHT = 3 };
 enum { CB_ROLE_STEER = 0, CB_ROLE_THROTTLE = 1, CB_ROLE_BRAKE = 2, CB_ROLE_COMBINED = 3 };
 
+enum { CB_STD_SOUTH, CB_STD_EAST, CB_STD_WEST, CB_STD_NORTH, CB_STD_BACK, CB_STD_START, CB_STD_L3, CB_STD_R3, CB_STD_L1, CB_STD_R1,
+       CB_STD_L2, CB_STD_R2, CB_STD_DPAD_UP, CB_STD_DPAD_DOWN, CB_STD_DPAD_LEFT, CB_STD_DPAD_RIGHT, CB_STD_COUNT };
+#define CB_VBTN_FIRST 14                /* virtual buttons 14 = left trigger, 15 = right trigger, fed by an analog axis */
+#define CB_VBTN_COUNT 2
+
 typedef struct CbPadInfo {              /* what the defaults depend on */
     unsigned vid, pid;
     int buttons;                        /* number of buttons */
     unsigned axes_mask;                 /* bit s = axis slot s exists (X Y Z Rx Ry Rz slider0 slider1) */
     int wheel;
+    /* Standard (SDL game controller) layout: all zero = off. std_ctl[e] is the binding index 0..31 of element e, -1 = none. */
+    int std;                            /* 1 = the tables below are valid */
+    int8_t std_ctl[CB_STD_COUNT];
+    int8_t std_steer_axis, std_pedal_axis;   /* axis slot of left-stick X and right-stick Y, -1 = none */
+    int8_t vbtn_axis[CB_VBTN_COUNT];    /* raw axis feeding virtual button CB_VBTN_FIRST + k (only when std), -1 = none */
 } CbPadInfo;
 /* Defaults of a freshly opened device and of "Reset Keys To Default" (guid is kept). */
 void cb_pad_defaults(StInputDevice *d, const CbPadInfo *info);

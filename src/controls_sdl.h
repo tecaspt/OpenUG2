@@ -24,6 +24,7 @@ typedef struct CxInput {
     int have_root;
     int profile_writable;              /* the profile file is absent (to be created) or was loaded: only then may it be written */
     Uint8 hat_prev[CB_MAX_PADS][CB_BIND_POVS];   /* last hat state per pad, for press edges */
+    Uint8 vbtn_prev[CB_MAX_PADS][CB_VBTN_COUNT]; /* last trigger-as-button state per pad, for press edges */
     int ready;
 } CxInput;
 
@@ -48,7 +49,8 @@ int cx_key_bound(const CxInput *c, int scancode);
 /* A joystick button-down event belongs to the action. */
 int cx_joy_button_is(const CxInput *c, SDL_JoystickID instance, int button, int action);
 /* Bit `a` (actions are < 32) is set when this joystick event newly pressed a control bound to action `a`: a
- * button-down, or a hat direction that was not held before. Other events, releases and a held hat give 0. Use it
+ * button-down, a hat direction that was not held before, or an analog trigger (virtual button 14/15) that crossed its
+ * press threshold. Other events, releases and a held hat or trigger give 0. Use it
  * for actions the host performs once per press; call it once per event. */
 uint32_t cx_joy_edges(CxInput *c, const SDL_Event *e);
 /* Throttle +1 .. brake -1, steering +1 left .. -1 right; the digital actions win, the pad axes fill in. */

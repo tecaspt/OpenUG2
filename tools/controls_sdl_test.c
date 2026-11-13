@@ -19,6 +19,18 @@ static int g_checks, g_fail;
 #define CHECK(cond, ...) do { g_checks++; if (!(cond)) { g_fail++; \
     if (g_fail <= 60) { printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } } while (0)
 
+/* Binding index SDL's mapping gives a button, as the engine reads it (raw button < 16, or one hat direction), or -1. */
+static int sdl_index(SDL_GameController *gc, SDL_GameControllerButton b) {
+    SDL_GameControllerButtonBind k = SDL_GameControllerGetBindForButton(gc, b);
+    if (k.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON) return k.value.button < CB_BIND_BUTTONS ? k.value.button : -1;
+    if (k.bindType == SDL_CONTROLLER_BINDTYPE_HAT && k.value.hat.hat < CB_BIND_POVS) {
+        int d = k.value.hat.hat_mask == SDL_HAT_DOWN ? CB_DIR_DOWN : k.value.hat.hat_mask == SDL_HAT_UP ? CB_DIR_UP :
+                k.value.hat.hat_mask == SDL_HAT_LEFT ? CB_DIR_LEFT : k.value.hat.hat_mask == SDL_HAT_RIGHT ? CB_DIR_RIGHT : -1;
+        return d < 0 ? -1 : CB_BIND_BUTTONS + 4 * k.value.hat.hat + d;
+    }
+    return -1;
+}
+
 static int find_virtual(const CxInput *c) {
     for (int i = 0; i < CB_MAX_PADS; i++) {
         if (!c->joy[i]) continue;
@@ -47,8 +59,32 @@ int main(void) {
     CHECK(c->b.pad[vp].info.buttons == 12 && c->b.pad[vp].info.axes_mask == 0x3F && !c->b.pad[vp].info.wheel, "pad info: buttons %d mask %x",
           c->b.pad[vp].info.buttons, c->b.pad[vp].info.axes_mask);
     const StInputDevice *d = &c->b.pad[vp].dev;
-    CHECK(d->binding[0] == CB_ACT_BRAKE && d->binding[1] == CB_ACT_THROTTLE && d->binding[2] == CB_ACT_LOOK_BACK, "12 buttons: the >= 8 button defaults");
-    CHECK(d->assigned[0] && d->axis[CB_ROLE_COMBINED] == 20 && d->assigned[3] && d->combined_mode, "six axes: steering X, pedals on Rz");
+    /* the standard layout: every element SDL maps resolves to its action, through whatever raw index the mapping gives */
+    static const int want[CB_STD_COUNT] = { CB_ACT_THROTTLE, CB_ACT_LOOK_BACK, CB_ACT_BRAKE, CB_ACT_CAMERA, CB_ACT_RESET_CAR, CB_ACT_NONE,
+        CB_ACT_HYD_PRESSURE, CB_ACT_HYD_BOUNCE, CB_ACT_NITROUS, CB_ACT_HANDBRAKE, CB_ACT_SHIFT_DOWN, CB_ACT_SHIFT_UP,
+        CB_ACT_ENTER_RACE, CB_ACT_WORLD_MAP, CB_ACT_STEER_LEFT, CB_ACT_STEER_RIGHT };
+    static const SDL_GameControllerButton sb[CB_STD_COUNT] = { SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
+        SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_LEFTSTICK, SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+        SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_INVALID, SDL_CONTROLLER_BUTTON_INVALID,
+        SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT };
+    const CbPadInfo *pi = &c->b.pad[vp].info;
+    CHECK(c->gc[vp] && pi->std, "the virtual controller has a mapping: the standard layout is on");
+    if (!c->gc[vp] || !pi->std) { printf("controls_sdl_test: %d checks, %d failed\n", g_checks, g_fail + 1); return 1; }
+    int nbound = 0;
+    for (int e = 0; e < CB_STD_COUNT; e++) {
+        int idx = sb[e] == SDL_CONTROLLER_BUTTON_INVALID ? -1 : sdl_index(c->gc[vp], sb[e]);
+        SDL_GameControllerButtonBind tb = SDL_GameControllerGetBindForAxis(c->gc[vp], e == CB_STD_L2 ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+        if (e == CB_STD_L2 || e == CB_STD_R2) idx = tb.bindType == SDL_CONTROLLER_BINDTYPE_AXIS ? CB_VBTN_FIRST + (e == CB_STD_R2) : sdl_index(c->gc[vp], SDL_CONTROLLER_BUTTON_INVALID);
+        CHECK(pi->std_ctl[e] == idx, "std element %d resolves to control %d (SDL says %d)", e, pi->std_ctl[e], idx);
+        if (idx >= 0) { CHECK(d->binding[idx] == want[e], "std element %d (control %d) -> action %d, got %d", e, idx, want[e], d->binding[idx]); if (want[e]) nbound++; }
+    }
+    CHECK(nbound >= 12, "at least the 12 buttons and triggers the virtual mapping covers are bound (%d)", nbound);
+    CHECK(pi->std_ctl[CB_STD_START] < 0 || d->binding[pi->std_ctl[CB_STD_START]] == CB_ACT_NONE, "Start is unbound");
+    CHECK(pi->vbtn_axis[0] == 4 && pi->vbtn_axis[1] == 5 && pi->std_ctl[CB_STD_R2] == 15, "triggers are axes 4 and 5, virtual buttons 14 and 15");
+    CHECK(d->assigned[CB_ROLE_STEER] && d->axis[CB_ROLE_STEER] == 0 && d->assigned[CB_ROLE_COMBINED] && d->axis[CB_ROLE_COMBINED] == 4 * pi->std_pedal_axis &&
+          pi->std_pedal_axis == 3 && d->combined_mode && d->dir[CB_ROLE_COMBINED] == 1, "left stick X steers, right stick Y is the combined pedals");
+    int south = pi->std_ctl[CB_STD_SOUTH];
+    d = &c->b.pad[vp].dev;
 
     /* names: no platform name for a raw axis without a controller mapping -> NULL */
     CmPlatform plat;
@@ -59,15 +95,17 @@ int main(void) {
 
     /* samples and lookups */
     SDL_Joystick *j = c->joy[vp];
-    SDL_JoystickSetVirtualButton(j, 1, 1);          /* bound to Throttle */
+    SDL_JoystickSetVirtualButton(j, south, 1);      /* A: Throttle */
     SDL_JoystickUpdate();
     CbPadSample s;
     cx_sample(c, vp, &s);
-    CHECK((s.buttons & 2) && s.pov[0] == -1, "sample: button 1 down, hat centred");
+    CHECK((s.buttons & (1u << south)) && s.pov[0] == -1, "sample: button A down, hat centred");
     CHECK(cx_action_down(c, NULL, CB_ACT_THROTTLE) && !cx_action_down(c, NULL, CB_ACT_BRAKE), "pad button -> Throttle");
     CHECK(cx_throttle(c, NULL) == 1.0f, "digital throttle");
-    SDL_JoystickSetVirtualButton(j, 1, 0);
-    SDL_JoystickSetVirtualHat(j, 0, SDL_HAT_LEFT);  /* Steering (Left) on every POV left */
+    SDL_JoystickSetVirtualButton(j, south, 0);
+    c->b.pad[vp].dev.binding[CB_BIND_BUTTONS + CB_DIR_LEFT] = CB_ACT_STEER_LEFT;    /* the virtual mapping has no D-pad hat: bind the POV by hand */
+    c->b.pad[vp].dev.binding[CB_BIND_BUTTONS + CB_DIR_RIGHT] = CB_ACT_STEER_RIGHT;
+    SDL_JoystickSetVirtualHat(j, 0, SDL_HAT_LEFT);  /* Steering (Left) */
     SDL_JoystickUpdate();
     cx_sample(c, vp, &s);
     CHECK(s.pov[0] == 27000, "hat left is 27000 centidegrees");
@@ -88,16 +126,47 @@ int main(void) {
     SDL_JoystickSetVirtualAxis(j, 0, 1000);
     SDL_JoystickUpdate();
     CHECK(cx_steer(c, NULL) == 0.0f, "inside the dead zone");
-    /* combined pedals on Rz, direction +1: negative output = throttle */
-    SDL_JoystickSetVirtualAxis(j, 5, -32768);
+    /* combined pedals on the right stick Y (axis 3), direction +1: negative output = throttle (stick up) */
+    SDL_JoystickSetVirtualAxis(j, 3, -32768);
     SDL_JoystickUpdate();
     CHECK(cx_throttle(c, NULL) > 0.99f, "combined axis pushed negative: throttle");
-    SDL_JoystickSetVirtualAxis(j, 5, 32767);
+    SDL_JoystickSetVirtualAxis(j, 3, 32767);
     SDL_JoystickUpdate();
     CHECK(cx_throttle(c, NULL) < -0.99f, "combined axis pushed positive: brake");
-    SDL_JoystickSetVirtualAxis(j, 5, 0);
+    SDL_JoystickSetVirtualAxis(j, 3, 0);
     SDL_JoystickSetVirtualAxis(j, 0, 0);
     SDL_JoystickUpdate();
+    /* the right trigger is virtual button 15: Shift Up, one edge per press */
+    CHECK(!cx_action_down(c, NULL, CB_ACT_SHIFT_UP), "trigger released: no Shift Up");
+    SDL_JoystickSetVirtualAxis(j, 5, 32767);
+    SDL_JoystickUpdate();
+    CHECK(cx_action_down(c, NULL, CB_ACT_SHIFT_UP) && !cx_action_down(c, NULL, CB_ACT_SHIFT_DOWN), "right trigger past the threshold: Shift Up held");
+    cx_sample(c, vp, &s);
+    CHECK((s.buttons & (1u << 15)) && !(s.buttons & (1u << 14)), "cx_sample reports virtual button 15 only");
+    {
+        SDL_Event te;
+        memset(&te, 0, sizeof te);
+        te.type = SDL_JOYAXISMOTION; te.jaxis.which = SDL_JoystickInstanceID(j); te.jaxis.axis = 5; te.jaxis.value = 20000;
+        CHECK(cx_joy_edges(c, &te) == (1u << CB_ACT_SHIFT_UP), "trigger press: exactly one Shift Up edge");
+        te.jaxis.value = 32767;
+        CHECK(cx_joy_edges(c, &te) == 0, "trigger still held and moving: no repeat");
+        te.jaxis.value = 0;
+        CHECK(cx_joy_edges(c, &te) == 0, "trigger released: nothing");
+        te.jaxis.value = 30000;
+        CHECK(cx_joy_edges(c, &te) == (1u << CB_ACT_SHIFT_UP), "pressed again: a second edge");
+        te.jaxis.value = 0;
+        (void)cx_joy_edges(c, &te);
+        te.jaxis.axis = 3; te.jaxis.value = 30000;
+        CHECK(cx_joy_edges(c, &te) == 0, "a stick axis is not a trigger");
+    }
+    SDL_JoystickSetVirtualAxis(j, 5, 0);
+    SDL_JoystickSetVirtualAxis(j, 4, 32767);
+    SDL_JoystickUpdate();
+    cx_sample(c, vp, &s);
+    CHECK(cx_action_down(c, NULL, CB_ACT_SHIFT_DOWN) && (s.buttons & (1u << 14)), "left trigger: Shift Down, virtual button 14");
+    SDL_JoystickSetVirtualAxis(j, 4, 0);
+    SDL_JoystickUpdate();
+    CHECK(!cx_action_down(c, NULL, CB_ACT_SHIFT_DOWN), "left trigger released");
     /* keyboard table */
     Uint8 keys[SDL_NUM_SCANCODES];
     memset(keys, 0, sizeof keys);
@@ -109,11 +178,11 @@ int main(void) {
     CHECK(cx_key_is(c, SDL_SCANCODE_ESCAPE, CB_ACT_PAUSE) && cx_key_is(c, SDL_SCANCODE_P, CB_ACT_PAUSE) && !cx_key_is(c, SDL_SCANCODE_Q, CB_ACT_PAUSE),
           "Pause is Escape and P");
     CHECK(cx_key_bound(c, SDL_SCANCODE_K) && cx_key_bound(c, SDL_SCANCODE_PERIOD) && !cx_key_bound(c, SDL_SCANCODE_G), "developer keys: K and . are bound, G is not");
-    CHECK(cx_joy_button_is(c, SDL_JoystickInstanceID(j), 1, CB_ACT_THROTTLE) && !cx_joy_button_is(c, SDL_JoystickInstanceID(j), 1, CB_ACT_PAUSE), "button event lookup");
+    CHECK(cx_joy_button_is(c, SDL_JoystickInstanceID(j), south, CB_ACT_THROTTLE) && !cx_joy_button_is(c, SDL_JoystickInstanceID(j), south, CB_ACT_PAUSE), "button event lookup");
 
     /* rebind, save, restart */
     cb_kb_capture(&c->b.kb, CB_ACT_NITROUS, 0, SDL_SCANCODE_N);
-    cb_pad_assign_control(&c->b.pad[vp].dev, CB_ACT_NITROUS, 0, 9);
+    cb_pad_assign_control(&c->b.pad[vp].dev, CB_ACT_NITROUS, 0, 1);
     for (int i = 0; i < CB_MAX_PADS; i++) if (c->joy[i] && i != vp) c->b.pad[i].present = 0;
     CHECK(cx_save(c) == 0, "save");
     cx_shutdown(c);
@@ -123,7 +192,7 @@ int main(void) {
     CHECK(vp >= 0, "the pad is found again");
     if (vp < 0) vp = 0;
     CHECK(cx_key_is(c, SDL_SCANCODE_N, CB_ACT_NITROUS) && !cx_key_is(c, SDL_SCANCODE_LALT, CB_ACT_NITROUS), "keyboard binding survives a restart");
-    CHECK(c->b.pad[vp].present && c->b.pad[vp].dev.binding[9] == CB_ACT_NITROUS && c->b.pad[vp].dev.binding[8] == CB_ACT_HYD_PRESSURE, "pad record survives a restart");
+    CHECK(c->b.pad[vp].present && c->b.pad[vp].dev.binding[1] == CB_ACT_NITROUS && c->b.pad[vp].dev.binding[7] == CB_ACT_HYD_PRESSURE, "pad record survives a restart");
 
     /* review 1: the controls store and a longer-lived store on the same INI (the graphics store) must not
      * overwrite each other's values */
@@ -244,6 +313,8 @@ int main(void) {
     memset(&ev, 0, sizeof ev);
     ev.type = SDL_JOYHATMOTION; ev.jhat.which = SDL_JoystickInstanceID(j); ev.jhat.hat = 0;
     c->b.pad[vp].dev.binding[CB_BIND_BUTTONS + CB_DIR_UP] = CB_ACT_CAMERA;
+    c->b.pad[vp].dev.binding[CB_BIND_BUTTONS + CB_DIR_LEFT] = CB_ACT_STEER_LEFT;     /* the virtual mapping has no D-pad hat */
+    c->b.pad[vp].dev.binding[CB_BIND_BUTTONS + CB_DIR_RIGHT] = CB_ACT_STEER_RIGHT;
     ev.jhat.value = SDL_HAT_UP;
     CHECK(cx_joy_edges(c, &ev) == (1u << CB_ACT_CAMERA), "POV up pressed: one edge");
     CHECK(cx_joy_edges(c, &ev) == 0, "POV still held: no repeat");

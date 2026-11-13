@@ -99,7 +99,12 @@ void cm_key_down(ControlsMenu *m, int scancode) {
 void cm_pad_frame(ControlsMenu *m, const CbPadSample *s) {
     if (!m->open || !m->capturing || cur_pad(m) < 0) return;
     CbPad *p = &m->b->pad[cur_pad(m)];
-    if (cb_pad_capture_frame(&p->dev, &m->padcap, m->rows[m->cap_row].action, m->cap_col, s, p->info.wheel))
+    int action = m->rows[m->cap_row].action;
+    CbPadSample local = *s;
+    if (action == CB_ACT_THROTTLE || action == CB_ACT_BRAKE || action == CB_ACT_STEER_LEFT || action == CB_ACT_STEER_RIGHT)
+        for (int k = 0; k < CB_VBTN_COUNT; k++)          /* a trigger pressed for a pedal row must still assign its axis, not the virtual button */
+            if (p->info.std && p->info.vbtn_axis[k] >= 0) local.buttons &= ~(1u << (CB_VBTN_FIRST + k));
+    if (cb_pad_capture_frame(&p->dev, &m->padcap, action, m->cap_col, &local, p->info.wheel))
         end_capture(m, 1);
 }
 
