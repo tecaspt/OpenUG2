@@ -24,7 +24,7 @@
 #include <time.h>
 #include <limits.h>
 #include <SDL.h>
-
+#include "platform_ios.h"
 #include "nfsu2.h"
 #include "car_mod.h"
 #include "render.h"
@@ -2284,7 +2284,7 @@ static PauseMenu *pause_menu_build(const char *dataroot, StGraphics *gfx, StGfxC
 }
 
 int main(int argc, char **argv) {
-    collide_walls_selftest();
+    N2_IOS_STARTUP_OR_FAIL(&argc, &argv) collide_walls_selftest();
     phys_selftest();
     world_ground_selftest();
     audio_selftest();
@@ -4015,7 +4015,7 @@ int main(int argc, char **argv) {
     SDL_Window *win = SDL_CreateWindow("OpenUG2",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, render_width, render_height,
         window_flags |
-        (capture_window ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE));
+        (capture_window ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE) | N2_IOS_WINDOW_FLAGS);
     if (!win) { fprintf(stderr,"window: %s\n",SDL_GetError()); return 1; }
     /* The device also sets tightly packed readback rows (odd-width captures)
        and the swap interval: audits pace explicitly, so no vsync for them. */
@@ -6629,7 +6629,7 @@ int main(int argc, char **argv) {
     /* Graphics options (SPEC_GUI): the pause menu edits these in place and writes them on Back from
      * Display. The renderer does not read them yet: see the re-init hook after pause_menu_update. */
     StGraphics opt_gfx;StGfxCaps opt_caps;StRegStore opt_store;int opt_store_open=0;
-    while (running) {
+    while (running) { N2_IOS_FRAME_GATE();
         pf_mark(PF_FRAME_TOP);
         uint32_t resident_frame_begin = SDL_GetTicks();
         Uint64 resident_frame_counter = SDL_GetPerformanceCounter();
@@ -6682,7 +6682,7 @@ int main(int argc, char **argv) {
             pause_allowed = !frontend_open;
 #endif
             int pause_key = e.type == SDL_KEYDOWN && cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_PAUSE);
-            int pause_start = (e.type == SDL_CONTROLLERBUTTONDOWN &&
+            int pause_start = N2_IOS_PAUSE_EVENT(&e) || (e.type == SDL_CONTROLLERBUTTONDOWN &&
                                e.cbutton.button == SDL_CONTROLLER_BUTTON_START) ||
                               (e.type == SDL_JOYBUTTONDOWN &&
                                cx_joy_button_is(&g_cx, e.jbutton.which, e.jbutton.button, CB_ACT_PAUSE));

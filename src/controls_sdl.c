@@ -236,8 +236,42 @@ int cx_action_down(const CxInput *c, const Uint8 *keys, int action) {
     return pad_action_down(c, action);
 }
 
+#ifdef N2_IOS
+/* Controllers connected or removed after launch (SDL also sends ADDED for pads
+ * present at startup, which are skipped because a slot already holds them). */
+static void cx_hotplug(CxInput *c, const SDL_Event *e) {
+    if (e->type == SDL_JOYDEVICEADDED) {
+        SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(e->jdevice.which);
+        for (int i = 0; i < CB_MAX_PADS; i++)
+            if (c->joy[i] && SDL_JoystickInstanceID(c->joy[i]) == id) return;
+        for (int i = 0; i < CB_MAX_PADS; i++) {
+            if (c->joy[i]) continue;
+            open_pad(c, e->jdevice.which, i);
+            if (!c->b.pad[i].present) return;
+            memset(c->hat_prev[i], 0, sizeof c->hat_prev[i]);
+            memset(c->vbtn_prev[i], 0, sizeof c->vbtn_prev[i]);
+            if (c->profile) cs_pads_load(c->profile, &c->b);
+            return;
+        }
+    } else if (e->type == SDL_JOYDEVICEREMOVED) {
+        for (int i = 0; i < CB_MAX_PADS; i++) {
+            if (!c->joy[i] || SDL_JoystickInstanceID(c->joy[i]) != e->jdevice.which) continue;
+            if (c->gc[i]) SDL_GameControllerClose(c->gc[i]);
+            SDL_JoystickClose(c->joy[i]);
+            c->gc[i] = NULL; c->joy[i] = NULL;
+            memset(&c->b.pad[i], 0, sizeof c->b.pad[i]);
+            memset(c->hat_prev[i], 0, sizeof c->hat_prev[i]);
+            memset(c->vbtn_prev[i], 0, sizeof c->vbtn_prev[i]);
+        }
+    }
+}
+#endif
+
 uint32_t cx_joy_edges(CxInput *c, const SDL_Event *e) {
     uint32_t out = 0;
+#ifdef N2_IOS
+    cx_hotplug(c, e);
+#endif
     if (e->type == SDL_JOYBUTTONDOWN) {
         for (int i = 0; i < CB_MAX_PADS; i++) {
             if (!c->joy[i] || SDL_JoystickInstanceID(c->joy[i]) != e->jbutton.which) continue;

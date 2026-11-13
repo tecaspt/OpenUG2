@@ -472,6 +472,12 @@ ai-drive-cli-test: nfsu2
 gles: $(SRC) $(HDRS) $(GEN)
 	$(CC) $(CFLAGS) -DN2_GLES $(SDL_CFLAGS) $(SRC) -o $(GAME) $(SDL_LIBS) -lGLESv2 $(UGUI_IMAGE_LIBS) -lz -lm
 
+# iOS engine build checked on a Linux host (the app itself is built by ios/project.yml).
+# -Iios/include comes first so the SHA-256 shim wins over the system openssl/sha.h.
+ios-host: $(SRC) $(HDRS) $(GEN) ios/platform_ios.c
+	@mkdir -p build
+	$(CC) -Iios/include $(CFLAGS) -DN2_GLES -DN2_IOS $(SDL_CFLAGS) $(SRC) ios/platform_ios.c -o build/nfsu2-ios-host $(SDL_LIBS) -lGLESv2 $(shell pkg-config --libs libpng) -lz -lm
+
 run: $(GAME)
 	./$(GAME) "$(DATA)"
 

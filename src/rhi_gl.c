@@ -72,6 +72,12 @@ RhiResult rhi_prepare_window(RhiBackend backend) {
 #ifdef N2_GLES
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+#ifdef N2_IOS
+    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+#endif
 #elif !defined(__APPLE__)
     /* Desktop Linux/Windows: request a GL 3.3 *compatibility* context so SDL
        creates it through (wgl/glX)CreateContextAttribs, which frame-capture
@@ -223,6 +229,9 @@ RhiResult rhi_frame_begin(RhiFrameInfo *out) {
 
 RhiResult rhi_frame_end(void) {
     if (!g_rhi.context) return RHI_ERR_INVALID;
+#ifdef N2_IOS
+    glBindRenderbuffer(GL_RENDERBUFFER, gls_main_renderbuffer());
+#endif
     SDL_GL_SwapWindow(g_rhi.window);
     g_rhi.frame_index++;
     g_rhi.in_frame = 0;
@@ -1481,7 +1490,7 @@ void rhi_viewport(int32_t viewport[4]) {
 
 RhiResult rhi_cmd_clear_main(const float color[4], float depth) {
     if (!color || !g_rhi.in_frame || g_in_pass) return RHI_ERR_INVALID;
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
     glViewport(0, 0, g_rhi.frame_w, g_rhi.frame_h);
     set_cap(GL_SCISSOR_TEST, 0);
     clear_target(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, color, depth);
@@ -1509,7 +1518,7 @@ RhiResult rhi_cmd_copy_main_to_texture(RhiTexture texture, int32_t x, int32_t y,
     if (w > frame_w - x || h > frame_h - y) return RHI_ERR_INVALID;
     GLint framebuffer;
     gls_get_integerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
-    if (framebuffer) glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (framebuffer != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
     GLint active = work_unit_bind(GL_TEXTURE_2D, t->name);
     if (t->copied_w != w || t->copied_h != h) {
         glCopyTexImage2D(GL_TEXTURE_2D, 0, t->format == RHI_FORMAT_DEPTH ? GL_DEPTH_COMPONENT : GL_RGBA,
@@ -1519,7 +1528,7 @@ RhiResult rhi_cmd_copy_main_to_texture(RhiTexture texture, int32_t x, int32_t y,
     } else glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, x, y, w, h);
     RhiResult result = glGetError() == GL_NO_ERROR ? RHI_OK : RHI_ERR_UNSUPPORTED;
     work_unit_done(active);
-    if (framebuffer) glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)framebuffer);
+    if (framebuffer != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)framebuffer);
     if (result != RHI_OK) return result;
     t->copied_w = w; t->copied_h = h;
     t->width = w; t->height = h;

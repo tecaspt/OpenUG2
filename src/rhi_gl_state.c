@@ -5,6 +5,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef N2_IOS
+#if defined(__APPLE__)
+#include <SDL_syswm.h>
+#ifndef SDL_VIDEO_DRIVER_UIKIT
+#error "N2_IOS needs SDL built with the UIKit video driver"
+#endif
+#endif
+static GLuint g_main_fbo, g_main_rb;
+GLuint gls_main_framebuffer(void) { return g_main_fbo; }
+GLuint gls_main_renderbuffer(void) { return g_main_rb; }
+#endif
 
 #if defined(__APPLE__) && !defined(N2_GLES)
 #define glBindFramebuffer glBindFramebufferEXT
@@ -55,6 +66,9 @@ static void gls_reset(SDL_GLContext ctx) {
     for (int i = 0; i < GLS_PROGRAMS; i++) drop_program(&S.prog[i]);
     memset(&S, 0, sizeof S);
     S.ctx = ctx; S.live = 1;
+#ifdef N2_IOS
+    S.framebuffer = (GLint)g_main_fbo; S.renderbuffer = (GLint)g_main_rb;
+#endif
     for (int i = 0; i < GLS_NCAPS; i++) S.enabled[i] = caps[i] == GL_DITHER;
     S.blend[0] = S.blend[2] = GL_ONE; S.blend[1] = S.blend[3] = GL_ZERO;
     S.blend_eq[0] = S.blend_eq[1] = GL_FUNC_ADD;
@@ -77,6 +91,17 @@ static GlsState *st(void) {
 SDL_GLContext glsCreateContext(SDL_Window *window) {
     SDL_GLContext ctx = SDL_GL_CreateContext(window);
     S.live = 0;
+#if defined(N2_IOS) && defined(SDL_VIDEO_DRIVER_UIKIT)
+    g_main_fbo = g_main_rb = 0;
+    if (ctx) {
+        SDL_SysWMinfo info;
+        SDL_VERSION(&info.version);
+        if (SDL_GetWindowWMInfo(window, &info) && info.subsystem == SDL_SYSWM_UIKIT) {
+            g_main_fbo = info.info.uikit.framebuffer;
+            g_main_rb = info.info.uikit.colorbuffer;
+        }
+    }
+#endif
 #if defined(_WIN32) && !defined(N2_GLES)
     if (ctx) {
         glewExperimental = GL_TRUE;

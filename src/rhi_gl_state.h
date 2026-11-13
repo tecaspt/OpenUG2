@@ -55,6 +55,17 @@ extern "C" {
 /* ---- recording shims (reached through the macros below) ---- */
 SDL_GLContext glsCreateContext(SDL_Window *window);   /* resets the tracker */
 void glsDeleteContext(SDL_GLContext ctx);
+#if defined(N2_IOS) && !defined(N2_GLES)
+#error "N2_IOS requires N2_GLES"
+#endif
+#ifdef N2_IOS
+/* iOS has no framebuffer 0: SDL's UIKit view owns the real FBO/renderbuffer. */
+GLuint gls_main_framebuffer(void);
+GLuint gls_main_renderbuffer(void);
+#define GLS_MAIN_FRAMEBUFFER gls_main_framebuffer()
+#else
+#define GLS_MAIN_FRAMEBUFFER 0
+#endif
 void glsEnable(GLenum cap);
 void glsDisable(GLenum cap);
 void glsBlendFunc(GLenum src, GLenum dst);

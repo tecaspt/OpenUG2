@@ -1,0 +1,56 @@
+# XcodeGen spec for the iOS/iPadOS app. The .xcodeproj is generated, not committed:
+#   bash ios/build-deps.sh && (cd ios && xcodegen generate)
+name: OpenUG2
+options:
+  bundleIdPrefix: com.tecaspt
+  createIntermediateGroups: true
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  OpenUG2:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    # Shared scheme: without it xcodebuild/build-ipa fail with "does not contain a
+    # scheme" on a clean checkout.
+    scheme: {}
+    sources:
+      - path: ../src
+        includes: ["*.c", "frontend/*.c", "ugui/*.c"]
+        excludes: ["rhi_vk.c", "vk_ui_stubs.c"]
+      - path: platform_ios.c
+      - path: Resources/Assets.xcassets
+      - path: Resources/PrivacyInfo.xcprivacy
+    # Written by ios/build-deps.sh (header/library paths and the SDL link line).
+    configFiles:
+      Debug: build/deps/deps.xcconfig
+      Release: build/deps/deps.xcconfig
+    settings:
+      base:
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_NAME: OpenUG2
+        PRODUCT_BUNDLE_IDENTIFIER: com.tecaspt.openug2
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        ARCHS: arm64
+        SUPPORTED_PLATFORMS: iphoneos
+        ENABLE_BITCODE: NO
+        CODE_SIGN_STYLE: Automatic
+        GCC_C_LANGUAGE_STANDARD: c99
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - N2_GLES=1
+          - N2_IOS=1
+          - GLES_SILENCE_DEPRECATION=1
+        OTHER_CFLAGS: $(inherited) -Wno-unused-function
+        # $(SRCROOT)/include holds the SHA-256 shim (no OpenSSL on iOS).
+        HEADER_SEARCH_PATHS: $(inherited) $(SRCROOT)/include
+        USE_HEADERMAP: NO
+        VERSIONING_SYSTEM: apple-generic
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.0"
+      configs:
+        Release:
+          GCC_OPTIMIZATION_LEVEL: "2"
