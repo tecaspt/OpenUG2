@@ -32,6 +32,9 @@ int gv_texture(const UgAssets *a, uint32_t key);
 /* Language text for a label key; `fallback` (the English text of the key) when the table lacks it. */
 const char *gv_text(const UgAssets *a, uint32_t key, const char *fallback);
 
+/* Platform adaptation shared by FE/results; centred canvas coordinates. */
+void gv_touch_back(UgCanvas *, const UgAssets *);
+
 /* ---- one loaded package ---------------------------------------------------------------------- */
 /* An anchor ("master") object sampled once when the screen is created, before any script of the
  * freshly loaded package has run: its authored (stored) centre and size (AMEND1 A6). Never re-read. */
@@ -138,6 +141,11 @@ int gv_list_bind(GvList *v, GvScreen *s, const OptionsMenu *m);
 /* Writes the menu state into the objects (placement, text, sliders, focus scripts, scrollbar, dim,
  * exit). dt_ms advances the highlight fade-out bookkeeping. */
 void gv_list_sync(GvList *v, const OptionsMenu *m, float dt_ms);
+
+/* General application list. Text pointers must survive until the next sync/draw. */
+typedef struct GvListRow { const char *label, *value; int enabled; } GvListRow;
+int gv_list_bind_rows(GvList *, GvScreen *);
+void gv_list_sync_rows(GvList *, const GvListRow *, int count, int focus, float dt_ms);
 
 /* ---- Controls (UI_Options_PC_Controller) -------------------------------------------------------- */
 #define GV_CTL_SLOTS 20          /* option_name_n / OPTION_DATA_n / OPTION_DATA_2_n / Options_Backing_n, n = 1..20 */

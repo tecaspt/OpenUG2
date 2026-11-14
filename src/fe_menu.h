@@ -29,6 +29,8 @@ void fem_destroy(FeMenu *m);
 /* Opens (or switches to) a screen; FEM_SCR_NONE closes. */
 void fem_open(FeMenu *m, FemScreen screen);
 void fem_close(FeMenu *m);
+/* Reopens QR_TRACK and exposes the launch failure through fem_status(). */
+void fem_show_error(FeMenu *m, const char *message);
 int fem_is_open(const FeMenu *m);
 FemScreen fem_screen(const FeMenu *m);
 /* The car and track the world currently shows (NUL-terminated names; NULL leaves one unchanged). */
@@ -45,6 +47,24 @@ const char *fem_preview_car(const FeMenu *m);
 int fem_visual_available(const FeMenu *m);
 const char *fem_status(const FeMenu *m);
 
+/* Shared Phase-2 model and renderer adapters (no host/world ownership). */
+#include "game_catalog.h"
+#include "gui_view.h"
+typedef struct FeChoice {
+    const GameCatalog *cat;
+    int kind, event_index, car_index, laps, difficulty, option, options_page;
+    int event_indices[GC_MAX_EVENTS], nevents;
+    int cars[64], ncars, selected;
+    float preview_wait;
+    char preview[32], label[96], laps_text[16], distance[32];
+    GvList list;
+} FeChoice;
+int fet_open(FeChoice *, GvScreen *, const UgAssets *, int options);
+void fet_sync(FeChoice *, GvScreen *, float ms, int options);
+void fet_move(FeChoice *, int direction, int vertical, int options);
+int fec_open(FeChoice *, GvScreen *, const UgAssets *);
+void fec_sync(FeChoice *, GvScreen *, float seconds);
+void fec_move(FeChoice *, int direction);
 #ifdef __cplusplus
 }
 #endif
