@@ -221,6 +221,25 @@ static int assets_open(UgAssets *a, const char *dir, const char *language, char 
         if (load_first(a, COMMON, 2, "GLOBAL/InGameCommon", &b, used, sizeof used)) walk_file(a, &b, used, 0);
     }
 
+    if(ingame) {
+        /* Three race bundles share one retained buffer, staying within files[8].
+         * Texture records borrow their compressed pixel bytes until assets_close. */
+        UgBuf race={0};
+        const char *names[]={"InGameRace","InGameDrag","InGameDrift"};
+        for(int i=0;i<3;i++) {
+            char lzc[80],bun[80];
+            snprintf(lzc,sizeof lzc,"GLOBAL/%s.lzc",names[i]);
+            snprintf(bun,sizeof bun,"GLOBAL/%s.bun",names[i]);
+            const char *paths[]={lzc,bun};
+            if(load_first(a,paths,2,bun,&b,used,sizeof used)) {
+                uint8_t *bytes=realloc(race.data,race.len+b.len);
+                if(bytes){race.data=bytes;memcpy(race.data+race.len,b.data,b.len);race.len+=b.len;}
+                else logf_(a,"warning: race package allocation failed: %s\n",bun,0);
+                ug_buf_free(&b);
+            }
+        }
+        if(race.len)walk_file(a,&race,"GLOBAL/InGameRace+Drag+Drift",0);
+    }
     ug_texlib_index(&a->tex);
     for (int i = 0; i < a->nface; i++) {
         UgFace *f = &a->face[i];
