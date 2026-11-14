@@ -29,7 +29,13 @@ typedef struct TcTouch {
     int used;
     int64_t id;      /* SDL finger id, or -1 for the mouse */
     int btn;         /* the button the touch is over now, -1 for none */
+    float sx, sy;    /* where it landed (height units), for the two-finger tap */
 } TcTouch;
+
+/* Two-finger tap = pause: exactly two fingers, both landing off the visible buttons, none moving more than
+ * TC_TAP_SLOP, all lifted within TC_TAP_MS of the first landing. The fingers need not land in the same frame. */
+#define TC_TAP_MS   350u
+#define TC_TAP_SLOP 0.04f
 
 typedef struct TouchControls {
     int enabled, active, accept_mouse;
@@ -38,6 +44,8 @@ typedef struct TouchControls {
     float aspect;
     int win_w, win_h;                /* fallback pixel size for mouse events */
     TcTouch touch[TC_MAX_TOUCHES];
+    uint32_t tap_t0;                 /* two-finger tap gesture in progress (see TC_TAP_MS) */
+    int tap_max, tap_spoiled;
 } TouchControls;
 
 /* enabled 0 = never shows, never reports. start_active: shown before the first touch. */
@@ -47,7 +55,7 @@ void tc_set_frame(TouchControls *t, int suppressed, unsigned ctx, float aspect);
 /* Pixel size used to normalise mouse events that carry no usable window. */
 void tc_set_window_size(TouchControls *t, int w, int h);
 /* Feeds one event; returns the press-edge CbAction bits (CAMERA, STEER_L/R, SHIFT_UP/DOWN in the drag context,
- * ENTER_RACE in the outrun context; PAUSE on a finger lifting inside the button). */
+ * ENTER_RACE in the outrun context; PAUSE on a finger lifting inside the button, or at the end of a two-finger tap). */
 uint32_t tc_event(TouchControls *t, const SDL_Event *e);
 /* CbAction bits of the buttons held now (PAUSE is never held). */
 uint32_t tc_held(const TouchControls *t);

@@ -26,8 +26,6 @@ static const char *const k_required[] = {
 #define N_REQUIRED ((int)(sizeof k_required / sizeof k_required[0]))
 
 static SDL_atomic_t g_background;
-static SDL_atomic_t g_fingers;
-static SDL_atomic_t g_pause_pending;
 
 static int ios_event_watch(void *ud, SDL_Event *e) {
     (void)ud;
@@ -38,13 +36,6 @@ static int ios_event_watch(void *ud, SDL_Event *e) {
         break;
     case SDL_APP_DIDENTERFOREGROUND:
         SDL_AtomicSet(&g_background, 0);
-        SDL_AtomicSet(&g_fingers, 0);
-        break;
-    case SDL_FINGERDOWN:
-        if (SDL_AtomicAdd(&g_fingers, 1) + 1 == 2) SDL_AtomicSet(&g_pause_pending, 1);
-        break;
-    case SDL_FINGERUP:
-        if (SDL_AtomicAdd(&g_fingers, -1) <= 0) SDL_AtomicSet(&g_fingers, 0);
         break;
     default:
         break;
@@ -54,14 +45,6 @@ static int ios_event_watch(void *ud, SDL_Event *e) {
 
 void n2_ios_frame_gate(void) {
     while (SDL_AtomicGet(&g_background)) { SDL_PumpEvents(); SDL_Delay(50); }
-}
-
-int n2_ios_pause_event(const SDL_Event *e) {
-    if (e->type == SDL_FINGERDOWN && SDL_AtomicGet(&g_pause_pending)) {
-        SDL_AtomicSet(&g_pause_pending, 0);
-        return 1;
-    }
-    return 0;
 }
 
 static int copy_str(char *dst, size_t cap, const char *src) {

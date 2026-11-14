@@ -19,6 +19,8 @@ void uf_end(UiFlat *u);
 void uf_color(UiFlat *u, float r, float g, float b, float a);
 void uf_rect(UiFlat *u, float x, float y, float w, float h);
 void uf_circle(UiFlat *u, float cx, float cy, float r);
+/* Outline circle: band from radius r - width to r. */
+void uf_ring(UiFlat *u, float cx, float cy, float r, float width);
 void uf_triangle(UiFlat *u, float x0, float y0, float x1, float y1, float x2, float y2);
 
 #ifdef __cplusplus

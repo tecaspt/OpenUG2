@@ -56,7 +56,7 @@ GUI_ART_HDR := $(wildcard src/gui_*.h) src/pause_entries.h src/pause_screen.h sr
 HDRS += src/ug2_track_collision.h src/drivetrain.h src/braking.h src/resistance.h src/lateral.h src/drive_stage1.h src/contact.h src/body_response.h src/tire_marks.h src/tire_marks_drive.h
 HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
-SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c
+SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
@@ -941,6 +941,29 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
+# M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
+SCREENS_TEST_SRC = src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_track_test.c src/fe_track.c src/fe_car.c -Wl,--gc-sections -o build/fe_track_test
+	./build/fe_track_test
+postrace-test: tools/postrace_test.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_test.c $(SCREENS_TEST_SRC) -o build/postrace_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/postrace_test
+fe-binding-test: tools/fe_binding_test.c src/fe_binding.h
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -Wextra -Werror -Isrc tools/fe_binding_test.c -o build/fe_binding_test
+	./build/fe_binding_test
+# Retail-data checks (need DATA / OPENUG2_DATA; not part of the data-free unit gate)
+fe-binding-check: tools/fe_binding_check.c src/fe_binding.h
+	@mkdir -p build
+	$(CC) -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Isrc tools/fe_binding_check.c src/ugui/ugui_bundle.c src/ugui/ugui_codec.c src/ugui/ugui_fng.c src/ugui/ugui_util.c src/ugui/ugui_anim.c -lm -o build/fe_binding_check
+	./build/fe_binding_check
+fe-screens-check: tools/fe_screens_check.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build/fe-screens
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_screens_check.c $(SCREENS_TEST_SRC) -o build/fe_screens_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	SDL_VIDEODRIVER=offscreen ./build/fe_screens_check "$(OPENUG2_DATA)" build/fe-screens
 game-flow-test: tools/game_flow_test.c src/game_flow.c src/pause_entries.c $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/game_flow_test.c src/game_flow.c src/pause_entries.c -o build/game_flow_test

@@ -16,7 +16,7 @@ static const TcSpec TC_SPEC[TC_COUNT] = {
     [TC_BRAKE]      = { 1, 0.45f, 0.83f, 0.11f, CB_ACT_BRAKE },
     [TC_NOS]        = { 1, 0.15f, 0.50f, 0.09f, CB_ACT_NITROUS },
     [TC_HANDBRAKE]  = { 1, 0.42f, 0.55f, 0.08f, CB_ACT_HANDBRAKE },
-    [TC_CAMERA]     = { 0, 0.10f, 0.12f, 0.07f, CB_ACT_CAMERA },
+    [TC_CAMERA]     = { 2, 0.16f, 0.07f, 0.06f, CB_ACT_CAMERA },
     [TC_PAUSE]      = { 2, 0.00f, 0.07f, 0.06f, CB_ACT_PAUSE },
     [TC_SHIFT_UP]   = { 1, 0.15f, 0.30f, 0.08f, CB_ACT_SHIFT_UP },
     [TC_SHIFT_DOWN] = { 1, 0.35f, 0.30f, 0.08f, CB_ACT_SHIFT_DOWN },
@@ -38,7 +38,7 @@ void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r) 
     float inset = 0.05f * W;
     if (btn < 0 || btn >= TC_COUNT) { if (cx) *cx = 0; if (cy) *cy = 0; if (r) *r = 0; return; }
     const TcSpec *s = &TC_SPEC[btn];
-    float x = s->anchor == 0 ? inset + s->dx : s->anchor == 1 ? W - inset - s->dx : W * 0.5f;
+    float x = s->anchor == 0 ? inset + s->dx : s->anchor == 1 ? W - inset - s->dx : W * 0.5f + s->dx;
     if (cx) *cx = x;
     if (cy) *cy = s->y;
     if (r) *r = s->r;
@@ -52,7 +52,7 @@ static int tc_btn_enabled(const TouchControls *t, int b) {
 
 int tc_visible(const TouchControls *t) { return t->enabled && t->active && !t->suppressed; }
 
-static void tc_release_all(TouchControls *t) { memset(t->touch, 0, sizeof t->touch); }
+static void tc_release_all(TouchControls *t) { memset(t->touch, 0, sizeof t->touch); t->tap_max = 0; t->tap_spoiled = 1; }
 
 /* Number of touches over a button. */
 static int tc_count(const TouchControls *t, int b) {
@@ -108,25 +108,40 @@ static uint32_t tc_move_to(TouchControls *t, TcTouch *tt, int nb) {
     return first ? tc_edge_bit(nb) : 0;
 }
 
-static uint32_t tc_down(TouchControls *t, int64_t id, float nx, float ny) {
+static int tc_touches(const TouchControls *t) {
+    int n = 0;
+    for (int i = 0; i < TC_MAX_TOUCHES; i++) n += t->touch[i].used != 0;
+    return n;
+}
+
+static uint32_t tc_down(TouchControls *t, int64_t id, float nx, float ny, uint32_t ms) {
+    int was_visible = tc_visible(t);
     t->active = 1;
     if (t->suppressed) return 0;
     TcTouch *tt = tc_find(t, id);
     if (!tt) {
         for (int i = 0; i < TC_MAX_TOUCHES; i++) if (!t->touch[i].used) { tt = &t->touch[i]; break; }
         if (!tt) return 0;
+        if (tc_touches(t) == 0) { t->tap_t0 = ms; t->tap_max = 0; t->tap_spoiled = 0; }
         tt->used = 1; tt->id = id; tt->btn = -1;
+        tt->sx = nx * t->aspect; tt->sy = ny;
     }
-    return tc_move_to(t, tt, tc_hit(t, nx * t->aspect, ny));
+    int hit = tc_hit(t, nx * t->aspect, ny);
+    int n = tc_touches(t);
+    if (n > t->tap_max) t->tap_max = n;
+    if ((was_visible && hit >= 0) || id == TC_MOUSE_ID || n > 2 || ms - t->tap_t0 > TC_TAP_MS) t->tap_spoiled = 1;
+    return tc_move_to(t, tt, hit);
 }
 
 static uint32_t tc_motion(TouchControls *t, int64_t id, float nx, float ny) {
     TcTouch *tt = tc_find(t, id);
     if (!tt || t->suppressed) return 0;
+    float dx = nx * t->aspect - tt->sx, dy = ny - tt->sy;
+    if (dx * dx + dy * dy > TC_TAP_SLOP * TC_TAP_SLOP) t->tap_spoiled = 1;
     return tc_move_to(t, tt, tc_hit(t, nx * t->aspect, ny));
 }
 
-static uint32_t tc_up(TouchControls *t, int64_t id, float nx, float ny) {
+static uint32_t tc_up(TouchControls *t, int64_t id, float nx, float ny, uint32_t ms) {
     TcTouch *tt = tc_find(t, id);
     if (!tt) return 0;
     uint32_t edge = 0;
@@ -134,6 +149,11 @@ static uint32_t tc_up(TouchControls *t, int64_t id, float nx, float ny) {
     if (b == TC_PAUSE && tc_hit(t, nx * t->aspect, ny) == TC_PAUSE && tc_count(t, TC_PAUSE) == 1)
         edge = 1u << CB_ACT_PAUSE;
     memset(tt, 0, sizeof *tt);
+    if (tc_touches(t) == 0) {
+        if (!t->suppressed && !t->tap_spoiled && t->tap_max == 2 && ms - t->tap_t0 <= TC_TAP_MS)
+            edge |= 1u << CB_ACT_PAUSE;
+        t->tap_max = 0; t->tap_spoiled = 1;
+    }
     return edge;
 }
 
@@ -154,13 +174,13 @@ uint32_t tc_event(TouchControls *t, const SDL_Event *e) {
     if (!t->enabled) return 0;
     float nx, ny;
     switch (e->type) {
-    case SDL_FINGERDOWN: return tc_down(t, (int64_t)e->tfinger.fingerId, e->tfinger.x, e->tfinger.y);
+    case SDL_FINGERDOWN: return tc_down(t, (int64_t)e->tfinger.fingerId, e->tfinger.x, e->tfinger.y, e->tfinger.timestamp);
     case SDL_FINGERMOTION: return tc_motion(t, (int64_t)e->tfinger.fingerId, e->tfinger.x, e->tfinger.y);
-    case SDL_FINGERUP: return tc_up(t, (int64_t)e->tfinger.fingerId, e->tfinger.x, e->tfinger.y);
+    case SDL_FINGERUP: return tc_up(t, (int64_t)e->tfinger.fingerId, e->tfinger.x, e->tfinger.y, e->tfinger.timestamp);
     case SDL_MOUSEBUTTONDOWN:
         if (!t->accept_mouse || e->button.button != SDL_BUTTON_LEFT) return 0;
         if (!tc_mouse_norm(t, e->button.windowID, e->button.x, e->button.y, &nx, &ny)) { t->active = 1; return 0; }
-        return tc_down(t, TC_MOUSE_ID, nx, ny);
+        return tc_down(t, TC_MOUSE_ID, nx, ny, e->button.timestamp);
     case SDL_MOUSEMOTION:
         if (!t->accept_mouse || !(e->motion.state & SDL_BUTTON_LMASK)) return 0;
         if (!tc_mouse_norm(t, e->motion.windowID, e->motion.x, e->motion.y, &nx, &ny)) return 0;
@@ -168,7 +188,7 @@ uint32_t tc_event(TouchControls *t, const SDL_Event *e) {
     case SDL_MOUSEBUTTONUP:
         if (!t->accept_mouse || e->button.button != SDL_BUTTON_LEFT) return 0;
         if (!tc_mouse_norm(t, e->button.windowID, e->button.x, e->button.y, &nx, &ny)) { tc_release_all(t); return 0; }
-        return tc_up(t, TC_MOUSE_ID, nx, ny);
+        return tc_up(t, TC_MOUSE_ID, nx, ny, e->button.timestamp);
     case SDL_KEYDOWN:
     case SDL_JOYBUTTONDOWN:
     case SDL_CONTROLLERBUTTONDOWN:
@@ -226,10 +246,13 @@ void tc_draw(const TouchControls *t, UiFlat *uf, int w, int h) {
         float cx, cy, r;
         tc_layout(t, b, &cx, &cy, &r);
         float px = cx * (float)h, py = cy * (float)h, pr = r * (float)h;
-        float a = tc_count(t, b) > 0 ? 0.55f : 0.35f;
-        uf_color(uf, 1.0f, 1.0f, 1.0f, a);
+        int held = tc_count(t, b) > 0;
+        /* Faint fill, solid rim and a light glyph: the HUD gauges under the thumbs stay readable. */
+        uf_color(uf, 1.0f, 1.0f, 1.0f, held ? 0.30f : 0.08f);
         uf_circle(uf, px, py, pr);
-        uf_color(uf, 0.05f, 0.05f, 0.05f, a + 0.2f);
+        uf_color(uf, 1.0f, 1.0f, 1.0f, held ? 0.85f : 0.55f);
+        uf_ring(uf, px, py, pr, pr * 0.07f + 1.0f);
+        uf_color(uf, 1.0f, 1.0f, 1.0f, held ? 0.90f : 0.60f);
         tc_icon(uf, b, px, py, pr);
     }
     uf_end(uf);

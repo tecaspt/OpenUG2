@@ -31,7 +31,7 @@ Legend: DONE · ACTIVE · NEXT · LATER. "Engine today" summarises what exists b
 | M6 | Career core | LATER | New/load career, race entry markers, SMS, money, reputation, stages/unlocks, sponsors, world map, shops/crib/car lot, magazines/DVD, hidden races, career save. Outruns work but give no reward. |
 | M7 | Race-mode parity | LATER | All six race types run; missing URL tournaments/points, final drift scoring, drag shift-quality feedback, Lap KO, opponents/traffic/catch-up options, reverse direction, rewards; laps from data. |
 | M8 | Audio | LATER | Engine audio works; SFX procedural (not retail); music/EA Trax, front-end music and speech missing. |
-| M9 | HUD parity | LATER | Speedo/tach, position/laps/time, drag/drift HUDs, race map, GPS arrow work; minimap zoom-with-speed, reputation, cash/SMS icons, NOS gauge (general), loading screens missing or partial. |
+| M9 | HUD parity | ACTIVE (branch `parity/m9-hud`) | Speedo/tach, position/laps/time, drag/drift HUDs, race map, GPS arrow work; minimap zoom-with-speed, reputation, cash/SMS icons, NOS gauge (general), loading screens missing or partial. |
 | M10 | Replay | LATER | Missing; pause "Replay" entry always disabled. |
 
 Evidence (file:line) for every row is in [M1-PLAN.md](M1-PLAN.md) §(a) and §(b).
@@ -46,12 +46,12 @@ One owner per file; units integrate only through the frozen API in M1-PLAN.md §
 | U3 game flow + input script | `src/game_flow.{c,h}`, `src/input_script.{c,h}`, tests | DONE 4818617 — 252/0, 48/0 |
 | U4 touch overlay | `src/touch_controls.{c,h}`, `src/ui_flat.{c,h}`, `src/controls_sdl.{c,h}`, test | DONE 9069f0a — 291/0 (drawing not yet rendered) |
 | U1 front-end carousel + menu | `src/fe_entries.*`, `src/fe_screen.*`, `src/fe_menu.*`, test | DONE c832017 — fe_screen_test PASS; retail UI_Main/QR mode/loading render |
-| R1 screen-binding research | `docs/cleanroom-settings/SPEC_GUI_FE.md`, `src/fe_binding.h` | task B (branch `parity/m1-screens`) |
-| U5 track select | `src/fe_track.c`, `src/gui_view.{c,h}` | task B |
-| U6 car select | `src/fe_car.c` | task B |
-| U7 post-race | `src/postrace.{c,h}`, `src/ugui/ugui_assets.c` | task B |
+| R1 screen-binding research | `docs/cleanroom-settings/SPEC_GUI_FE.md`, `src/fe_binding.h` | DONE (task B, merged 7d7fdba) |
+| U5 track select | `src/fe_track.c`, `src/gui_view.{c,h}` | DONE (task B) — track name shows the event number when no name string is found |
+| U6 car select | `src/fe_car.c` | DONE (task B) — thumbnails blank (pool assignment unknown) |
+| U7 post-race | `src/postrace.{c,h}`, `src/ugui/ugui_assets.c` | DONE (task B) |
 | Integration (Phase-1 part) | `src/main.c`, `Makefile` | DONE af10545 — menu on bare launch, Quick Race→race, pause Restart/Quit to menu, Free Run, touch overlay, `--input-script`; gate passed (see CHANGELOG) |
-| Integration (Phase-2 part) | `src/main.c` | after task B: post-race wiring (marked `/* M1 Phase 2: */`) |
+| Integration (Phase-2 part) | `src/main.c`, `Makefile` | DONE a6b5c81 — gate: 91/91 tests, xvfb 4/4, drive + shots identical, S1/S2/S3 + S4 (finish -> results -> restart) pass |
 
 M1 gate (all must pass): full test suite; new unit tests wired into the Makefile; invariance checks above;
 scripted end-to-end scenarios S1–S3 from M1-PLAN.md (menu on bare launch; Quick Race drag 4201 with track and car

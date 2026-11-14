@@ -66,6 +66,7 @@
 #include "touch_controls.h"
 #include "ui_flat.h"
 #include "fe_menu.h"
+#include "postrace.h"
 
 static TouchControls g_touch;            /* on-screen touch overlay (touch_controls.h) */
 static InputScript g_script;             /* --input-script events (~100 KB, so static) */
@@ -2289,6 +2290,32 @@ static PauseMenu *pause_menu_build(const char *dataroot, StGraphics *gfx, StGfxC
     return pm;
 }
 
+/* M1: a bare launch opens the retail front end. Options that only change settings or presentation keep
+   it; any other option (captures, audits, census/probe/dump tools, --frames runs, explicit starts) means
+   the caller wants the old direct path, so it must not be greeted by a menu. Values never start with
+   "--", so scanning for "--" tokens is enough. */
+static int direct_launch_requested(int argc, char **argv) {
+    static const char *const settings[] = {
+        "--path", "--resolution", "--menu", "--no-menu", "--touch", "--no-touch", "--input-script", "--laps",
+        "--rendermode", "--vinyl", "--texture-detail", "--vehicle-quality", "--no-paint-shine", "--world-cull-off",
+        "--road-reflections", "--no-road-reflections", "--weather-quality", "--rain", "--wetness", "--daylight", "--sky",
+        "--camera", "--projection", "--chase", "--devui", "--collision-walls", "--collision-source", "--tier",
+        "--tex-overrides", "--no-tex-overrides", "--tex-override-budget", "--traffic-cull-off", "--traffic",
+        "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
+        "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
+        "--hud-nos-glow", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime",
+    };
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--", 2)) continue;
+        int known = 0;
+        for (size_t k = 0; k < sizeof settings / sizeof settings[0]; k++)
+            if (!strcmp(argv[i], settings[k])) { known = 1; break; }
+        if (!known) return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     N2_IOS_STARTUP_OR_FAIL(&argc, &argv) collide_walls_selftest();
     phys_selftest();
@@ -2913,9 +2940,10 @@ int main(int argc, char **argv) {
     }
     if (chase_d > 0.0f) { g_dbg.chase_distance = chase_d; g_dbg.chase_height = chase_h; }
     /* Bare launch = retail front end; every test, capture and explicit-start path stays direct. */
-    int fe_enabled = !no_menu && (force_menu || !(shot || sshot || raudit || daudit || want_event_id || track_explicit ||
+    int fe_enabled = !no_menu && (force_menu || (!direct_launch_requested(argc, argv) &&
+        !(shot || sshot || raudit || daudit || want_event_id || track_explicit ||
         car_explicit || explicit_circuit || resident_route_audit || resident_drive_audit || ai_drive_audit || poseshot ||
-        follow_roam_ai || pause_shot || instance_audit));
+        follow_roam_ai || pause_shot || instance_audit)));
     if (script_spec) {
         char serr[160];
         if (!is_parse(&g_script, script_spec, serr, sizeof serr)) {
@@ -6507,7 +6535,7 @@ int main(int argc, char **argv) {
         }
     }
     gf_init(&gflow, fe_enabled);
-    /* M1 Phase 2: pr_create() (post-race screen) plugs in here. */
+    PostRace *post = fe_enabled ? pr_create(dataroot) : NULL;   /* retail post-race results (M1) */
     if(g_stage1_requested && !g_stage1.ready) {
         fprintf(stderr,"--drivetrain requires a loaded car with valid stock tuning\n");return 2;
     }
@@ -6680,8 +6708,7 @@ int main(int argc, char **argv) {
         sim_counter=resident_frame_counter;
         float frame_scale=deterministic_sim?1:(float)fmin(frame_seconds*PHYS_TICKRATE,8);
         int sim_reset=0,presentation_snap=0;
-        int pause_frame = pause_menu_is_open(pause_menu) || (fem && fem_is_open(fem));
-        /* M1 Phase 2: || pr_is_open(post) */
+        int pause_frame = pause_menu_is_open(pause_menu) || (fem && fem_is_open(fem)) || pr_is_open(post);
         static long script_frame = 0; const long sf = script_frame++;
         if (script_spec && is_quit(&g_script, sf)) running = 0;
         if (retired_resident) {
@@ -6748,13 +6775,12 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) { running = 0; continue; }
             uint32_t pad_edge = cx_joy_edges(&g_cx, &e);   /* every event, so hat state stays current while paused */
-            int tc_was_visible = tc_visible(&g_touch);   /* before this event: a finger-down itself shows the overlay */
             uint32_t touch_edge = tc_event(&g_touch, &e);
             pad_edge |= touch_edge;
-            int pause_allowed = !(fem && fem_is_open(fem));   /* M1 Phase 2: && !pr_is_open(post) */
+            int pause_allowed = !(fem && fem_is_open(fem)) && !pr_is_open(post);
             int pause_key = e.type == SDL_KEYDOWN && cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_PAUSE);
-            int ios_p = N2_IOS_PAUSE_EVENT(&e);
-            int pause_start = (ios_p && !tc_was_visible) || (int)((touch_edge >> CB_ACT_PAUSE) & 1u) ||
+            /* Touch pause: the overlay button or a two-finger tap off the buttons (touch_controls.c). */
+            int pause_start = (int)((touch_edge >> CB_ACT_PAUSE) & 1u) ||
                               (e.type == SDL_CONTROLLERBUTTONDOWN &&
                                e.cbutton.button == SDL_CONTROLLER_BUTTON_START) ||
                               (e.type == SDL_JOYBUTTONDOWN &&
@@ -6788,8 +6814,8 @@ int main(int argc, char **argv) {
                 pause_menu_event(pause_menu, &e, win);
                 continue;
             }
+            if (pr_is_open(post)) { pr_event(post, &e, win); continue; }
             if (fem && fem_is_open(fem)) { fem_event(fem, &e, win); continue; }
-            /* M1 Phase 2: if (pr_is_open(post)) { pr_event(post, &e, win); continue; } */
             if (pause_frame) continue;
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_1 &&
                 !e.key.repeat && !cx_key_bound(&g_cx, (int)e.key.keysym.scancode)) {   /* a binding wins over the overlay key */
@@ -7081,7 +7107,14 @@ int main(int argc, char **argv) {
             /* Front end -> game flow -> engine commands (PLAN-M1 point 17). */
             fem_set_current(fem, carname, trackname);
             FemRequest frq = fem_update(fem, (float)fmin(frame_seconds, .1));
-            /* M1 Phase 2: PostRace pr_update() actions (RESTART / CONTINUE / QUIT_MAIN) feed gf here. */
+            /* Car Select preview: a frozen-world car switch, not a launch (fem debounces it). */
+            const char *preview = fem_preview_car(fem);
+            if (preview && preview[0] && strcmp(preview, carname)) {
+                int idx = -1;
+                for (int k = 0; k < ncars; k++) if (!strcmp(carlist[k], preview)) idx = k;
+                if (idx >= 0) { vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); pending_car = idx; }
+                else fprintf(stderr, "fe: preview car %s unavailable\n", preview);
+            }
             if (frq.kind == FEM_REQ_QUIT) running = 0;
             else if (frq.kind == FEM_REQ_QUICK_RACE || frq.kind == FEM_REQ_FREE_RUN) {
                 GfLaunch gl; memset(&gl, 0, sizeof gl);
@@ -7093,6 +7126,14 @@ int main(int argc, char **argv) {
                 printf("fe: launch %s event %d track %s car %s\n", gl.free_run ? "free run" : "quick race",
                        gl.event_id, gl.track, gl.car);
                 gf_start(&gflow, &gl);
+            }
+        }
+        if (post) {   /* post-race results -> game flow */
+            switch (pr_update(post, (float)fmin(frame_seconds, .1))) {
+            case PR_ACT_RESTART: gf_pause_action(&gflow, FE_ACTION_RESTART); break;
+            case PR_ACT_QUIT_MAIN: gf_pause_action(&gflow, FE_ACTION_QUIT); break;
+            case PR_ACT_CONTINUE: if (fem) fem_open(fem, FEM_SCR_MAIN); break;
+            default: break;
             }
         }
         if (gflow.enabled) {
@@ -7141,20 +7182,28 @@ int main(int argc, char **argv) {
                 sim_reset = 1;
                 break;
             case GF_CMD_OPEN_MAIN:
+                /* Leaving a race or free run: the car must not keep rolling into the next session. */
+                vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); sim_reset = 1;
                 if (fem) fem_open(fem, FEM_SCR_MAIN);
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
             case GF_CMD_OPEN_RESULTS:
-                /* M1 Phase 2: pr_open(post, &info) goes here. Until the post-race screen exists: back to Main. */
-                printf("results: screen not available (Phase 2)\n");
-                if (fem) fem_open(fem, FEM_SCR_MAIN);
+                if (post) {
+                    PostRaceInfo info; memset(&info, 0, sizeof info);
+                    info.event_id = gh.race_event_id; info.kind = world.city.race.kind;
+                    info.finish_place = gh.finish_place; info.failed = gh.race_failed; info.seconds = gh.race_seconds;
+                    snprintf(info.car, sizeof info.car, "%s", carname);
+                    if (fem) fem_close(fem);
+                    pr_open(post, &info);
+                    printf("results: event %d place %d failed %d %.2fs\n", info.event_id, info.finish_place, info.failed, info.seconds);
+                    if (pr_status(post)[0]) fprintf(stderr, "results: %s\n", pr_status(post));
+                } else if (fem) fem_open(fem, FEM_SCR_MAIN);
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
             case GF_CMD_ERROR:
                 fprintf(stderr, "fe: launch failed: %s\n", gcmd.message);
-                /* M1 Phase 2: reopen FEM_SCR_QR_TRACK with the message. Until then: Main Menu. */
                 if (world.city.race.active) g_dbg.race_stop_request = 1;
-                if (fem) fem_open(fem, FEM_SCR_MAIN);
+                if (fem) fem_show_error(fem, gcmd.message);   /* back to Track Select with the reason */
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
             case GF_CMD_NONE: default: break;
@@ -12334,9 +12383,9 @@ int main(int argc, char **argv) {
         {   /* overlays: touch controls (hidden while a menu is open), then the front end / pause menu on top */
             int32_t ow, oh;
             rhi_drawable_size(&ow, &oh);
-            if (uflat && !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem))) tc_draw(&g_touch, uflat, ow, oh);
+            if (uflat && !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem)) && !pr_is_open(post)) tc_draw(&g_touch, uflat, ow, oh);
             if (fem && fem_is_open(fem)) fem_draw(fem, ow, oh);
-            /* M1 Phase 2: if (pr_is_open(post)) pr_draw(post, ow, oh); */
+            if (pr_is_open(post)) pr_draw(post, ow, oh);
         }
         if (pause_menu_is_open(pause_menu)) {
             int32_t pw, ph;
@@ -12387,6 +12436,7 @@ int main(int argc, char **argv) {
     if(drive_trace_file && fclose(drive_trace_file))
         fprintf(stderr,"Driving trace close failed: %s\n",drive_trace_path);
     pause_menu_destroy(pause_menu);
+    pr_destroy(post);
     fem_destroy(fem);
     uf_destroy(uflat);
     if (opt_store_open) st_reg_close(&opt_store);
