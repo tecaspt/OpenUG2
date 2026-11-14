@@ -46,11 +46,12 @@ One owner per file; units integrate only through the frozen API in M1-PLAN.md §
 | U3 game flow + input script | `src/game_flow.{c,h}`, `src/input_script.{c,h}`, tests | DONE 4818617 — 252/0, 48/0 |
 | U4 touch overlay | `src/touch_controls.{c,h}`, `src/ui_flat.{c,h}`, `src/controls_sdl.{c,h}`, test | DONE 9069f0a — 291/0 (drawing not yet rendered) |
 | U1 front-end carousel + menu | `src/fe_entries.*`, `src/fe_screen.*`, `src/fe_menu.*`, test | DONE c832017 — fe_screen_test PASS; retail UI_Main/QR mode/loading render |
-| R1 screen-binding research | `docs/cleanroom-settings/SPEC_GUI_FE.md`, `src/fe_binding.h` | in progress |
-| U5 track select | `src/fe_track.c`, `src/gui_view.{c,h}` | after R1 |
-| U6 car select | `src/fe_car.c` | after R1 |
-| U7 post-race | `src/postrace.{c,h}`, `src/ugui/ugui_assets.c` | after R1 |
-| Integration | `src/main.c`, `Makefile`, docs | last; gate below |
+| R1 screen-binding research | `docs/cleanroom-settings/SPEC_GUI_FE.md`, `src/fe_binding.h` | task B (branch `parity/m1-screens`) |
+| U5 track select | `src/fe_track.c`, `src/gui_view.{c,h}` | task B |
+| U6 car select | `src/fe_car.c` | task B |
+| U7 post-race | `src/postrace.{c,h}`, `src/ugui/ugui_assets.c` | task B |
+| Integration (Phase-1 part) | `src/main.c`, `Makefile` | DONE af10545 — menu on bare launch, Quick Race→race, pause Restart/Quit to menu, Free Run, touch overlay, `--input-script`; gate passed (see CHANGELOG) |
+| Integration (Phase-2 part) | `src/main.c` | after task B: post-race wiring (marked `/* M1 Phase 2: */`) |
 
 M1 gate (all must pass): full test suite; new unit tests wired into the Makefile; invariance checks above;
 scripted end-to-end scenarios S1–S3 from M1-PLAN.md (menu on bare launch; Quick Race drag 4201 with track and car
