@@ -4,6 +4,8 @@ Newest first. One entry per change that affects behaviour, data handling or the 
 branch the work was done on (`parity/m1` unless stated).
 
 ## 2026-11-14
+- **af10545** Front end wired into the game: bare launch opens the retail main menu; Quick Race → mode starts the race in process; pause menu Restart / Quit to Main Menu; Free Run; touch overlay; `--menu`, `--no-menu`, `--touch`, `--no-touch`, `--input-script`. Existing command-line starts unchanged (shots and 105-event drive identical). Warning baseline 259 → 269 (explained in the commit).
+- Work split: retail Track/Options/Car Select and post-race screens moved to a separate task on branch `parity/m1-screens`.
 - **Plan.** Retail-parity roadmap M0–M10 and the M1 contract written ([ROADMAP.md](ROADMAP.md), [M1-PLAN.md](M1-PLAN.md)).
   Findings: retail front-end screens bind with the existing carousel code; in-process event start/stop/restart and
   car/track switching already work but had no production caller; race end was terminal; two-finger pause on iOS
