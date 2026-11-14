@@ -2,6 +2,9 @@
 #include "race.h"
 #include <assert.h>
 #include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -108,4 +111,32 @@ static void package_rejections(void) {
     assert(!hud_race_package_read(huff,sizeof huff,"SYNTH.fng",&p));
     assert(!p.nodes && !p.resources);
 }
-int main(void) { timing();fields();packages();package_rejections();map_inverse();puts("hud_race_test: PASS"); }
+/* M9: BoxLaps gate, outrun bar/text, and the rival icon rotation agreeing with
+ * hud_minimap_place (an opponent driving straight away from the player points
+ * away from the map centre whatever the map heading). */
+static void m9(void){
+ HudState s={0};assert(!hud_race_box_laps(&s));
+ s.racing=1;s.circuit=1;s.laps=3;assert(hud_race_box_laps(&s));
+ s.race_kind=N2_RACE_DRAG;assert(!hud_race_box_laps(&s));s.race_kind=N2_RACE_CIRCUIT;
+ s.circuit=0;assert(!hud_race_box_laps(&s));s.circuit=1;s.laps=0;assert(!hud_race_box_laps(&s));
+ double f=-1;char t[64];HudState o={0};
+ assert(hud_race_outrun(&o,&f,t)==0&&f==0&&!t[0]);
+ o.have_outrun=1;o.outrun_lead_m=125.4f;o.outrun_goal_m=500;
+ assert(hud_race_outrun(&o,&f,t)==1&&fabs(f-.2508)<1e-6&&!strcmp(t,"+ 125"));
+ o.outrun_lead_m=-40.6f;assert(hud_race_outrun(&o,&f,t)==1&&f==0&&!strcmp(t,"- 41"));
+ o.outrun_lead_m=900;assert(hud_race_outrun(&o,&f,t)==1&&f==1&&!strcmp(t,"+ 900"));
+ o.outrun_goal_m=0;assert(hud_race_outrun(&o,&f,t)==-1&&!t[0]);
+ o.outrun_goal_m=500;o.outrun_lead_m=NAN;assert(hud_race_outrun(&o,&f,t)==-1);
+ o.outrun_lead_m=1e9f;assert(hud_race_outrun(&o,&f,t)==1&&!strcmp(t,"+ 1000000"));
+ assert(hud_race_icon_angle(NAN,0)==0&&hud_race_icon_angle(0,INFINITY)==0);
+ assert(fabs(hud_race_icon_angle(0,M_PI/2))<1e-12);           /* north on a north-up map: up */
+ for(int k=0;k<24;k++)for(int j=0;j<12;j++){
+  double car=k*.27-3,theta=j*.55-3,map=M_PI*.5-car;
+  HaMapFrame fr={.enabled=1,.width=640,.height=480,.basis={1,0,0,1},.size={100,100},.world={10,20},.window=500,.heading=map};
+  double at[2];assert(hud_minimap_place(&fr,10+100*cos(theta),20+100*sin(theta),1e9,at)==1);
+  double dx=at[0]-320,dy=at[1]-240,a=hud_race_icon_angle(map,theta),d=hypot(dx,dy);
+  assert(fabs(dx/d-sin(a))<1e-9&&fabs(dy/d+cos(a))<1e-9);
+  assert(a>-M_PI-1e-12&&a<=M_PI+1e-12);
+ }
+}
+int main(void) { timing();fields();packages();package_rejections();map_inverse();m9();puts("hud_race_test: PASS"); }

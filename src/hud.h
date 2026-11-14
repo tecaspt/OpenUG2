@@ -6,6 +6,7 @@
 #define OPENUG2_HUD_H
 
 #include "render.h"
+#include "hud_minimap.h"   /* HudMapIcon, HMI_* */
 
 /* Everything the HUD draws, sampled by the caller once per frame. The HUD
  * never reaches into engine globals: this struct is the whole contract, which
@@ -65,6 +66,14 @@ typedef struct {
     float map_radius_m;       /* retained baseline helper radius; asset maps use map_window_world */
     const float *opponent_xy; /* interleaved live rival positions, borrowed */
     int opponent_n;
+    /* M9: borrowed, opponent_n entries, same convention as car_heading
+       (radians, world +X = 0, CCW). NULL = not supplied: the procedural
+       markers stay (the rotated retail Car icon needs a heading). */
+    const float *opponent_heading;
+    /* M9: host-supplied minimap icons (hud_minimap.h), borrowed. Kinds and
+       variants without a data-backed legend tint are not drawn (fail closed). */
+    const HudMapIcon *map_icons;
+    int map_icon_n;
     int   route_loop;         /* 1 = circuit: close the polyline */
     int   route_next;         /* index of the armed gate, -1 = none */
 
@@ -77,6 +86,12 @@ typedef struct {
     /* --- message indicator (free roam only) --- */
     int   message_waiting;    /* engine never sets this yet; see HUD_MSG_* */
     const char *notice;       /* short banner text (outrun prompt/result), NULL = none */
+
+    /* --- M9 data-backed retail nodes. Zero = absent: nothing drawn. --- */
+    int wrong_way;            /* host wrong-way predicate: icon_Wrongway */
+    int have_outrun;          /* free-roam outrun live: Getaway_Distance group */
+    float outrun_lead_m;      /* current lead in metres (negative = behind) */
+    float outrun_goal_m;      /* lead that wins the outrun; bar fill = lead/goal */
 
     /* --- capture-amendment inputs (approved SPEC capture sets 1-3) ---
        Explicit "supplied" flags: an absent value hides the opt-in element
@@ -124,6 +139,18 @@ typedef struct {
                                           glyphs are sampled edge to edge (no inset) */
     int fit_policy;                    /* project widescreen policy (not original behaviour),
                                           HA_FIT_WIDE (default, 0) or HA_FIT_43; see hud_asset.h */
+    /* M9 minimap. map_window_m: world metres across the authored map width,
+       used when the host does not set HudState.map_window_world; default 500
+       (the provisional SPEC window). With map_window_points > 0 the window
+       follows the piecewise-linear table over speed (m/s, ascending) instead
+       (hud_minimap_window); default 0 = flat. icon_ring: clamp radius of
+       off-window icons in logical 640x480 units around the map centre
+       (default 70, observed); scaled to output pixels when drawn. */
+    double map_window_m;
+#define HUD_MAP_WINDOW_POINTS 8
+    int map_window_points;
+    double map_window_speed_mps[HUD_MAP_WINDOW_POINTS], map_window_world_m[HUD_MAP_WINDOW_POINTS];
+    double icon_ring;
 } HudSettings;
 
 /* Opaque GL-side resources. */
@@ -175,6 +202,10 @@ const char *hud_missing(const Hud *h);
 typedef struct { unsigned nodes,images,texts,groups,resources,fonts,original_atlases; int gauge_targets,map_targets,track_metadata; unsigned resource_resolved,resource_drawn; } HudAudit;
 int hud_pick(Hud *h,float ndc_x,float ndc_y,float *world_x,float *world_y);
 void hud_audit(const Hud *h,HudAudit *out);
+/* M9: the minimap frame of the last hud_draw (output pixels, as consumed by
+ * hud_minimap_place / ha_map_pick). Returns 1 when a map was drawn, else 0
+ * with *out zeroed. */
+int hud_map_frame(const Hud *h,HaMapFrame *out);
 
 /* Legacy helper API retained for engine compatibility. The standard driving
  * renderer uses the asset contracts in hud_asset.h and race roles in hud_race.h. */

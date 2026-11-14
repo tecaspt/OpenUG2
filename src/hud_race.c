@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <limits.h>
 #include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 const char *hud_race_package(int kind) {
     switch(kind) {
@@ -130,4 +133,26 @@ float hud_race_drag_angle(const HaNode *needle,double rpm) {
     double end=2*atan2(needle->quaternion[2],needle->quaternion[3]);
     double reading=isfinite(rpm)?fmin(10000,fmax(0,rpm)):0;
     return (float)(end*(reading/10000*2-2));
+}
+
+int hud_race_box_laps(const HudState *s) {
+    return s&&s->racing&&s->circuit&&s->laps>0&&s->race_kind!=N2_RACE_DRAG;
+}
+int hud_race_outrun(const HudState *s,double *fraction,char text[64]) {
+    if(text)text[0]=0;
+    if(fraction)*fraction=0;
+    if(!s||!s->have_outrun)return 0;
+    if(!isfinite(s->outrun_lead_m)||!isfinite(s->outrun_goal_m)||!(s->outrun_goal_m>0))return -1;
+    double f=(double)s->outrun_lead_m/s->outrun_goal_m;
+    if(fraction)*fraction=f<0?0:f>1?1:f;
+    if(text){long lead=lround(fmin(1e6,fmax(-1e6,(double)s->outrun_lead_m)));
+        snprintf(text,64,"%c %ld",lead<0?'-':'+',lead<0?-lead:lead);}
+    return 1;
+}
+double hud_race_icon_angle(double map_heading,double world_heading) {
+    if(!isfinite(map_heading)||!isfinite(world_heading))return 0;
+    double a=fmod(M_PI*.5-world_heading-map_heading,2*M_PI);
+    if(a<=-M_PI)a+=2*M_PI;
+    if(a>M_PI)a-=2*M_PI;
+    return a;
 }

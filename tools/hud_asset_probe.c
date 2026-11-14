@@ -7,14 +7,75 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 static int capture(const char*path,int w,int h){unsigned char*raw=malloc((size_t)w*h*3),*top=malloc((size_t)w*h*3);if(!raw||!top){free(raw);free(top);return 0;}glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,w,h,GL_RGB,GL_UNSIGNED_BYTE,raw);for(int y=0;y<h;y++)memcpy(top+(size_t)y*w*3,raw+(size_t)(h-y-1)*w*3,(size_t)w*3);write_png(path,w,h,top);free(raw);free(top);return 1;}
+/* M9 --icons: a synthetic minimap icon set (probe inputs only, no retail
+ * bytes) on the free-roam map, north up, at 960x720. Writes
+ * hud-minimap-icons.png, the same frame without the fail-closed icon
+ * (hud-minimap-icons-closed.png, must be identical), hud-m9-nodes.png
+ * (wrong way + outrun) and hud-minimap-icons.json (expected pixels and tints)
+ * for tools/hud_minimap_pixcheck.py. */
+typedef struct { const char *name; int kind, variant; double east, north, heading; int expect; } ProbeIcon;
+static unsigned char *grab(int w,int h){unsigned char*raw=malloc((size_t)w*h*3);if(raw){glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,w,h,GL_RGB,GL_UNSIGNED_BYTE,raw);}return raw;}
+static int icons_probe(Hud*h,const char*dir,const HudState*base,double window){
+ const int W=960,H=720;
+ /* offsets in map windows (east, north); the last one is far outside and must clamp */
+ static const ProbeIcon set[]={
+  {"event_circuit",HMI_EVENT,0,.20,.20,0,1},{"event_short_track",HMI_EVENT,1,-.20,.20,0,1},
+  {"event_sprint_failclosed",HMI_EVENT,2,0,-.22,0,0},{"shop_car_lot",HMI_SHOP,0,-.24,-.08,0,1},
+  {"showcase",HMI_SHOWCASE,0,.24,-.12,0,1},{"start_line",HMI_START,0,.06,-.06,0,1},
+  {"event_circuit_clamped",HMI_EVENT,0,3,-2,0,1}};
+ const int n=(int)(sizeof set/sizeof set[0]);
+ HudMapIcon icons[16];HudState s=*base;s.racing=0;s.map_heading_explicit=1;s.map_heading_clockwise=0;
+ for(int i=0;i<n;i++)icons[i]=(HudMapIcon){(float)(s.car_x+set[i].east*window),(float)(s.car_y+set[i].north*window),(float)set[i].heading,(unsigned char)set[i].kind,(unsigned char)set[i].variant};
+ float rival[2]={(float)(s.car_x-.05*window),(float)(s.car_y+.30*window)},rival_heading[1]={(float)M_PI};/* heading west: art points left */
+ s.opponent_xy=rival;s.opponent_heading=rival_heading;s.opponent_n=1;
+ s.nav_active=1;s.nav_target_x=(float)(s.car_x-.10*window);s.nav_target_y=(float)(s.car_y-.32*window);
+ unsigned char*img[3]={0,0,0};HaMapFrame f;
+ for(int pass=0;pass<3;pass++){
+  /* pass 1 drops the fail-closed icon: the frame must not change */
+  HudMapIcon kept[16];int m=0;for(int i=0;i<n;i++)if(pass==0||set[i].expect)kept[m++]=icons[i];
+  s.map_icons=kept;s.map_icon_n=m;
+  if(pass==2){s.map_icons=NULL;s.map_icon_n=0;s.nav_active=0;s.opponent_n=0;} /* background only: lets the check ignore map pixels */
+  glViewport(0,0,W,H);glClearColor(.04f,.05f,.07f,1);glClear(GL_COLOR_BUFFER_BIT);hud_draw(h,NULL,NULL,&s,W,H);
+  if(!hud_map_frame(h,&f)){fprintf(stderr,"icons: map not drawn\n");return 0;}
+  img[pass]=grab(W,H);char path[4096];snprintf(path,sizeof path,"%s/%s",dir,pass==2?"hud-minimap-icons-bg.png":pass?"hud-minimap-icons-closed.png":"hud-minimap-icons.png");capture(path,W,H);
+ }
+ int same=img[0]&&img[1]&&!memcmp(img[0],img[1],(size_t)W*H*3);free(img[0]);free(img[1]);free(img[2]);
+ HudSettings cfg;hud_default_settings(&cfg);double ring=cfg.icon_ring*fmin(W/640.0,H/480.0),scale=fmin(W/640.0,H/480.0);
+ char path[4096];snprintf(path,sizeof path,"%s/hud-minimap-icons.json",dir);FILE*j=fopen(path,"w");if(!j)return 0;
+ fprintf(j,"{\"image\":\"hud-minimap-icons.png\",\"closed_image\":\"hud-minimap-icons-closed.png\",\"background_image\":\"hud-minimap-icons-bg.png\",\"width\":%d,\"height\":%d,\"window\":%.3f,\"centre\":[%.3f,%.3f],\"ring\":%.3f,\"failclosed_identical\":%d,\"icons\":[",
+  W,H,window,W*.5+scale*f.center[0],H*.5+scale*f.center[1],ring,same);
+ int first=1;
+ for(int i=0;i<n+2;i++){double wx,wy;int kind,variant;const char*name;double hd=0;
+  if(i<n){if(!set[i].expect)continue;wx=icons[i].x;wy=icons[i].y;kind=set[i].kind;variant=set[i].variant;name=set[i].name;}
+  else if(i==n){wx=rival[0];wy=rival[1];kind=HMI_RIVAL;variant=1;name="rival_west";hd=rival_heading[0];}
+  else{wx=s.nav_target_x;wy=s.nav_target_y;kind=HMI_GPS;variant=0;name="gps_selector";}
+  unsigned char rgb[3];double at[2]={0,0};if(!hud_minimap_tint(kind,variant,rgb))continue;int r=hud_minimap_place(&f,wx,wy,ring,at);
+  fprintf(j,"%s{\"name\":\"%s\",\"x\":%.3f,\"y\":%.3f,\"rgb\":[%d,%d,%d],\"clamped\":%d,\"rotated\":%d}",first?"":",",name,at[0],at[1],rgb[0],rgb[1],rgb[2],r==2,kind==HMI_RIVAL&&hd!=0);first=0;}
+ fprintf(j,"]}\n");fclose(j);
+ /* data-backed nodes: wrong way + outrun bar (probe inputs only) */
+ HudState d=*base;d.wrong_way=1;d.have_outrun=1;d.outrun_lead_m=180;d.outrun_goal_m=300;
+ glViewport(0,0,W,H);glClear(GL_COLOR_BUFFER_BIT);hud_draw(h,NULL,NULL,&d,W,H);snprintf(path,sizeof path,"%s/hud-m9-nodes.png",dir);capture(path,W,H);
+ HudAudit a;hud_audit(h,&a);printf("icons: failclosed_identical=%d wrongway drawn=%u getaway drawn=%u\n",same,(a.resource_drawn>>20)&1,(a.resource_drawn>>22)&1);
+ return same;
+}
 int main(int argc,char**argv){
+ double probe_window=0;int probe_icons=0;
+ {int k=1;for(int i=1;i<argc;i++){if(!strcmp(argv[i],"--window")&&i+1<argc){probe_window=atof(argv[++i]);continue;}if(!strcmp(argv[i],"--icons")){probe_icons=1;continue;}argv[k++]=argv[i];}
+  argc=k;argv[argc]=NULL;}
+ if(probe_window<0||!isfinite(probe_window)){fprintf(stderr,"--window: positive metres\n");return 2;}
  if(argc>=4&&!strcmp(argv[1],"--catalog")){
   FILE*f=fopen(argv[2],"rb");if(!f)return 2;fseek(f,0,SEEK_END);long n=ftell(f);rewind(f);if(n<0)return 2;unsigned char*d=malloc((size_t)n);if(!d||fread(d,1,(size_t)n,f)!=(size_t)n)return 2;fclose(f);
   for(int i=3;i<argc;i++)printf("%d%s",hud_catalog_has(d,(size_t)n,(uint32_t)strtoul(argv[i],NULL,10)),i+1==argc?"\n":" ");free(d);return 0;
  }
-if(argc<3){fprintf(stderr,"usage: hud_asset_probe DATA_ROOT OUTPUT_DIR [east north]\n");return 2;}if(SDL_Init(SDL_INIT_VIDEO)){fprintf(stderr,"SDL: %s\n",SDL_GetError());return 2;}SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,1);SDL_Window*window=SDL_CreateWindow("Native HUD probe",0,0,1280,720,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN);if(!window){fprintf(stderr,"window: %s\n",SDL_GetError());return 2;}SDL_GLContext context=SDL_GL_CreateContext(window);if(!context){fprintf(stderr,"GL: %s\n",SDL_GetError());return 2;}printf("GL renderer: %s\n",glGetString(GL_RENDERER));Hud*h=hud_init(argv[1]);if(!h)return 2;HudAudit audit;hud_audit(h,&audit);printf("nodes=%u images=%u texts=%u groups=%u resources=%u fonts=%u atlases=%u gauge=%d map=%d metadata=%d\n",audit.nodes,audit.images,audit.texts,audit.groups,audit.resources,audit.fonts,audit.original_atlases,audit.gauge_targets,audit.map_targets,audit.track_metadata);
+if(argc<3){fprintf(stderr,"usage: hud_asset_probe [--window M] [--icons] DATA_ROOT OUTPUT_DIR [east north]\n");return 2;}if(SDL_Init(SDL_INIT_VIDEO)){fprintf(stderr,"SDL: %s\n",SDL_GetError());return 2;}SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,2);SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,1);SDL_Window*window=SDL_CreateWindow("Native HUD probe",0,0,1280,720,SDL_WINDOW_OPENGL|SDL_WINDOW_HIDDEN);if(!window){fprintf(stderr,"window: %s\n",SDL_GetError());return 2;}SDL_GLContext context=SDL_GL_CreateContext(window);if(!context){fprintf(stderr,"GL: %s\n",SDL_GetError());return 2;}printf("GL renderer: %s\n",glGetString(GL_RENDERER));Hud*h=hud_init(argv[1]);if(!h)return 2;HudAudit audit;hud_audit(h,&audit);printf("nodes=%u images=%u texts=%u groups=%u resources=%u fonts=%u atlases=%u gauge=%d map=%d metadata=%d\n",audit.nodes,audit.images,audit.texts,audit.groups,audit.resources,audit.fonts,audit.original_atlases,audit.gauge_targets,audit.map_targets,audit.track_metadata);
  HudState s={0};s.speed_kmh=137;s.rpm=4050;s.rpm_maximum=8100;s.gear=4;s.have_rpm=1;s.map_heading_explicit=1;s.map_window_world=500;s.car_x=argc>3?(float)atof(argv[3]):0;s.car_y=argc>4?(float)atof(argv[4]):0;
+ if(probe_window>0){HudSettings cfg;hud_default_settings(&cfg);cfg.map_window_m=probe_window;hud_configure(h,&cfg);s.map_window_world=0;}
+ if(probe_icons&&!icons_probe(h,argv[2],&s,probe_window>0?probe_window:500)){fprintf(stderr,"icons probe failed\n");return 1;}
  unsigned resolved=0,drawn=0;for(int skin=0;skin<=10;skin++){s.skin_index=skin;s.gear=skin==0?0:skin==1?-1:4;s.imperial_units=skin%2;s.map_heading_clockwise=skin*.25;int w=skin==10?1280:640,ht=skin==10?720:480;glViewport(0,0,w,ht);glClearColor(.04f,.05f,.07f,1);glClear(GL_COLOR_BUFFER_BIT);hud_draw(h,NULL,NULL,&s,w,ht);char path[4096];snprintf(path,sizeof path,"%s/hud-skin-%02d.png",argv[2],skin);capture(path,w,ht);hud_audit(h,&audit);resolved|=audit.resource_resolved;drawn|=audit.resource_drawn;printf("skin %02d: resource resolved mask=0x%x drawn mask=0x%x\n",skin,audit.resource_resolved,audit.resource_drawn);GLenum err=glGetError();if(err){fprintf(stderr,"GL error skin %d: 0x%x\n",skin,err);return 1;}}
  /* Capture-amendment states: career idle (gear 1, widget state A, bank 0) and
     an opt-in moving state (gear 2, pending message, bank 25, inferred
@@ -62,4 +123,4 @@ if(argc<3){fprintf(stderr,"usage: hud_asset_probe DATA_ROOT OUTPUT_DIR [east nor
   glBindBuffer(GL_ARRAY_BUFFER,0);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,0);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,0);glActiveTexture(GL_TEXTURE0);
   glDeleteBuffers(1,&state_buffer);glDeleteTextures(2,state_tex);
  }
- s.hide_map=1;s.speed_kmh=NAN;s.rpm=INFINITY;s.gear=-2;hud_draw(h,NULL,NULL,&s,1280,720);s.hide_map=0;s.car_x=NAN;hud_draw(h,NULL,NULL,&s,1280,720);hud_draw(h,NULL,NULL,&s,0,480);hud_audit(h,&audit);const char*features[]={"needle","authored-redline","scale","fill","numeric-font-atlas","roads","map-mask","north","player","border-children","bank-backing","widget-backing-dpad","widget-centre-figure","widget-mail","widget-right-highlight","nos-backing","nos-alpha-arc","shift-icon","n2o-glow"};for(unsigned j=0;j<19;j++)printf("resource %s: resolved=%u drawn=%u\n",features[j],(resolved>>j)&1,(drawn>>j)&1);printf("diagnostics: %s\n",hud_missing(h));hud_free(&h);SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return audit.nodes&&audit.original_atlases&&audit.gauge_targets?0:1;}
+ s.hide_map=1;s.speed_kmh=NAN;s.rpm=INFINITY;s.gear=-2;hud_draw(h,NULL,NULL,&s,1280,720);s.hide_map=0;s.car_x=NAN;hud_draw(h,NULL,NULL,&s,1280,720);hud_draw(h,NULL,NULL,&s,0,480);hud_audit(h,&audit);const char*features[]={"needle","authored-redline","scale","fill","numeric-font-atlas","roads","map-mask","north","player","border-children","bank-backing","widget-backing-dpad","widget-centre-figure","widget-mail","widget-right-highlight","nos-backing","nos-alpha-arc","shift-icon","n2o-glow","minimap-icons","wrongway","box-laps","getaway","tach-nos"};for(unsigned j=0;j<24;j++)printf("resource %s: resolved=%u drawn=%u\n",features[j],(resolved>>j)&1,(drawn>>j)&1);printf("diagnostics: %s\n",hud_missing(h));hud_free(&h);SDL_GL_DeleteContext(context);SDL_DestroyWindow(window);SDL_Quit();return audit.nodes&&audit.original_atlases&&audit.gauge_targets?0:1;}

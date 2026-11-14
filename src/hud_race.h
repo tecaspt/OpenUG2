@@ -21,4 +21,16 @@ int hud_race_map_point(const HaMapFrame *frame,double x,double y,double out[2]);
 
 float hud_race_drag_angle(const HaNode *needle,double rpm);
 
+/* M9 pure decisions (GL-free, unit-tested in hud_race_test).
+ * 3rdperson_BoxLaps: lap races only (racing, circuit, laps > 0, not drag). */
+int hud_race_box_laps(const HudState *state);
+/* Getaway_Distance group: 1 shown with *fraction = lead/goal clamped to 0..1
+ * and text "+ N"/"- N" (whole metres, |N| <= 1e6); 0 absent; -1 have_outrun
+ * with a nonfinite lead/goal or nonpositive goal (hidden, diagnostic). */
+int hud_race_outrun(const HudState *state,double *fraction,char text[64]);
+/* Screen-clockwise rotation (radians) of an icon for a world heading in the
+ * car_heading convention (+X = 0, CCW) on a map turned by map_heading
+ * (clockwise from north, as HaMapFrame.heading). 0 = icon art points up. */
+double hud_race_icon_angle(double map_heading,double world_heading);
+
 #endif

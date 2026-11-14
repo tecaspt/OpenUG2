@@ -85,6 +85,9 @@ struct Hud {
  int widget_backing,widget_dpad,widget_highlight,widget_centre,widget_mail,widget_ok;
  int nos_backing,nos_alpha,shift_icon,glow_node,glow_active; double glow_start; HaShiftPhase shift_phase;
  Texture centre_texture;
+ /* M9: pooled minimap icon nodes per HMI_* kind (first node using the art), and the
+    data-backed nodes drawn on host state. -1 = not in this package. */
+ int icon_node[HMI_GPS+1],wrongway,box_laps,getaway_backing,getaway_lines,getaway_bar,getaway_meters,getaway_value,tach_nos;
  float text_offset[2];
  int tint_on; unsigned char tint_rgba[4]; float clip[4];
  /* Project widescreen policy: per node, the classification centre (logical x) of its
@@ -349,7 +352,7 @@ static double fit_shift(const Hud*h,int i,int w,int ht){
  * elements, readout text). Authoring sample items and event widgets are excluded. */
 static int fit_eligible(Hud*h,int i){
  const HaNode*n=h->package.nodes+i;if(!n->valid||!n->appearance)return 0;
- if(n->kind==HA_KIND_TEXT){for(int k=0;k<HR_FIELD_COUNT;k++)if(i==h->race_nodes[k])return 1;return i==h->speed||i==h->gear||i==h->unit||i==h->bank_label||i==h->bank_value;}
+ if(n->kind==HA_KIND_TEXT){for(int k=0;k<HR_FIELD_COUNT;k++)if(i==h->race_nodes[k])return 1;return i==h->getaway_meters||i==h->getaway_value||i==h->speed||i==h->gear||i==h->unit||i==h->bank_label||i==h->bank_value;}
  if(n->kind!=HA_KIND_IMAGE)return 0;
  if(race_image(h,i)||drag_gauge(h,i))return 1;
  if(i==h->drift_angle_left||i==h->drift_angle_right||i==h->drift_angle_compact||
@@ -357,6 +360,7 @@ static int fit_eligible(Hud*h,int i){
     i==h->drift_turbo_red[0]||i==h->drift_turbo_red[1])return 1;
  const char*r=resource_name(h,(HaNode*)n);
  if(i==h->needle||i==h->mapnode||i==h->masknode||i==h->north||i==h->player||descendant(h,i,h->border))return 1;
+ if(i==h->wrongway||i==h->box_laps||i==h->getaway_backing||i==h->getaway_lines||i==h->getaway_bar||i==h->tach_nos)return 1;
  if(i==h->bank_backing||i==h->widget_backing||i==h->widget_dpad||i==h->widget_highlight||i==h->widget_centre||i==h->widget_mail||i==h->nos_backing||i==h->nos_alpha||i==h->shift_icon||i==h->glow_node)return 1;
  return descendant(h,i,h->gauge_root)&&r&&(skin_resource(r)||!strcmp(r,"3rdperson_rpmdial.tga")||!strcmp(r,"3rdperson_redline.tga"));
 }
@@ -442,7 +446,7 @@ static void resolve_amendment_targets(Hud*h){
     never the slot's referenced image or a generated imitation. */
  if(!h->centre_texture.id.id)h->centre_texture=lookup(h,0xEA570722u,0,1);
 }
-void hud_default_settings(HudSettings*o){if(!o)return;memset(o,0,sizeof *o);o->gear_colour[0]=255;o->gear_colour[1]=128;o->gear_colour[2]=64;o->highlight_colour[0]=255;o->highlight_colour[1]=190;o->highlight_colour[2]=50;o->highlight_colour[3]=255;ha_shift_default_colour(o->shift_colour);o->shift_indicator=1;o->shift_flash=1;o->shift_icon_automatic=1;o->nos_a0_degrees=91;o->nos_a1_degrees=239;o->gear_standstill_mps=HA_STANDSTILL_MPS;o->glow_ms_per_unit=HA_GLOW_MS_PER_UNIT;o->fit_policy=HA_FIT_WIDE;}
+void hud_default_settings(HudSettings*o){if(!o)return;memset(o,0,sizeof *o);o->gear_colour[0]=255;o->gear_colour[1]=128;o->gear_colour[2]=64;o->highlight_colour[0]=255;o->highlight_colour[1]=190;o->highlight_colour[2]=50;o->highlight_colour[3]=255;ha_shift_default_colour(o->shift_colour);o->shift_indicator=1;o->shift_flash=1;o->shift_icon_automatic=1;o->nos_a0_degrees=91;o->nos_a1_degrees=239;o->gear_standstill_mps=HA_STANDSTILL_MPS;o->glow_ms_per_unit=HA_GLOW_MS_PER_UNIT;o->fit_policy=HA_FIT_WIDE;o->map_window_m=500;o->icon_ring=70;}
 void hud_configure(Hud*h,const HudSettings*s){if(h&&s){h->settings=*s;if(h->settings.fit_policy!=HA_FIT_43)h->settings.fit_policy=HA_FIT_WIDE;hud_baseline_set_fit_policy(h->auxiliary,h->settings.fit_policy);}}
 int hud_nos_glow_event(Hud*h,double now_ms){
  if(!h||!ha_glow_trigger(h->settings.nos_glow,now_ms,h->glow_active,h->glow_start,h->settings.glow_ms_per_unit))return 0;
@@ -457,6 +461,8 @@ static void release_layout(Hud*h){
  h->drift_angle_left=h->drift_angle_right=h->drift_angle_compact=-1;
  h->drift_turbo_fill=h->drift_turbo_lines=h->drift_turbo_red[0]=h->drift_turbo_red[1]=-1;
  for(int k=0;k<HR_FIELD_COUNT;k++)h->race_nodes[k]=-1;
+ for(int k=0;k<=HMI_GPS;k++)h->icon_node[k]=-1;
+ h->wrongway=h->box_laps=h->getaway_backing=h->getaway_lines=h->getaway_bar=h->getaway_meters=h->getaway_value=h->tach_nos=-1;
  h->shift_phase=(HaShiftPhase){0};h->glow_active=0;h->layout_ready=0;
 }
 static int layout_mode(const HudState*s){
@@ -501,6 +507,17 @@ static int load_layout(Hud*h,int mode){
   h->drift_turbo_red[1]=node_key(h,0x1a33cbb6,HA_KIND_IMAGE);
  }
  for(int k=0;k<HR_FIELD_COUNT;k++)h->race_nodes[k]=mode?node_key(h,hud_race_field_key(kind,k),HA_KIND_TEXT):-1;
+ /* M9 [data]: pooled minimap icon art and the free-roam HUD nodes, by resource alias / name. */
+ {static const char*const icon_art[HMI_GPS+1]={"Minimap_Icon_Car.tga","Minimap_Icon_Circuit.tga","Minimap_Icon_Safe_House.tga","Minimap_Icon_Cop_star.tga","Minimap_Icon_Start_Line.tga","Minimap_GPS_Selector.tga"};
+  for(int k=0;k<=HMI_GPS;k++){int i=node_resource(h,icon_art[k]);h->icon_node[k]=i>=0&&h->package.nodes[i].kind==HA_KIND_IMAGE?i:-1;}}
+ h->wrongway=node_resource(h,"icon_Wrongway.tga");
+ h->box_laps=node_resource(h,"3rdperson_BoxLaps.tga");
+ h->getaway_backing=node_named(h,"Getaway_Distance_Backing");
+ h->getaway_lines=node_named(h,"Getaway_Distance_Lines");
+ h->getaway_bar=node_named(h,"Getaway_Distance_Bar");
+ h->getaway_meters=node_key(h,0xbcea10ceu,HA_KIND_TEXT);
+ h->getaway_value=node_key(h,0x92cdc512u,HA_KIND_TEXT);
+ {int t=node_resource(h,"Tach_NOS.tga");h->tach_nos=t>=0&&descendant(h,t,h->gauge_root)?t:-1;}
  fit_classify(h);h->layout_ready=1;return 1;
 }
 Hud *hud_init(const char*root){
@@ -614,7 +631,7 @@ static Texture image_texture(Hud*h,int i,int skin,int scale,int*owned){
  return t;
 }
 /* Per-feature acceptance bits: needle/dial/scale/fill/font/road/mask/north/player/border. */
-static unsigned feature(Hud*h,int i){const char*r=resource_name(h,h->package.nodes+i);if(i==h->needle)return 1u<<0;if(i==h->bank_backing)return 1u<<10;if(i==h->widget_backing||i==h->widget_dpad)return 1u<<11;if(i==h->widget_centre)return 1u<<12;if(i==h->widget_mail)return 1u<<13;if(i==h->widget_highlight)return 1u<<14;if(i==h->nos_backing)return 1u<<15;if(i==h->nos_alpha)return 1u<<16;if(i==h->shift_icon)return 1u<<17;if(i==h->glow_node)return 1u<<18;if(i==h->mapnode)return 1u<<5;if(i==h->masknode)return 1u<<6;if(i==h->north)return 1u<<7;if(i==h->player)return 1u<<8;if(descendant(h,i,h->border))return 1u<<9;if(r&&!strcmp(r,"3rdperson_redline.tga"))return 1u<<1;if(r&&!strcmp(r,"3rdperson_10500lines.tga"))return 1u<<2;if(r&&!strcmp(r,"Tach_Fill.tga"))return 1u<<3;if(h->package.nodes[i].kind==2)return 1u<<4;return 0;}
+static unsigned feature(Hud*h,int i){const char*r=resource_name(h,h->package.nodes+i);if(i==h->needle)return 1u<<0;if(i==h->bank_backing)return 1u<<10;if(i==h->widget_backing||i==h->widget_dpad)return 1u<<11;if(i==h->widget_centre)return 1u<<12;if(i==h->widget_mail)return 1u<<13;if(i==h->widget_highlight)return 1u<<14;if(i==h->nos_backing)return 1u<<15;if(i==h->nos_alpha)return 1u<<16;if(i==h->shift_icon)return 1u<<17;if(i==h->glow_node)return 1u<<18;if(i==h->wrongway)return 1u<<20;if(i==h->box_laps)return 1u<<21;if(i==h->getaway_backing||i==h->getaway_lines||i==h->getaway_bar)return 1u<<22;if(i==h->tach_nos)return 1u<<23;if(i==h->mapnode)return 1u<<5;if(i==h->masknode)return 1u<<6;if(i==h->north)return 1u<<7;if(i==h->player)return 1u<<8;if(descendant(h,i,h->border))return 1u<<9;if(r&&!strcmp(r,"3rdperson_redline.tga"))return 1u<<1;if(r&&!strcmp(r,"3rdperson_10500lines.tga"))return 1u<<2;if(r&&!strcmp(r,"Tach_Fill.tga"))return 1u<<3;if(h->package.nodes[i].kind==2)return 1u<<4;return 0;}
 static void quad(Hud*h,int i,const float rect[4],const float uv[4],Texture t,float angle,int width,int height,int recenter,int roads,const double mapuv[3],double heading){if(!t.id.id)return;h->resolved|=feature(h,i);HaNode*n=h->package.nodes+i;float v[24],scale=fminf(width/640.0f,height/480.0f);float center[3]={0},old[3]={0};if(recenter&&h->mapnode>=0){ha_point(&h->package,(size_t)h->mapnode,old,center,0);ha_point(&h->package,(size_t)i,old,old,0);}
  /* wide policy: translation of this node's group; a recentred indicator follows the map's group */
  double sh=fit_shift(h,recenter&&h->mapnode>=0?h->mapnode:i,width,height),shm=fit_shift(h,h->masknode,width,height);
@@ -683,8 +700,46 @@ static void map_vertices(Hud*h,const float*v,int count,int lines,float r,float g
  if(lines){rhi_cmd_bind_pipeline(h->line_pipe);rhi_cmd_bind_index_buffer(h->line_ibo);rhi_cmd_draw_indexed((uint32_t)(count-1)*2,0);}
  else{rhi_cmd_bind_pipeline(h->tri_pipe);rhi_cmd_bind_index_buffer(h->ibo);rhi_cmd_draw_indexed(6,0);}
 }
+/* M9: composed logical extent of an image node (parent scale included). */
+static int node_extent(Hud*h,int i,double out[2]){
+ if(i<0)return 0;
+ HaNode*n=h->package.nodes+i;float hw=n->size[0]/2,hh=n->size[1]/2;
+ float l[4][3]={{-hw,0,0},{hw,0,0},{0,-hh,0},{0,hh,0}},p[4][3];for(int j=0;j<4;j++)ha_point(&h->package,(size_t)i,l[j],p[j],0);
+ out[0]=hypot(p[1][0]-p[0][0],p[1][1]-p[0][1]);out[1]=hypot(p[3][0]-p[2][0],p[3][1]-p[2][1]);
+ return isfinite(out[0])&&isfinite(out[1])&&out[0]>0&&out[1]>0;
+}
+/* M9: one pooled icon node's art at output pixel (px,py), its composed authored size,
+   rotated `angle_cw` radians screen-clockwise, tinted rgb with the authored alpha.
+   Not mask-clipped: clamped icons sit on the ring. Returns 1 when drawn. */
+static int icon_quad(Hud*h,int i,double px,double py,double angle_cw,const unsigned char rgb[3],int width,int height){
+ Texture t=node_texture(h,i);double ext[2];if(!t.id.id||!node_extent(h,i,ext))return 0;
+ HaNode*n=h->package.nodes+i;double scale=fmin(width/640.0,height/480.0),hw=ext[0]*scale/2,hh=ext[1]*scale/2,c=cos(angle_cw),sn=sin(angle_cw);
+ float v[24];
+ for(int j=0;j<4;j++){double a=(j==1||j==2)?1:0,b=j>=2?1:0,x=(a*2-1)*hw,y=(b*2-1)*hh,X=px+x*c-y*sn,Y=py+x*sn+y*c;
+  v[j*6]=(float)(X*2/width-1);v[j*6+1]=(float)(1-Y*2/height);
+  v[j*6+2]=(float)(n->uv[0]+a*(n->uv[2]-n->uv[0]));v[j*6+3]=(float)(n->uv[1]+b*(n->uv[3]-n->uv[1]));v[j*6+4]=(float)a;v[j*6+5]=(float)b;}
+ h->hud_params->roads=0;
+ h->hud_params->tint[0]=rgb[0]/255.0f;h->hud_params->tint[1]=rgb[1]/255.0f;h->hud_params->tint[2]=rgb[2]/255.0f;h->hud_params->tint[3]=n->color[3]/255.0f;
+ h->hud_params->dialClip[0]=h->hud_params->dialClip[1]=h->hud_params->dialClip[2]=h->hud_params->dialClip[3]=0;
+ rhi_buffer_replace(h->vbo,sizeof v,v);
+ rhi_cmd_bind_pipeline(h->tri_pipe);rhi_cmd_bind_vertex_buffer(0,h->vbo,0);rhi_cmd_bind_index_buffer(h->ibo);
+ rhi_cmd_bind_texture(0,t.id);rhi_cmd_draw_indexed(6,0);
+ h->resolved|=1u<<19;h->drawn|=1u<<19;return 1;
+}
+/* M9: place a world point on the minimap (off-window points clamp to the ring) and
+   draw kind/variant's pooled art in its legend tint. No legend tint, no art or an
+   invalid point: nothing is drawn (fail closed). */
+static int map_icon(Hud*h,int kind,int variant,double wx,double wy,double angle_cw,double ring,int width,int height){
+ unsigned char rgb[3];double at[2];
+ if(kind<0||kind>HMI_GPS||h->icon_node[kind]<0||!hud_minimap_tint(kind,variant,rgb))return 0;
+ if(!hud_minimap_place(&h->pick_frame,wx,wy,ring,at))return 0;
+ return icon_quad(h,h->icon_node[kind],at[0],at[1],angle_cw,rgb,width,height);
+}
 static void map_overlay(Hud*h,const HudState*s,int show_route){
  if(!h->pick_frame.enabled)return;
+ int width=h->pick_frame.width,height=h->pick_frame.height;
+ double ring=h->settings.icon_ring*fmin(width/640.0,height/480.0);
+ if(!isfinite(ring)||ring<0)ring=0;
  float vertices[(HA_LIMIT+1)*6];
  /* shortcut: overlays accept up to HA_LIMIT points; stream larger decoded courses when needed. */
  if(show_route&&s->racing&&s->route_xy&&s->route_n>1&&s->route_n<=HA_LIMIT){
@@ -692,7 +747,15 @@ static void map_overlay(Hud*h,const HudState*s,int show_route){
   if(ok){int n=s->route_n;if(s->route_loop){memcpy(vertices+n*6,vertices,6*sizeof(float));n++;}
    map_vertices(h,vertices,n,1,.2f,.8f,1);}
  }
- for(int i=0;i<s->opponent_n&&i<64&&s->opponent_xy;i++){
+ /* M9: host icons (events, shops, showcase, start, GPS), then the GPS target, then rivals on top. */
+ for(int i=0;s->map_icons&&i<s->map_icon_n&&i<HA_LIMIT;i++){const HudMapIcon*m=s->map_icons+i;
+  double angle=m->kind==HMI_RIVAL?hud_race_icon_angle(h->pick_frame.heading,m->heading):0;
+  map_icon(h,m->kind,m->variant,m->x,m->y,angle,ring,width,height);}
+ if(s->nav_active)map_icon(h,HMI_GPS,0,s->nav_target_x,s->nav_target_y,0,ring,width,height);
+ int rival_art=s->opponent_heading&&h->icon_node[HMI_RIVAL]>=0&&node_texture(h,h->icon_node[HMI_RIVAL]).id.id;
+ for(int i=0;rival_art&&i<s->opponent_n&&i<64&&s->opponent_xy;i++){
+  map_icon(h,HMI_RIVAL,1,s->opponent_xy[i*2],s->opponent_xy[i*2+1],hud_race_icon_angle(h->pick_frame.heading,s->opponent_heading[i]),ring,width,height);}
+ for(int i=0;!rival_art&&i<s->opponent_n&&i<64&&s->opponent_xy;i++){
   float center[6];if(!map_vertex(h,s->opponent_xy[i*2],s->opponent_xy[i*2+1],center))continue;
   /* Marker size is a display policy in world metres, following the same mask. */
   double d=h->pick_frame.window*.025;
@@ -727,7 +790,11 @@ void hud_draw(Hud*h,const RProg*rp,GpuMesh*unused,const HudState*s,int w,int hei
  int authored_map=h->race_map.id.id!=0;
  const double *origin=authored_map?h->race_map_origin:h->origin;
  double heading=s->map_heading_explicit?s->map_heading_clockwise:M_PI*.5-s->car_heading;
- double map_window=s->map_window_world>0?s->map_window_world:500,mapuv[3];
+ const HudSettings*mw=&h->settings;
+ double map_window=s->map_window_world>0?s->map_window_world:
+   mw->map_window_points>0?hud_minimap_window(mw->map_window_speed_mps,mw->map_window_world_m,mw->map_window_points<HUD_MAP_WINDOW_POINTS?mw->map_window_points:HUD_MAP_WINDOW_POINTS,fabs((double)s->speed_kmh)/3.6):
+   mw->map_window_m>0&&isfinite(mw->map_window_m)?mw->map_window_m:500,mapuv[3];
+ if(!(map_window>0)||!isfinite(map_window))map_window=500;
  int mapon=!s->hide_map&&(authored_map||h->track_ok)&&
     ha_map(origin[0],origin[1],origin[2],s->car_x,s->car_y,heading,map_window,mapuv);
  if(!s->hide_map&&!mapon)diagnostic(h,"map suppressed: invalid input or metadata");
@@ -764,6 +831,9 @@ void hud_draw(Hud*h,const RProg*rp,GpuMesh*unused,const HudState*s,int w,int hei
   else if(gt<0||gt>=HA_GLOW_END)h->glow_active=0; /* finished (or the clock restarted) */
   else if(!s->hide_gauge){glow_on=ha_glow(gt,&glow);if(glow_on&&h->glow_node<0){diagnostic(h,"N2O glow target unresolved; glow hidden");glow_on=0;}}
  }
+ /* M9 outrun: bar fill = lead/goal clamped to 0..1 (direction inferred); needs a positive goal. */
+ double outrun_fill=0;char outrun_text[64];int outrun=hud_race_outrun(s,&outrun_fill,outrun_text);
+ if(outrun<0){diagnostic(h,"outrun distance hidden: invalid lead or goal");outrun=0;}
  char bankbuf[64];int bank=ha_bank(s->career_context,s->have_money,s->suppress_cash,(int64_t)s->money,',',h->bank_ok,bankbuf);
  if(bank<0)diagnostic(h,h->bank_ok?"negative balance: bank suppressed":"bank targets unresolved; bank hidden");
  HaWidget wid;ha_widget(s->career_context,s->message_waiting!=0,h->widget_ok,h->centre_texture.id.id!=0,&wid);
@@ -777,10 +847,14 @@ void hud_draw(Hud*h,const RProg*rp,GpuMesh*unused,const HudState*s,int w,int hei
                  (i==h->drift_angle_left||i==h->drift_angle_right));
  int drift_turbo=turbo_visible&&(i==h->drift_turbo_fill||i==h->drift_turbo_lines||
                   i==h->drift_turbo_red[0]||i==h->drift_turbo_red[1]);
- int extra=heat||drift_angle||drift_turbo||(bank>0&&i==h->bank_backing)||(wid.backing&&i==h->widget_backing)||(wid.dpad&&i==h->widget_dpad)||(wid.centre&&i==h->widget_centre)||(wid.mail&&i==h->widget_mail)||(wid.highlight_right&&i==h->widget_highlight)||(nos>=1&&i==h->nos_backing)||(nos==2&&i==h->nos_alpha)||(shift&&i==h->shift_icon)||(glow_on&&i==h->glow_node);
+ int laps_box=i==h->box_laps&&hud_race_box_laps(s);
+ int getaway=outrun&&(i==h->getaway_backing||i==h->getaway_lines||i==h->getaway_bar);
+ int extra=laps_box||getaway||(s->wrong_way&&i==h->wrongway)||(nos>=1&&i==h->tach_nos)||heat||drift_angle||drift_turbo||(bank>0&&i==h->bank_backing)||(wid.backing&&i==h->widget_backing)||(wid.dpad&&i==h->widget_dpad)||(wid.centre&&i==h->widget_centre)||(wid.mail&&i==h->widget_mail)||(wid.highlight_right&&i==h->widget_highlight)||(nos>=1&&i==h->nos_backing)||(nos==2&&i==h->nos_alpha)||(shift&&i==h->shift_icon)||(glow_on&&i==h->glow_node);
  if(!gauge&&!map&&!extra&&!(s->racing&&race_image(h,i)))continue;
  h->tint_on=0;h->clip[3]=0;
  if(i==h->widget_highlight){ha_setting_rgba(cfg->highlight_colour,h->tint_rgba);h->tint_on=1;}
+ /* M9 [inferred]: icon_Wrongway is authored at alpha 0 and raised by its Fadein script; drawn at full alpha. */
+ if(i==h->wrongway){memcpy(h->tint_rgba,n->color,3);h->tint_rgba[3]=255;h->tint_on=1;}
  if(i==h->shift_icon){ha_setting_tint(n->color,cfg->shift_colour,h->tint_rgba);h->tint_rgba[3]=(unsigned char)lround(n->color[3]*shift_env);h->tint_on=1;} /* H3 item 6: alpha = authored x envelope */
  if(i==h->nos_alpha&&h->layout_mode!=2){h->clip[0]=dial[0];h->clip[1]=dial[1];h->clip[2]=(float)(nos_limit*M_PI/180);h->clip[3]=1;}
  if(gauge&&r&&!strcmp(r,"3rdperson_redline.tga")){h->clip[0]=dial[0];h->clip[1]=dial[1];h->clip[2]=(float)(redline_start*M_PI/180);h->clip[3]=2;}
@@ -826,16 +900,26 @@ void hud_draw(Hud*h,const RProg*rp,GpuMesh*unused,const HudState*s,int w,int hei
  float rect[]={-n->size[0]/2,-n->size[1]/2,n->size[0]/2,n->size[1]/2};
  float uv[4];memcpy(uv,n->uv,sizeof uv);
  if(heat||(h->layout_mode==2&&i==h->nos_alpha)){float fraction=heat?s->engine_heat:s->nitro_tank;fraction=fminf(1,fmaxf(0,fraction));rect[1]=rect[3]-(rect[3]-rect[1])*fraction;uv[1]=uv[3]-(uv[3]-uv[1])*fraction;}
+ if(getaway&&i==h->getaway_bar){float fraction=(float)outrun_fill;rect[2]=rect[0]+(rect[2]-rect[0])*fraction;uv[2]=uv[0]+(uv[2]-uv[0])*fraction;}
  quad(h,i,rect,uv,t,angle,w,height,i==h->player,roads,mapuv,heading);if(owned)rhi_texture_destroy(t.id);if(roads)map_overlay(h,s,!authored_map);}
  h->tint_on=0;h->clip[3]=0;
  if(!s->hide_gauge){char buf[32];if(ha_speed(s->speed_kmh/3.6,!s->imperial_units,buf))text(h,h->speed,buf,w,height);else diagnostic(h,"speed suppressed: invalid or outside 0..INT_MAX");if(!ha_gear(s->gear,buf))diagnostic(h,"unsupported gear state");role_text(h,h->gear,HA_TEXT_GEAR,s->gear,s->gear_change_in_progress!=0,s->speed_kmh/3.6,buf,w,height);text(h,h->unit,s->imperial_units?"MPH":"KM/H",w,height);}
  if(s->racing)race_text(h,s,w,height,compact_angle);
  if(own_fill)rhi_texture_destroy(turbo_fill.id);
  if(own_lines)rhi_texture_destroy(turbo_lines.id);
+ /* M9: whitelisted display string "Meters" (AMEND-M9 1.8; equals the authored label), never the stored sample. */
+ if(outrun){text(h,h->getaway_meters,"Meters",w,height);
+  text(h,h->getaway_value,outrun_text,w,height);}              /* [inferred] "+ N" */
  if(bank>0){role_text(h,h->bank_label,HA_TEXT_BANK_LABEL,0,0,0,ha_bank_label,w,height);role_text(h,h->bank_value,HA_TEXT_BANK_VALUE,0,0,0,bankbuf,w,height);}
  rhi_cmd_restore_state(&hud_saved);
  /* Opt-in diagnostic (--route-arrow-diag); s->route_diag is zero otherwise. */
  if(s->route_diag&&rp&&unused)hud_baseline_draw_route_diag(h->auxiliary,rp,unused,s,w,height);
+}
+int hud_map_frame(const Hud*h,HaMapFrame*out){
+ if(!out)return 0;
+ memset(out,0,sizeof *out);
+ if(!h||!h->pick_frame.enabled)return 0;
+ *out=h->pick_frame;return 1;
 }
 float hud_angle_delta(float from, float to) {
     float d = to - from;

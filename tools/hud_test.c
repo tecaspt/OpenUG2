@@ -545,6 +545,22 @@ static void test_widescreen_policy_engine_items_and_pick(void) {
     printf("  widescreen policy: engine items, default, pick inverts PASS\n");
 }
 
+/* M9: the new settings default to today's output (500 m flat window, no
+ * table) and every new HudState input defaults to "absent". */
+static void test_m9_defaults_keep_output(void) {
+    HudSettings d; hud_default_settings(&d);
+    assert(d.map_window_m == 500 && d.map_window_points == 0 && d.icon_ring == 70);
+    assert(hud_minimap_window(d.map_window_speed_mps, d.map_window_world_m, d.map_window_points, 40) == 500);
+    HudState s; memset(&s, 0, sizeof s);
+    assert(!s.map_icons && !s.map_icon_n && !s.opponent_heading && !s.wrong_way && !s.have_outrun);
+    /* a two-point table interpolates; the clamp holds at both ends */
+    d.map_window_points = 2; d.map_window_speed_mps[0] = 0; d.map_window_speed_mps[1] = 50;
+    d.map_window_world_m[0] = 500; d.map_window_world_m[1] = 1500;
+    assert(hud_minimap_window(d.map_window_speed_mps, d.map_window_world_m, d.map_window_points, 25) == 1000);
+    assert(hud_minimap_window(d.map_window_speed_mps, d.map_window_world_m, d.map_window_points, 99) == 1500);
+    printf("  M9 defaults: 500 m flat window, ring 70, inputs absent PASS\n");
+}
+
 int main(void) {
     printf("hud_test:\n");
     test_speed_readout();
@@ -565,6 +581,7 @@ int main(void) {
     test_shift_icon_defaults_and_host_inputs();
     test_glyph_sampling_defaults_and_gutter();
     test_widescreen_policy_engine_items_and_pick();
+    test_m9_defaults_keep_output();
     printf("hud_test: PASS\n");
     return 0;
 }
