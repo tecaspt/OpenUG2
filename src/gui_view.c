@@ -827,3 +827,31 @@ void gv_dialog_close(GvDialog *v) {
     gv_screen_free(&v->scr);
     memset(v, 0, sizeof *v);
 }
+
+/* General list adapter; the pause/options interface above remains unchanged. */
+int gv_list_bind_rows(GvList *v, GvScreen *s) {
+    OptionsMenu m; memset(&m,0,sizeof m);
+    m.cfg.ctx=OM_CTX_FRONTEND; m.screen=OM_SCREEN_DISPLAY;
+    return gv_list_bind(v,s,&m);
+}
+void gv_list_sync_rows(GvList *v,const GvListRow *rows,int count,int focus,float dt) {
+    if(!v->bound || !rows || count<0 || count>OM_MAX_ROWS)return;
+    OptionsMenu m; memset(&m,0,sizeof m);
+    m.cfg.ctx=OM_CTX_FRONTEND; m.screen=OM_SCREEN_DISPLAY;
+    m.nrows=count; m.list.n=count; m.list.focus=focus;
+    m.list.top=focus>=OM_VISIBLE_ROWS?focus-OM_VISIBLE_ROWS+1:0;
+    for(int i=0;i<count;i++) {
+        m.rows[i].slot=i+1; m.rows[i].label=rows[i].label;m.rows[i].gfx=-1;
+        m.rows[i].kind=rows[i].value?OM_ROW_CHOICE:OM_ROW_BUTTON;
+    }
+    int h=v->header,h2=v->header2;
+    v->header=v->header2=-1; /* preserve the package's own heading */
+    gv_list_sync(v,&m,dt);v->header=h;v->header2=h2;
+    for(int i=0;i<count;i++) {
+        GvRow *r=&v->row[i+1];
+        if(rows[i].value)settext(&v->scr->scene,r->data,rows[i].value);
+        if(!rows[i].enabled) {
+            hide(&v->scr->scene,r->left,1);hide(&v->scr->scene,r->right,1);
+        }
+    }
+}

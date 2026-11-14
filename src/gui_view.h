@@ -139,6 +139,11 @@ int gv_list_bind(GvList *v, GvScreen *s, const OptionsMenu *m);
  * exit). dt_ms advances the highlight fade-out bookkeeping. */
 void gv_list_sync(GvList *v, const OptionsMenu *m, float dt_ms);
 
+/* General application list. Text pointers must survive until the next sync/draw. */
+typedef struct GvListRow { const char *label, *value; int enabled; } GvListRow;
+int gv_list_bind_rows(GvList *, GvScreen *);
+void gv_list_sync_rows(GvList *, const GvListRow *, int count, int focus, float dt_ms);
+
 /* ---- Controls (UI_Options_PC_Controller) -------------------------------------------------------- */
 #define GV_CTL_SLOTS 20          /* option_name_n / OPTION_DATA_n / OPTION_DATA_2_n / Options_Backing_n, n = 1..20 */
 typedef struct GvCtlRow {

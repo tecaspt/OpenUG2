@@ -47,6 +47,24 @@ const char *fem_preview_car(const FeMenu *m);
 int fem_visual_available(const FeMenu *m);
 const char *fem_status(const FeMenu *m);
 
+/* Shared Phase-2 model and renderer adapters (no host/world ownership). */
+#include "game_catalog.h"
+#include "gui_view.h"
+typedef struct FeChoice {
+    const GameCatalog *cat;
+    int kind, event_index, car_index, laps, difficulty, option, options_page;
+    int event_indices[GC_MAX_EVENTS], nevents;
+    int cars[64], ncars, selected;
+    float preview_wait;
+    char preview[32], label[96], laps_text[16], distance[32];
+    GvList list;
+} FeChoice;
+int fet_open(FeChoice *, GvScreen *, const UgAssets *, int options);
+void fet_sync(FeChoice *, GvScreen *, float ms, int options);
+void fet_move(FeChoice *, int direction, int vertical, int options);
+int fec_open(FeChoice *, GvScreen *, const UgAssets *);
+void fec_sync(FeChoice *, GvScreen *, float seconds);
+void fec_move(FeChoice *, int direction);
 #ifdef __cplusplus
 }
 #endif
