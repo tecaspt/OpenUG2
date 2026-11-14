@@ -732,7 +732,11 @@ static int icon_quad(Hud*h,int i,double px,double py,double angle_cw,const unsig
 static int map_icon(Hud*h,int kind,int variant,double wx,double wy,double angle_cw,double ring,int width,int height){
  unsigned char rgb[3];double at[2];
  if(kind<0||kind>HMI_GPS||h->icon_node[kind]<0||!hud_minimap_tint(kind,variant,rgb))return 0;
- if(!hud_minimap_place(&h->pick_frame,wx,wy,ring,at))return 0;
+ int placed=hud_minimap_place(&h->pick_frame,wx,wy,ring,at);
+ /* [inferred] only the GPS target and rivals stay on the ring when out of range; map
+    locations (events, shops, showcase, start) show only inside the window, else the
+    ring fills with every race in the city. */
+ if(!placed||(placed==2&&kind!=HMI_GPS&&kind!=HMI_RIVAL))return 0;
  return icon_quad(h,h->icon_node[kind],at[0],at[1],angle_cw,rgb,width,height);
 }
 static void map_overlay(Hud*h,const HudState*s,int show_route){

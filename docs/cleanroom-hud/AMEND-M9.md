@@ -206,3 +206,6 @@ any speed dependence await calibration from owner captures (stationary and
   retail does [inferred, open].
 * Shown only while HUD guidance is active; it uses the previous frame's
   bearing because the HUD state is sampled after the world pass.
+
+## 6. Ring clamping (revision)
+- [inferred] Only the GPS target and rival cars are clamped to the minimap ring when outside the window. Map locations (events, shops, showcase, start line) are drawn only inside the window; clamping them filled the ring with every race in the city, which the captures do not show.

@@ -67,6 +67,8 @@
 #include "ui_flat.h"
 #include "fe_menu.h"
 #include "postrace.h"
+#include "hud_host_map.h"
+#include "gps_marker.h"
 
 static TouchControls g_touch;            /* on-screen touch overlay (touch_controls.h) */
 static InputScript g_script;             /* --input-script events (~100 KB, so static) */
@@ -2303,7 +2305,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--tex-overrides", "--no-tex-overrides", "--tex-override-budget", "--traffic-cull-off", "--traffic",
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
-        "--hud-nos-glow", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
+        "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
         "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime",
     };
     for (int i = 1; i < argc; i++) {
@@ -2778,6 +2780,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--hud-shift-indicator")) { hud_opt = 1; hud_settings.shift_indicator = 1; } /* now the default; kept for old command lines */
         else if (!strcmp(argv[i], "--hud-no-shift-indicator")) { hud_opt = 1; hud_settings.shift_indicator = 0; }
         else if (!strcmp(argv[i], "--hud-no-shift-flash")) { hud_opt = 1; hud_settings.shift_flash = 0; }
+        else if (!strcmp(argv[i], "--hud-map-window") && i+1 < argc) {   /* minimap window in metres (M9) */
+            float mw = (float)atof(argv[++i]);
+            if (!(mw >= 50.0f && mw <= 6000.0f)) { fprintf(stderr, "--hud-map-window needs 50..6000 metres\n"); return 2; }
+            hud_settings.map_window_m = mw;
+        }
         else if (!strcmp(argv[i], "--hud-nos-level")) { hud_opt = 1; hud_settings.inferred_nos_level = 1; }
         else if (!strcmp(argv[i], "--hud-nos-glow")) { hud_opt = 1; hud_settings.nos_glow = 1; }
         else if (!strcmp(argv[i], "--hud-fit") && i + 1 < argc) {
@@ -6567,6 +6574,8 @@ int main(int argc, char **argv) {
        the arcade ribbons above remain only for the legacy physics path. */
     tm_init(&g_tm,128);memset(&g_tm_player,0,sizeof g_tm_player);g_tm_frame=0;
     tm_load_textures(dataroot);
+    GpsMarker *gps_marker = gps_marker_load(dataroot);   /* M9: 3D GPS arrow; NULL keeps the 2D arrow only */
+    int gps_marker_on = 0; float gps_marker_bearing = 0.0f;   /* last frame's HUD guidance */
     {   /* streamed vertex/colour buffers; static up-normals and quad indices */
         static float normals[TM_MAX_VERTICES*3];static uint16_t indices[TM_MAX_VERTICES/4*6];
         for(int i=0;i<TM_MAX_VERTICES;i++)normals[i*3+2]=1.0f;
@@ -10979,6 +10988,9 @@ int main(int argc, char **argv) {
                 g_dbg.rain_intensity*lens,g_dbg.weather_quality,(float)W/fmaxf(H,1));
         }
 
+        if (gps_marker && gps_marker_on && passmode == 0)   /* world camera still bound */
+            gps_marker_draw(gps_marker, &rp, MVP, render_player.pos, gps_marker_bearing, SDL_GetTicks());
+        gps_marker_on = 0;
         collision_debug_draw(&rp,&wall_debug_vbo,&scene,
             (const float (*)[4])world.neighborhood.mbb,obstsrc,nobst,
             g_dbg.freecam?cam:render_player.pos,render_player.pos,MVP);
@@ -11355,6 +11367,7 @@ int main(int argc, char **argv) {
                 const AiTraffic *r=&traffic_routes[outrun_slot];
                 static float rival_xy[2];
                 rival_xy[0]=render_ais[outrun_slot].pos[0];rival_xy[1]=render_ais[outrun_slot].pos[1];
+                static float rival_head[1]; rival_head[0]=render_ais[outrun_slot].head; hs.opponent_heading=rival_head;
                 hs.circuit=0;hs.race_kind=N2_RACE_SPRINT;
                 hs.sprint_progress=fmaxf(0,fminf(1,r->outrun_lead/AI_OUTRUN_LEAD_M));
                 hs.position=r->outrun_lead>0?1:2;hs.cars=2;
@@ -11398,8 +11411,9 @@ int main(int argc, char **argv) {
                 hs.countdown_seconds=race_prepare_pending?3:fmax(0,(COUNTDOWN-racetimer)/PHYS_TICKRATE);
                 static float opponent_xy[N_RACE_AI*2];
                 int opponents=ai_race?nai:0;if(opponents>N_RACE_AI)opponents=N_RACE_AI;
-                for(int i=0;i<opponents;i++){opponent_xy[i*2]=render_ais[i].pos[0];opponent_xy[i*2+1]=render_ais[i].pos[1];}
-                hs.opponent_xy=opponent_xy;hs.opponent_n=opponents;
+                static float opponent_head[N_RACE_AI];
+                for(int i=0;i<opponents;i++){opponent_xy[i*2]=render_ais[i].pos[0];opponent_xy[i*2+1]=render_ais[i].pos[1];opponent_head[i]=render_ais[i].head;}
+                hs.opponent_xy=opponent_xy;hs.opponent_n=opponents;hs.opponent_heading=opponent_head;
                 hs.route_next = -1;
                 if (event_race && wr->ngate > 1) {
                     /* Use the validated event course; gates remain the fallback
@@ -11423,11 +11437,14 @@ int main(int argc, char **argv) {
             } else {
                 hs.nav_xy = world.city.nav; hs.nav_n = world.city.nnav;
                 /* Roaming rivals on the free-roam map, as the original marks them. */
-                static float rival_xy[2*N_OPENWORLD_AI];int rivals=0;
+                static float rival_xy[2*N_OPENWORLD_AI],rival_head[N_OPENWORLD_AI];int rivals=0;
                 for(int k=0;!ai_race && k<nai && k<draw_nai;k++)if(traffic_routes[k].present && traffic_routes[k].racer) {
-                    rival_xy[2*rivals]=render_ais[k].pos[0];rival_xy[2*rivals+1]=render_ais[k].pos[1];rivals++;
+                    rival_xy[2*rivals]=render_ais[k].pos[0];rival_xy[2*rivals+1]=render_ais[k].pos[1];rival_head[rivals]=render_ais[k].head;rivals++;
                 }
-                hs.opponent_xy=rival_xy;hs.opponent_n=rivals;
+                hs.opponent_xy=rival_xy;hs.opponent_n=rivals;hs.opponent_heading=rival_head;
+                /* Event icons on the free-roam map (retail legend colours; kinds without one are not drawn). */
+                static HudMapIcon map_icons[256];
+                hs.map_icons=map_icons;hs.map_icon_n=hud_host_event_icons(map_icons,256,&world.city);
             }
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
@@ -11470,6 +11487,7 @@ int main(int argc, char **argv) {
                     }
                 }
             }
+            gps_marker_on = hs.nav_active; gps_marker_bearing = hs.nav_bearing;   /* 3D arrow, drawn next frame */
             /* Context and sample inputs (hud_host.h). Free roam supplies the
                career/free-roam context only; money, messages and the tank stay
                absent unless --hud-preview supplies labelled samples. */
@@ -12443,6 +12461,7 @@ int main(int argc, char **argv) {
 #ifdef DEBUG_UI
     dbgui_shutdown();
 #endif
+    gps_marker_free(gps_marker);
     hud_free(&hud);        /* releases its textures; safe when never created */
     free_scene_gpu(wheelgm, nwheelgm);
     rhi_buffer_destroy(g_tm_mesh.vbo);rhi_buffer_destroy(g_tm_mesh.nbo);
