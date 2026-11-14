@@ -51,6 +51,7 @@ struct FeMenu {
     int visual;                  /* the current screen was built and can be drawn */
     int exit_sent;               /* the authored exit script was started */
     float exit_wait_ms;
+    int back_pressed;
     int locked;                  /* a request was issued: input is ignored until the host reacts */
     unsigned icon_warned;
     int main_focus, mode_focus;  /* last focused entry ids, restored when a screen is re-entered */
@@ -85,6 +86,7 @@ static const char *package_of(FemScreen s) {
 static void drop_view(FeMenu *m) {
     if (m->scr.loaded) gv_screen_free(&m->scr);
     m->visual = 0;
+    m->back_pressed = 0;
     m->has_carousel = 0;
     m->exit_sent = 0;
     m->exit_wait_ms = 0;
@@ -241,24 +243,40 @@ void fem_set_loading(FeMenu *m, int event_id) {
     fem_open(m, FEM_SCR_LOADING);
 }
 
+void fem_show_error(FeMenu *m, const char *message) {
+    if (!m) return;
+    fem_open(m, FEM_SCR_QR_TRACK);
+    snprintf(m->status, sizeof m->status, "%s", message ? message : "launch failed");
+}
+
 const char *fem_preview_car(const FeMenu *m) { (void)m; return ""; }   /* QR_CAR preview: Phase 2 */
 int fem_visual_available(const FeMenu *m) { return m && m->open && m->visual && m->compatible && m->gl; }
 const char *fem_status(const FeMenu *m) { return m ? m->status : "front-end menu allocation unavailable"; }
 
 /* ---- input ------------------------------------------------------------------------------------- */
 
+/* [inferred] Platform adaptation: a release-inside Back target in 640x480 space.
+ * Use the same retail pill kit as pause, kept below the screen content. */
+static int back_hit(float x, float y) { return x >= 24 && x <= 170 && y >= 440 && y <= 472; }
 static void pointer_press(FeMenu *m, float x, float y) {
+    m->back_pressed = !m->locked && back_hit(x, y);
+    if (m->back_pressed) return;
     if (m->locked || !is_logic_screen(m)) return;
     if (x < 0 || x >= 640 || y < 0 || y >= 480) return;
     fes_pointer_press(&m->fes, x - 320, y - 240);
 }
 static void pointer_release(FeMenu *m, float x, float y) {
+    int back = m->back_pressed && back_hit(x, y);
+    m->back_pressed = 0;
+    if (back && !m->locked && is_logic_screen(m)) { fes_input(&m->fes, FES_IN_BACK); return; }
     if (m->locked || !is_logic_screen(m)) return;
     fes_pointer_release(&m->fes, x - 320, y - 240);
 }
 
 void fem_event(FeMenu *m, const SDL_Event *e, SDL_Window *win) {
     if (!fem_is_open(m) || m->locked || !is_logic_screen(m)) return;
+    if (e->type == SDL_WINDOWEVENT && (e->window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+        e->window.event == SDL_WINDOWEVENT_HIDDEN)) { m->back_pressed = 0; return; }
     FesInput in = 0;
     if (e->type == SDL_KEYDOWN && !e->key.repeat) {
         switch (e->key.keysym.sym) {
@@ -306,7 +324,12 @@ static FemRequest mode_request(FeMenu *m, int mode) {
     FemRequest r;
     memset(&r, 0, sizeof r);
     int kind = fe_mode_race_kind(mode);
-    if (kind < 0) { r.kind = FEM_REQ_FREE_RUN; return r; }
+    if (kind < 0) {
+        r.kind = FEM_REQ_FREE_RUN;
+        snprintf(r.track, sizeof r.track, "STREAML4RA");
+        snprintf(r.car, sizeof r.car, "%s", m->cur_car);
+        return r;
+    }
     int i = first_event_of_kind(m->cat, kind);
     if (i < 0) {
         snprintf(m->status, sizeof m->status, "no catalogue event for race mode %d", mode);
@@ -382,6 +405,14 @@ void fem_draw(FeMenu *m, int w, int h) {
         fprintf(stderr, "fem: %s\n", m->status);
         ug_cv_clear(cv);
         cv->visual_status = UG_VIS_UNAVAILABLE;
+    }
+    if (ug_cv_visual_status(cv) == UG_VIS_OK && is_logic_screen(m)) {
+        ug_cv_push(cv);
+        ug_cv_translate(cv, -320, -240);
+        ug_kit_pill_pc(cv, (UgRect){24,440,146,32}, UG_RGBA(255,255,255,180));
+        ug_text_draw_ink(cv, gv_text(&m->assets, ug_hash_upper("UI_COMMON_BACK"), "Back"),
+                         80, 450, .5f, UG_WHITE, 0, UG_GLYPHS_KEYS);
+        ug_cv_pop(cv);
     }
     if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->gl, cv, w, h);
     ug_text_set_face(face);

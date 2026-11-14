@@ -29,6 +29,8 @@ void fem_destroy(FeMenu *m);
 /* Opens (or switches to) a screen; FEM_SCR_NONE closes. */
 void fem_open(FeMenu *m, FemScreen screen);
 void fem_close(FeMenu *m);
+/* Reopens QR_TRACK and exposes the launch failure through fem_status(). */
+void fem_show_error(FeMenu *m, const char *message);
 int fem_is_open(const FeMenu *m);
 FemScreen fem_screen(const FeMenu *m);
 /* The car and track the world currently shows (NUL-terminated names; NULL leaves one unchanged). */
