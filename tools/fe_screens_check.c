@@ -11,6 +11,13 @@
 static void save(const char *path, int w, int h) {
     unsigned char *px = malloc((size_t)w * h * 3);
     if (rhi_read_pixels(0, 0, w, h, RHI_READ_RGB8, px, 0) != RHI_OK) { printf("read failed\n"); free(px); return; }
+    int back_pixels=0;
+    for(int y=660;y<708;y++)for(int x=36;x<255;x++) {
+        size_t at=((size_t)y*w+x)*3;
+        if(px[at]>80 || px[at+1]>80 || px[at+2]>80)back_pixels++;
+    }
+    fprintf(stderr,"visible Back %s: %d pixels\n",path,back_pixels);
+    assert(back_pixels>100);
     FILE *f = fopen(path, "wb");
     png_structp p = png_create_write_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
     png_infop i = png_create_info_struct(p);

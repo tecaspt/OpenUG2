@@ -105,7 +105,12 @@ int pr_update(PostRace *p,float seconds) {
     if(action==PR_ACT_CONTINUE && !p->phase) {
         gv_screen_free(&p->menu);
         gc_init(&p->carousel,GC_RAIL_PAUSE);gc_set_entries(&p->carousel,3,NULL);
-        if(!gv_screen_load(&p->menu,&p->assets,"UI_postrace.fng") || !gv_carousel_bind(&p->view,&p->menu,&p->carousel)) {
+        int valid=gv_screen_load(&p->menu,&p->assets,"UI_postrace.fng");
+        if(valid)for(int i=0;i<fe_binding_sets[4].count;i++)
+            if(fe_identity_find(p->menu.pk,&fe_binding_sets[4].identity[i])<0) {
+                valid=0;snprintf(p->menu.status,sizeof p->menu.status,"postrace menu identity mismatch");break;
+            }
+        if(!valid || !gv_carousel_bind(&p->view,&p->menu,&p->carousel)) {
             snprintf(p->status,sizeof p->status,"%s",p->menu.status);p->visual=0;return 0;
         }
         const uint32_t icons[]={0xb295a6b6,0x62aa0df6,0x4c9e34e6};
@@ -143,10 +148,10 @@ void pr_draw(PostRace *p,int w,int h) {
     if(!p || !p->open || !p->visual || w<=0 || h<=0)return;
     const UgFace *old=ug_text_face();const UgSkin *skin=ug_kit_skin();UgSkin saved;if(skin)saved=*skin;
     ug_text_set_face(ug_assets_main_face(&p->assets));ug_kit_set_skin(&p->skin);ug_cv_clear(&p->canvas);
+    gv_touch_back(&p->canvas,&p->assets);
     if(!gv_screen_draw(p->phase?&p->menu:&p->result,&p->ui,&p->canvas)){p->visual=0;snprintf(p->status,sizeof p->status,"%s",p->result.status);}
     if(p->visual) {
         ug_text_set_face(ug_assets_main_face(&p->assets));
-        gv_touch_back(&p->canvas,&p->assets);
         ug_gl_render_overlay(p->gl,&p->canvas,w,h);
     }
     ug_text_set_face(old);ug_kit_set_skin(skin?&saved:NULL);

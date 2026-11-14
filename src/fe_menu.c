@@ -275,17 +275,21 @@ const char *fem_status(const FeMenu *m) { return m ? m->status : "front-end menu
 /* [inferred] Platform adaptation: a release-inside Back target in 640x480 space.
  * Use the same retail pill kit as pause, kept below the screen content. */
 static int back_hit(float x, float y) { return x >= 24 && x <= 170 && y >= 440 && y <= 472; }
+static int choice_hit(FeMenu *m,float x,float y,int select_row) {
+    if(m->screen==FEM_SCR_QR_OPTIONS)for(int row=0;row<2;row++) {
+        float top=gl_row_top(&m->choice.list.anchors,row);
+        if(y-240>=top-12 && y-240<=top+28) {
+            if(select_row)m->choice.option=row;
+            return x<440?FES_IN_LEFT:FES_IN_RIGHT;
+        }
+    }
+    return x<180?FES_IN_LEFT:x>460?FES_IN_RIGHT:FES_IN_ACCEPT;
+}
 static void pointer_press(FeMenu *m, float x, float y) {
     m->back_pressed = !m->locked && back_hit(x, y);
     if (m->back_pressed) return;
     if(!is_logic_screen(m)) {
-        if(m->screen==FEM_SCR_QR_OPTIONS) {
-            for(int row=0;row<2;row++) {
-                float top=gl_row_top(&m->choice.list.anchors,row);
-                if(y-240>=top-12 && y-240<=top+28)m->choice.option=row;
-            }
-        }
-        m->pressed=x<180?FES_IN_LEFT:x>460?FES_IN_RIGHT:FES_IN_ACCEPT;return;
+        m->pressed=choice_hit(m,x,y,1);return;
     }
     if (m->locked) return;
     if (x < 0 || x >= 640 || y < 0 || y >= 480) return;
@@ -296,7 +300,7 @@ static void pointer_release(FeMenu *m, float x, float y) {
     m->back_pressed = 0;
     if (back && !m->locked) { menu_input(m,FES_IN_BACK); return; }
     if(!is_logic_screen(m)) {
-        int hit=x<180?FES_IN_LEFT:x>460?FES_IN_RIGHT:FES_IN_ACCEPT;
+        int hit=choice_hit(m,x,y,0);
         if(m->pressed==hit)menu_input(m,hit);
         m->pressed=0;return;
     }
@@ -378,7 +382,10 @@ FemRequest fem_update(FeMenu *m, float seconds) {
     m->ui.time_ms = m->ui_ms;
     int in=m->pending_input;m->pending_input=0;
     if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR && in) {
-        if(in==FES_IN_BACK)fem_open(m,m->screen==FEM_SCR_QR_TRACK?FEM_SCR_QR_MODE:m->screen==FEM_SCR_QR_OPTIONS?FEM_SCR_QR_TRACK:FEM_SCR_QR_OPTIONS);
+        if(in==FES_IN_BACK) {
+            if(m->screen==FEM_SCR_QR_OPTIONS && m->choice.options_page){m->choice.options_page=0;fem_open(m,FEM_SCR_QR_OPTIONS);}
+            else fem_open(m,m->screen==FEM_SCR_QR_TRACK?FEM_SCR_QR_MODE:m->screen==FEM_SCR_QR_OPTIONS?FEM_SCR_QR_TRACK:FEM_SCR_QR_OPTIONS);
+        }
         else if(in==FES_IN_ACCEPT && m->visual) {
             if(m->screen==FEM_SCR_QR_CAR){req=mode_request(m,m->mode_focus);m->locked=req.kind!=0;}
             else if(m->screen==FEM_SCR_QR_TRACK){m->choice.options_page=0;fem_open(m,FEM_SCR_QR_OPTIONS);}
@@ -436,6 +443,7 @@ void fem_draw(FeMenu *m, int w, int h) {
     ug_kit_set_skin(&m->skin);
     UgCanvas *cv = &m->canvas;
     ug_cv_clear(cv);
+    if(m->screen!=FEM_SCR_LOADING)gv_touch_back(cv,&m->assets);
     if (m->visual && !gv_screen_draw(&m->scr, &m->ui, cv)) {
         m->visual = 0;
         snprintf(m->status, sizeof m->status, "%s", m->scr.status);
@@ -443,17 +451,7 @@ void fem_draw(FeMenu *m, int w, int h) {
         ug_cv_clear(cv);
         cv->visual_status = UG_VIS_UNAVAILABLE;
     }
-    if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->gl,cv,w,h);
-    ug_cv_clear(cv);
     ug_text_set_face(ug_assets_main_face(&m->assets));
-    if (m->screen!=FEM_SCR_LOADING) {
-        ug_cv_push(cv);
-        ug_cv_translate(cv, -320, -240);
-        ug_kit_pill_pc(cv, (UgRect){24,440,146,32}, UG_RGBA(255,255,255,180));
-        ug_text_draw_ink(cv, gv_text(&m->assets, ug_hash_upper("UI_COMMON_BACK"), "Back"),
-                         80, 450, .5f, UG_WHITE, 0, UG_GLYPHS_KEYS);
-        ug_cv_pop(cv);
-    }
     if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->gl, cv, w, h);
     ug_text_set_face(face);
     ug_kit_set_skin(old ? &saved : NULL);

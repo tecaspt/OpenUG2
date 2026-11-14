@@ -11,7 +11,7 @@ static int validate(GvScreen *s,int set) {
     return 1;
 }
 int fet_open(FeChoice *c,GvScreen *s,const UgAssets *a,int options) {
-    if(!c->cat)return 0;
+    if(!c->cat){snprintf(s->status,sizeof s->status,"event catalogue unavailable");return 0;}
     c->nevents=0;
     for(int i=0;i<c->cat->nev;i++)if(c->cat->ev[i].kind==c->kind)c->event_indices[c->nevents++]=i;
     if(!c->nevents){snprintf(s->status,sizeof s->status,"no events for race kind %d",c->kind);return 0;}

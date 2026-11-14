@@ -32,6 +32,9 @@ int gv_texture(const UgAssets *a, uint32_t key);
 /* Language text for a label key; `fallback` (the English text of the key) when the table lacks it. */
 const char *gv_text(const UgAssets *a, uint32_t key, const char *fallback);
 
+/* Platform adaptation shared by FE/results; centred canvas coordinates. */
+void gv_touch_back(UgCanvas *, const UgAssets *);
+
 /* ---- one loaded package ---------------------------------------------------------------------- */
 /* An anchor ("master") object sampled once when the screen is created, before any script of the
  * freshly loaded package has run: its authored (stored) centre and size (AMEND1 A6). Never re-read. */
