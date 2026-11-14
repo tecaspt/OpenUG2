@@ -230,6 +230,7 @@ static int pad_action_down(const CxInput *c, int action) {
 }
 
 int cx_action_down(const CxInput *c, const Uint8 *keys, int action) {
+    if (action >= 0 && action < 32 && ((c->virt_held >> action) & 1u)) return 1;
     int k[2];
     int n = cb_kb_keys(&c->b.kb, action, k);
     for (int i = 0; i < n; i++) if (keys && keys[k[i]]) return 1;

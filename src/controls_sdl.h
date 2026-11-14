@@ -26,6 +26,7 @@ typedef struct CxInput {
     Uint8 hat_prev[CB_MAX_PADS][CB_BIND_POVS];   /* last hat state per pad, for press edges */
     Uint8 vbtn_prev[CB_MAX_PADS][CB_VBTN_COUNT]; /* last trigger-as-button state per pad, for press edges */
     int ready;
+    uint32_t virt_held;                /* on-screen touch buttons held: bit `a` = action a (touch_controls.h) */
 } CxInput;
 
 /* Opens the joysticks, applies the defaults, then the persisted keyboard table and device records. The SDL
