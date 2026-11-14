@@ -1,4 +1,4 @@
-# Quick Race front-end bindings (R1, partial)
+# Quick Race front-end bindings (R1)
 
 [data] Scope: parsed PC retail data only. No executable or derived executable code was inspected.
 [data] `src/fe_binding.h` records hash, GUID, parent GUID, type and resource index for candidate application
@@ -52,7 +52,7 @@ research's human-readable message names are guesses and are not treated as proof
 [observed] No new screens have been rendered by this R1 pass. Binding identities alone do not establish
 that resource decoding, application writes, or authored animation states produce a complete screen.
 
-## Verification
+## Initial R1 verification (historical)
 
 [observed] From the worktree, after sourcing env.sh and checking available memory, under the heavy lock:
 
@@ -65,3 +65,34 @@ cc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Isrc tools/fe_binding_check.c \
 
 [observed] The checker reads OPENUG2_DATA at runtime, returns 77 when it is unset, and returns failure
 for missing packages or mismatched identities. No bundle dumps or derived images belong in the repository.
+
+## Implemented application binding (Task B completion pass)
+
+[data] The identity table now includes every object of all seven researched packages, including
+image slots, groups, masters and row decorations. The runtime checker verifies full tuples from freshly
+parsed bundles. The functions in fe_track.c and fe_car.c reject mismatches before binding.
+[inferred] M1 visits Track Select → Track Options → Mode Options → Car Select. The two options packages
+share the generalized row adapter. Both expose the same persistent laps/difficulty values; unsupported
+opponents/traffic/catch-up rows have no value or edit arrows and cannot receive keyboard focus.
+[inferred] Laps range 1–8 and difficulty 0–2 are implementation policy, not a decoded retail limit.
+[inferred] Track selection follows catalogue order within the chosen kind, without wrapping. The selected
+id, region, player car, laps and difficulty form the launch request. Back preserves choices.
+[data] The large Track4000_map resource is a map of the city in the tested install. A texture named
+TRACK<id>_MAP is looked up per choice; an absent texture is hidden, never replaced with another event's map.
+[inferred] The parked thumbnail pool is omitted pending a proven per-event thumbnail assignment; this
+is a remaining fidelity limitation, not a reason to draw substitute art. Best-lap records are hidden
+because M1 has no saved personal records. Distance comes from the catalogue, displayed in km.
+[inferred] The car's PC filter text field displays its catalogue name. Manufacturer placeholders and
+stat groups are hidden until real logo/stat bindings are implemented. The host renders the frozen-world
+car; fem_preview_car returns an empty string during a 0.3-second debounce, then the selected car name.
+[inferred] Results displays the player's place/car/elapsed time only. DNF represents failure. Unknown
+opponent rows and online countdown/disconnection placeholders are hidden. Next opens UI_postrace;
+its three actions are Restart, Continue and Quit to Main, using existing retail icons and captions.
+[inferred] The host receives each action once; Continue returns to Main for M1. No tournament or career
+rewards are invented. PC Restart/Next captions are exposed without joystick-token labels.
+[inferred] Touch Back uses a native outlined target below the authored layout with the retail font. Other touch zones
+navigate/accept choices and select options rows. These zones are platform adaptations.
+[observed] The runtime screen check renders installed packages against a synthetic catalogue. It checks
+that the request carries the selected event/car/options and that preview and post-race restart work.
+[inferred] Exact retail flow, carousel content, unlock/filter rules and map-thumbnail assignments still
+benefit from the owner's PC retail captures; no such captures were available in this task.
