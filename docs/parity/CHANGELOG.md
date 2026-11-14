@@ -12,6 +12,7 @@ branch the work was done on (`parity/m1` unless stated).
 - **696308b** Quick Race catalogue: 104 events in 6 regions, 44 cars (29 player). Event 4341 (no mode) and regions
   L4RH/L4RR (not switchable in process) are excluded.
 - **4818617** Front-end game flow state machine and scripted input player (headless end-to-end testing).
+- **c832017** Retail front-end carousel screens (UI_Main, Quick Race mode select, loading) and the menu controller; not wired yet.
 - **9069f0a** On-screen touch overlay and flat-shape drawing helper; not wired into the game yet.
 
 ## Before parity work (branch `ios/main`, summary)

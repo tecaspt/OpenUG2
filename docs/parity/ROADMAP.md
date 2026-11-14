@@ -45,7 +45,7 @@ One owner per file; units integrate only through the frozen API in M1-PLAN.md §
 | U2 catalogue | `src/game_catalog.{c,h}`, `tools/game_catalog_check.c` | DONE 696308b — 104 events / 6 regions / 44 cars (29 player) |
 | U3 game flow + input script | `src/game_flow.{c,h}`, `src/input_script.{c,h}`, tests | DONE 4818617 — 252/0, 48/0 |
 | U4 touch overlay | `src/touch_controls.{c,h}`, `src/ui_flat.{c,h}`, `src/controls_sdl.{c,h}`, test | DONE 9069f0a — 291/0 (drawing not yet rendered) |
-| U1 front-end carousel + menu | `src/fe_entries.*`, `src/fe_screen.*`, `src/fe_menu.*`, test | in progress |
+| U1 front-end carousel + menu | `src/fe_entries.*`, `src/fe_screen.*`, `src/fe_menu.*`, test | DONE c832017 — fe_screen_test PASS; retail UI_Main/QR mode/loading render |
 | R1 screen-binding research | `docs/cleanroom-settings/SPEC_GUI_FE.md`, `src/fe_binding.h` | in progress |
 | U5 track select | `src/fe_track.c`, `src/gui_view.{c,h}` | after R1 |
 | U6 car select | `src/fe_car.c` | after R1 |
