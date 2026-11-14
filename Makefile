@@ -1,8 +1,8 @@
 # OpenUG2 — build
 #
-#   make               desktop build without the temporary frontend menu
+#   make               desktop build (retail front end on a bare launch; see README)
 #   make normal        explicit alias for the normal build
-#   make menu          desktop build with the temporary standalone menu
+#   make menu          alias of the normal build (the front end is built in)
 #   make gles          OpenGL ES 2.0 build (embedded/mobile ARM)
 #   make debug         desktop build + Dear ImGui debug overlay
 #   make run DATA=DIR  build + run against your NFSU2 data directory
@@ -56,7 +56,9 @@ GUI_ART_HDR := $(wildcard src/gui_*.h) src/pause_entries.h src/pause_screen.h sr
 HDRS += src/ug2_track_collision.h src/drivetrain.h src/braking.h src/resistance.h src/lateral.h src/drive_stage1.h src/contact.h src/body_response.h src/tire_marks.h src/tire_marks_drive.h
 HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
+SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c
 HDRS += src/hud_race.h src/dir_scan.h
+HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
 
 map-bake-test: tools/map_bake_test.c src/map_bake.h src/nfsu2.h
@@ -120,10 +122,7 @@ $(GAME): $(SRC) $(HDRS) $(GEN)
 normal: $(SRC) $(HDRS) $(GEN)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(SRC) -o $(GAME) $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) -lz -lm
 
-menu: $(SRC) $(HDRS) $(GEN)
-	$(CC) $(CFLAGS) -DOPENUG2_MENU $(SDL_CFLAGS) $(SRC) \
-		-o $(GAME) \
-		$(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) -lz -lm
+menu: normal
 
 # Dev build with the Dear ImGui debug overlay + freecam controls (`make debug`).
 # The engine stays C; ImGui + the wrapper compile as C++ and link together.
@@ -935,3 +934,26 @@ route-minimap-check: tools/route_minimap_check.c src/hud_asset.c src/hud_texture
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/route_minimap_check.c src/hud_asset.c src/hud_texture.c src/ugui/ugui_codec.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/route_minimap_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
 
 .PHONY: route-minimap-check
+
+# Retail front end / game flow / touch / scripted input (M1 Phase 3).
+.PHONY: fe-screen-test game-flow-test input-script-test touch-controls-test game-catalog-check
+fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
+	./build/fe_screen_test
+game-flow-test: tools/game_flow_test.c src/game_flow.c src/pause_entries.c $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/game_flow_test.c src/game_flow.c src/pause_entries.c -o build/game_flow_test
+	./build/game_flow_test
+input-script-test: tools/input_script_test.c src/input_script.c src/input_script.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/input_script_test.c src/input_script.c -o build/input_script_test $(SDL_LIBS)
+	SDL_VIDEODRIVER=dummy ./build/input_script_test build/input_script_test.script
+touch-controls-test: tools/touch_controls_test.c src/touch_controls.c $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/touch_controls_test.c src/touch_controls.c -o build/touch_controls_test $(SDL_LIBS) -lm
+	SDL_VIDEODRIVER=dummy ./build/touch_controls_test
+# Build only: needs the retail data, run `build/game_catalog_check $(DATA)` by hand.
+game-catalog-check: tools/game_catalog_check.c src/game_catalog.c src/ugui/ugui_util.c src/resource.c src/world.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c src/ai.c $(HDRS) src/generated_shaders.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -DWORLD_INSTANCE_TESTING -Isrc tools/game_catalog_check.c src/game_catalog.c src/ugui/ugui_util.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/game_catalog_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
