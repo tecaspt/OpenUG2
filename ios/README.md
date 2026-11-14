@@ -19,7 +19,7 @@ Switching to the Files app while copying is safe; the game pauses in the backgro
 
 ## Controls
 
-Pause with **Start** on a controller, a **two-finger tap** on the screen, or **Esc** on a keyboard.
+Pause with **Start** on a controller, the on-screen **pause button** or a quick **two-finger tap** away from the buttons, or **Esc** on a keyboard.
 Controllers (MFi, Xbox, DualSense, and others iOS supports) can be connected at any time.
 Change bindings in **Options → Controls**; **Reset Keys To Default** restores the layout below.
 

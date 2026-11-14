@@ -14,6 +14,7 @@ void uf_end(UiFlat *u) { (void)u; }
 void uf_color(UiFlat *u, float r, float g, float b, float a) { (void)u; (void)r; (void)g; (void)b; (void)a; }
 void uf_rect(UiFlat *u, float x, float y, float w, float h) { (void)u; (void)x; (void)y; (void)w; (void)h; uf_calls++; }
 void uf_circle(UiFlat *u, float cx, float cy, float r) { (void)u; (void)cx; (void)cy; (void)r; uf_calls++; }
+void uf_ring(UiFlat *u, float cx, float cy, float r, float w) { (void)u; (void)cx; (void)cy; (void)r; (void)w; uf_calls++; }
 void uf_triangle(UiFlat *u, float a, float b, float c, float d, float e, float f) { (void)u; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; uf_calls++; }
 
 static int fails, checks;
@@ -44,6 +45,9 @@ static uint32_t up(TouchControls *t, int id, int b, float dx) {
 }
 static uint32_t move(TouchControls *t, int id, float x, float y) {
     SDL_Event e = finger(SDL_FINGERMOTION, id, x, y); return tc_event(t, &e);
+}
+static uint32_t tf(TouchControls *t, Uint32 type, int id, float x, float y, Uint32 ms) {
+    SDL_Event e = finger(type, id, x, y); e.tfinger.timestamp = ms; return tc_event(t, &e);
 }
 static void fresh(TouchControls *t, unsigned ctx) {
     tc_init(t, 1, 0, 0); tc_set_frame(t, 0, ctx, 16.0f / 9.0f);
@@ -233,6 +237,40 @@ int main(void) {
         CHECK(fabsf(cx - (in + 0.45f)) < 1e-5f && cy == 0.80f && r == 0.13f);
         tc_layout(&t, TC_PAUSE, &cx, &cy, &r);
         CHECK(fabsf(cx - 16.0f / 18.0f) < 1e-5f && cy == 0.07f);
+    }
+
+    /* two-finger tap = pause: off the buttons, fingers in different frames, quick, still */
+    {
+        const float X1 = 0.45f, X2 = 0.55f, Y = 0.40f;   /* mid-screen: no button there */
+        TouchControls t2; fresh(&t2, 0); t2.active = 1;
+        CHECK(tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 1000) == 0);
+        CHECK(tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 1080) == 0);           /* lands a few frames later */
+        CHECK(tf(&t2, SDL_FINGERUP, 1, X1, Y, 1150) == 0);
+        CHECK(tf(&t2, SDL_FINGERUP, 2, X2, Y, 1200) == BIT(CB_ACT_PAUSE));
+        /* too slow */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 2000); tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 2050);
+        tf(&t2, SDL_FINGERUP, 1, X1, Y, 2300); CHECK(tf(&t2, SDL_FINGERUP, 2, X2, Y, 2000 + TC_TAP_MS + 1) == 0);
+        /* one finger only */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 3000); CHECK(tf(&t2, SDL_FINGERUP, 1, X1, Y, 3050) == 0);
+        /* three fingers */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 4000); tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 4010); tf(&t2, SDL_FINGERDOWN, 3, 0.5f, 0.3f, 4020);
+        tf(&t2, SDL_FINGERUP, 1, X1, Y, 4100); tf(&t2, SDL_FINGERUP, 2, X2, Y, 4100);
+        CHECK(tf(&t2, SDL_FINGERUP, 3, 0.5f, 0.3f, 4110) == 0);
+        /* a finger that moves (a swipe) */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 5000); tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 5010);
+        tf(&t2, SDL_FINGERMOTION, 2, X2 + 0.1f, Y, 5050);
+        tf(&t2, SDL_FINGERUP, 1, X1, Y, 5100); CHECK(tf(&t2, SDL_FINGERUP, 2, X2 + 0.1f, Y, 5120) == 0);
+        /* driving: two thumbs quickly on gas and steer while the overlay shows */
+        float gx, gy, sx, sy; at(&t2, TC_GAS, &gx, &gy, 0); at(&t2, TC_STEER_L, &sx, &sy, 0);
+        tf(&t2, SDL_FINGERDOWN, 1, gx, gy, 6000); tf(&t2, SDL_FINGERDOWN, 2, sx, sy, 6010);
+        tf(&t2, SDL_FINGERUP, 1, gx, gy, 6100); CHECK(tf(&t2, SDL_FINGERUP, 2, sx, sy, 6120) == 0);
+        /* a menu opening in the middle cancels it */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 7000); tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 7010);
+        tc_set_frame(&t2, 1, 0, 16.0f / 9.0f); tc_set_frame(&t2, 0, 0, 16.0f / 9.0f);
+        tf(&t2, SDL_FINGERUP, 1, X1, Y, 7100); CHECK(tf(&t2, SDL_FINGERUP, 2, X2, Y, 7120) == 0);
+        /* and it works again afterwards */
+        tf(&t2, SDL_FINGERDOWN, 1, X1, Y, 8000); tf(&t2, SDL_FINGERDOWN, 2, X2, Y, 8010);
+        tf(&t2, SDL_FINGERUP, 2, X2, Y, 8100); CHECK(tf(&t2, SDL_FINGERUP, 1, X1, Y, 8120) == BIT(CB_ACT_PAUSE));
     }
 
     /* tc_draw draws only while visible (the stand-in needs a non-NULL pointer) */

@@ -138,6 +138,19 @@ void uf_circle(UiFlat *u, float cx, float cy, float r) {
     uf_draw(u, u->disc, UF_SEGS * 3, r, 0, 0, r, cx, cy);
 }
 
+void uf_ring(UiFlat *u, float cx, float cy, float r, float width) {
+    if (!u || !u->in_frame || r <= 0.0f || width <= 0.0f) return;
+    enum { N = 40 };
+    float step = 6.2831853f / (float)N;
+    float len = 2.0f * r * sinf(step * 0.5f) * 1.04f;   /* chord, a little long so segments overlap */
+    for (int i = 0; i < N; i++) {
+        float a = step * (float)i, ca = cosf(a), sa = sinf(a);
+        float ta = a + step * 0.5f + 1.5707963f, tx = cosf(ta), ty = sinf(ta);   /* chord direction */
+        /* unit quad: x along the chord, y inward */
+        uf_draw(u, u->quad, 6, tx * len, ty * len, -ca * width, -sa * width, cx + ca * r, cy + sa * r);
+    }
+}
+
 void uf_triangle(UiFlat *u, float x0, float y0, float x1, float y1, float x2, float y2) {
     if (!u || !u->in_frame) return;
     uf_draw(u, u->tri, 3, x1 - x0, y1 - y0, x2 - x0, y2 - y0, x0, y0);

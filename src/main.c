@@ -2289,6 +2289,32 @@ static PauseMenu *pause_menu_build(const char *dataroot, StGraphics *gfx, StGfxC
     return pm;
 }
 
+/* M1: a bare launch opens the retail front end. Options that only change settings or presentation keep
+   it; any other option (captures, audits, census/probe/dump tools, --frames runs, explicit starts) means
+   the caller wants the old direct path, so it must not be greeted by a menu. Values never start with
+   "--", so scanning for "--" tokens is enough. */
+static int direct_launch_requested(int argc, char **argv) {
+    static const char *const settings[] = {
+        "--path", "--resolution", "--menu", "--no-menu", "--touch", "--no-touch", "--input-script", "--laps",
+        "--rendermode", "--vinyl", "--texture-detail", "--vehicle-quality", "--no-paint-shine", "--world-cull-off",
+        "--road-reflections", "--no-road-reflections", "--weather-quality", "--rain", "--wetness", "--daylight", "--sky",
+        "--camera", "--projection", "--chase", "--devui", "--collision-walls", "--collision-source", "--tier",
+        "--tex-overrides", "--no-tex-overrides", "--tex-override-budget", "--traffic-cull-off", "--traffic",
+        "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
+        "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
+        "--hud-nos-glow", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime",
+    };
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--", 2)) continue;
+        int known = 0;
+        for (size_t k = 0; k < sizeof settings / sizeof settings[0]; k++)
+            if (!strcmp(argv[i], settings[k])) { known = 1; break; }
+        if (!known) return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     N2_IOS_STARTUP_OR_FAIL(&argc, &argv) collide_walls_selftest();
     phys_selftest();
@@ -2913,9 +2939,10 @@ int main(int argc, char **argv) {
     }
     if (chase_d > 0.0f) { g_dbg.chase_distance = chase_d; g_dbg.chase_height = chase_h; }
     /* Bare launch = retail front end; every test, capture and explicit-start path stays direct. */
-    int fe_enabled = !no_menu && (force_menu || !(shot || sshot || raudit || daudit || want_event_id || track_explicit ||
+    int fe_enabled = !no_menu && (force_menu || (!direct_launch_requested(argc, argv) &&
+        !(shot || sshot || raudit || daudit || want_event_id || track_explicit ||
         car_explicit || explicit_circuit || resident_route_audit || resident_drive_audit || ai_drive_audit || poseshot ||
-        follow_roam_ai || pause_shot || instance_audit));
+        follow_roam_ai || pause_shot || instance_audit)));
     if (script_spec) {
         char serr[160];
         if (!is_parse(&g_script, script_spec, serr, sizeof serr)) {
@@ -6748,13 +6775,12 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) { running = 0; continue; }
             uint32_t pad_edge = cx_joy_edges(&g_cx, &e);   /* every event, so hat state stays current while paused */
-            int tc_was_visible = tc_visible(&g_touch);   /* before this event: a finger-down itself shows the overlay */
             uint32_t touch_edge = tc_event(&g_touch, &e);
             pad_edge |= touch_edge;
             int pause_allowed = !(fem && fem_is_open(fem));   /* M1 Phase 2: && !pr_is_open(post) */
             int pause_key = e.type == SDL_KEYDOWN && cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_PAUSE);
-            int ios_p = N2_IOS_PAUSE_EVENT(&e);
-            int pause_start = (ios_p && !tc_was_visible) || (int)((touch_edge >> CB_ACT_PAUSE) & 1u) ||
+            /* Touch pause: the overlay button or a two-finger tap off the buttons (touch_controls.c). */
+            int pause_start = (int)((touch_edge >> CB_ACT_PAUSE) & 1u) ||
                               (e.type == SDL_CONTROLLERBUTTONDOWN &&
                                e.cbutton.button == SDL_CONTROLLER_BUTTON_START) ||
                               (e.type == SDL_JOYBUTTONDOWN &&
@@ -7141,6 +7167,8 @@ int main(int argc, char **argv) {
                 sim_reset = 1;
                 break;
             case GF_CMD_OPEN_MAIN:
+                /* Leaving a race or free run: the car must not keep rolling into the next session. */
+                vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); sim_reset = 1;
                 if (fem) fem_open(fem, FEM_SCR_MAIN);
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
