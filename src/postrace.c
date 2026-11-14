@@ -114,7 +114,7 @@ int pr_update(PostRace *p,float seconds) {
             snprintf(p->status,sizeof p->status,"%s",p->menu.status);p->visual=0;return 0;
         }
         const uint32_t icons[]={0xb295a6b6,0x62aa0df6,0x4c9e34e6};
-        const uint32_t labels[]={0x80833fc2,0x933dd695,0xc7e1420c};
+        const uint32_t labels[]={0x80833fc2,0xde02cf84,0xc7e1420c};
         const char *fallback[]={"Restart","Continue","Quit to Main Menu"};
         for(int i=0;i<3;i++){p->entries[i].tex=gv_texture(&p->assets,icons[i]);p->entries[i].label=gv_text(&p->assets,labels[i],fallback[i]);}
         p->phase=1;action=0;
