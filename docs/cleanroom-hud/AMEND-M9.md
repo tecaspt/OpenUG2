@@ -177,3 +177,32 @@ any speed dependence await calibration from owner captures (stationary and
 3. Wrong-way alpha/blink (1.6); outrun bar direction and value text (1.8).
 4. Whether rivals and the start line rotate, and whether rivals clamp to the
    ring like POIs (1.3, 1.4).
+
+## 5. GPS world marker (U4, `src/gps_marker.h`)
+
+* Retail guides with a solid arrow floating over the road ahead of the car
+  [observed]. The solid is the object `MARKER_GPS_AID` in
+  `GLOBAL/InGameCommon.bun` [data]: two material ranges over one vertex pool
+  (a dark-blue core and a light-blue shell, 82 triangles in all), bounds about
+  1.9 m x 0.7 m x 3.2 m [data]. `MARKER_DIRECTION_AID` is the same geometry
+  laid out elsewhere in the bundle [data]; it is not used.
+* Both ranges wear one 64x64 texture, a horizontal light band, whose record
+  is authored additive (usage 2, blend 2) [data]. The blue lives in the
+  vertex prelight [data]. Drawn as MODULATE2X of texel and vertex colour,
+  added to the frame, depth tested without depth writes, fogged like the
+  world [inferred from the record's draw mode]. If the texture fails to
+  decode, a flat mid-grey texel passes the vertex colour through unchanged.
+* `ARROW_MARKERA` (the planner's candidate) is not this solid's texture. In
+  `InGameCommon` it decodes to a coherent grey painted arrow with no alpha
+  plane [data]; the HUD art loader rejects it by its UI noise test, which is a
+  property of that test, not of the record. It is not used here.
+* The solid is authored tip-down (tip on its own -Z, flat faces along +-Y)
+  [data]. The engine lays it flat with the tip leading along the guidance
+  bearing (`HudState.nav_bearing`: atan2 in world XY) [inferred]. Placement
+  6 m ahead of the car, 2.5 m above the road, a 0.15 m / 1.6 s bob, authored
+  scale [inferred]; all are named constants awaiting calibration from owner
+  captures at three distances. Viewed from the chase camera the flat arrow
+  reads nearly edge-on; a nose-down tilt or a higher placement may be what
+  retail does [inferred, open].
+* Shown only while HUD guidance is active; it uses the previous frame's
+  bearing because the HUD state is sampled after the world pass.
