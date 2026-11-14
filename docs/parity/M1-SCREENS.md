@@ -52,3 +52,9 @@ Both retail options pages currently expose the same persistent laps/difficulty m
 Whole-game S2/S3, actual preview switching, race-finish/results timing and restart through main are
 NOT RUN by Task B: they depend on task A applying the documented main.c/Makefile hooks. These are
 integration work, not a claim of complete retail parity or a blocker on delivering these units.
+
+Final-check note: after the passing suites, the post-race menu gained the same full identity guard
+as Results and its Continue caption was corrected to retail key 0xDE02CF84. An additional syntax-only
+recheck could not acquire the shared heavy lock (two 45-second timeouts; an earlier waiting process
+ended 143). That additional recheck is NOT RUN, not PASS. The already completed test/render outputs
+above remain the evidence; task A's integration build must include these final small changes.
