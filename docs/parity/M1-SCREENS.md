@@ -18,7 +18,7 @@ No main.c, Makefile, roadmap, changelog, handoff or progress files were edited b
 
 ## Evidence
 
-Logs are local in `/home/nike/openug2-dev/reports/parity/task-b/`:
+Logs are local in the private work log (not in the repository):
 
 - `final-tests.log`: synthetic tests desktop/GLES: selection 11/0, identity 8/0, postrace 9/0.
 - `verification-final.log` and `verification-last.log`: all owned source files and runtime-check source compile with -Werror
@@ -34,8 +34,8 @@ Logs are local in `/home/nike/openug2-dev/reports/parity/task-b/`:
 
 PNG paths (local retail-derived artifacts, never committed), under each of:
 
-`/home/nike/openug2-dev/reports/parity/task-b/desktop-verified/`
-`/home/nike/openug2-dev/reports/parity/task-b/gles-verified/`
+`desktop-verified/` (local, retail-derived, not committed)
+`gles-verified/` (local, retail-derived, not committed)
 
 Files: `track.png`, `options.png`, `mode_options.png`, `car.png`, `results.png`, `postmenu.png`.
 The screens were inspected by eye in both configurations. Car's empty black background is the test

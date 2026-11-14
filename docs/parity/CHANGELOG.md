@@ -4,6 +4,8 @@ Newest first. One entry per change that affects behaviour, data handling or the 
 branch the work was done on (`parity/m1` unless stated).
 
 ## 2026-11-14
+- **a6b5c81** Retail Quick Race screens wired in (task B, branch `parity/m1-screens`, merged 7d7fdba): Track Select, Track/Mode Options, Car Select with in-place car preview, Event Results and Post Race (Restart / Continue / Quit to Main); failed launch returns to Track Select with the reason. Scripted end-to-end run: menu -> drag -> finish (4th, 1:54.48) -> results -> post race -> restart.
+- **a11e3b4** Follow-ups: car stops on Quit to Main; two-finger tap pause (off the buttons, any frames) replaces the iOS "second finger down" rule that fired while driving; see-through touch buttons, camera button moved to top centre; test/audit options no longer open the menu.
 - **af10545** Front end wired into the game: bare launch opens the retail main menu; Quick Race → mode starts the race in process; pause menu Restart / Quit to Main Menu; Free Run; touch overlay; `--menu`, `--no-menu`, `--touch`, `--no-touch`, `--input-script`. Existing command-line starts unchanged (shots and 105-event drive identical). Warning baseline 259 → 269 (explained in the commit).
 - Work split: retail Track/Options/Car Select and post-race screens moved to a separate task on branch `parity/m1-screens`.
 - **Plan.** Retail-parity roadmap M0–M10 and the M1 contract written ([ROADMAP.md](ROADMAP.md), [M1-PLAN.md](M1-PLAN.md)).

@@ -95,7 +95,7 @@ behind Car Select is expected; main provides the frozen-world preview.
 ## Makefile test recipes
 
 These commands are exact, from the worktree after sourcing env.sh. Run each compile and executable
-under `flock /home/nike/openug2-dev/.heavy.lock nice -n 10`; check available RAM first.
+with low priority (e.g. `nice -n 10`) on shared machines; check available RAM first.
 Do not add runtime retail checks to a data-free unit-test gate without handling exit 77 as SKIP.
 
 ```make
