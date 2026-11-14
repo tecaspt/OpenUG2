@@ -65,20 +65,24 @@ int ug_strtab_load(UgStrTab *t, const uint8_t *chunk, size_t len,
     uint32_t psize = rd32(chunk + 4);
     if (psize > len - 8) return fail(err, errlen, "string table: chunk runs past buffer");
     const uint8_t *p = chunk + 8;
-    if (psize < 36 + 512) return fail(err, errlen, "string table: payload too small");
+    if (psize < 16) return fail(err, errlen, "string table: payload too small");
     uint32_t hdr = rd32(p), count = rd32(p + 4), tab = rd32(p + 8), area = rd32(p + 12);
-    if (hdr != 0x20) return fail(err, errlen, "string table: bad header size");
-    if (rd32(p + 32) != 256) return fail(err, errlen, "string table: bad code map length");
+    /* 0x20: header carries a 16-byte table name; 0x10 (PC retail): no name. */
+    if (hdr != 0x20 && hdr != 0x10) return fail(err, errlen, "string table: bad header size");
+    if (psize < (uint64_t)hdr + 4 + 512) return fail(err, errlen, "string table: payload too small");
+    if (rd32(p + hdr) != 256) return fail(err, errlen, "string table: bad code map length");
     if ((uint64_t)tab + (uint64_t)count * 8 > psize) return fail(err, errlen, "string table: entry table out of range");
     if (area > psize) return fail(err, errlen, "string table: string area out of range");
 
     UgStrTab nt;
     ug_strtab_init(&nt);
-    memcpy(nt.name, p + 16, 16);
-    nt.name[16] = 0;
+    if (hdr == 0x20) {
+        memcpy(nt.name, p + 16, 16);
+        nt.name[16] = 0;
+    }
 
     uint16_t map[256];
-    for (int i = 0; i < 256; i++) map[i] = (uint16_t)rd16(p + 36 + 2 * i);
+    for (int i = 0; i < 256; i++) map[i] = (uint16_t)rd16(p + hdr + 4 + 2 * i);
 
     for (uint32_t i = 0; i < count; i++) {
         uint32_t hash = rd32(p + tab + i * 8);

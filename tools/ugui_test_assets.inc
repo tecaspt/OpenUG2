@@ -516,6 +516,43 @@ static int change_synthetic_ok(uint8_t *bytes, size_t size, const char text[3]) 
     return 0;
 }
 
+/* Synthetic 0x10-header string table (PC layout: no table name), derived
+ * from the 0x20 vector by dropping the 16 name bytes. */
+static void test_string_table_hdr10(void) {
+    size_t len = 0;
+    uint8_t *bin = read_hex("string_table.hex", &len);
+    CHECK(bin && len > 8 + 32 + 4);
+    if (!bin) return;
+    uint8_t *v = (uint8_t *)malloc(len);
+    CHECK(v != NULL);
+    if (!v) { free(bin); return; }
+    size_t psize = len - 8;
+    memcpy(v, bin, 8 + 16);                       /* chunk hdr + 4 header words */
+    memcpy(v + 8 + 16, bin + 8 + 32, psize - 32); /* code map onward */
+    v[4] = (uint8_t)(psize - 16); v[5] = (uint8_t)((psize - 16) >> 8);
+    v[6] = 0; v[7] = 0;
+    v[8] = 0x10;                                  /* header size */
+    uint32_t tab = (uint32_t)bin[16] | (uint32_t)bin[17] << 8 | (uint32_t)bin[18] << 16;
+    uint32_t area = (uint32_t)bin[20] | (uint32_t)bin[21] << 8 | (uint32_t)bin[22] << 16;
+    tab -= 16; area -= 16;
+    v[16] = (uint8_t)tab; v[17] = (uint8_t)(tab >> 8);
+    v[20] = (uint8_t)area; v[21] = (uint8_t)(area >> 8);
+    UgStrTab t;
+    char err[128] = "";
+    ug_strtab_init(&t);
+    CHECK_MSG(ug_strtab_load(&t, v, len - 16, err, sizeof err), "%s", err);
+    CHECK(t.n == 4);
+    CHECK(t.name[0] == 0);
+    const char *ok = ug_strtab_get(&t, ug_hash_upper("COMMON_OK"));
+    CHECK(ok && !strcmp(ok, "OK"));
+    ug_strtab_free(&t);
+    v[8] = 0x18;                                  /* unsupported header size */
+    CHECK(!ug_strtab_load(&t, v, len - 16, err, sizeof err));
+    ug_strtab_free(&t);
+    free(v);
+    free(bin);
+}
+
 static void test_assets_selected_language_source(void) {
     SynInstall si;
     syn_install_make(&si);
@@ -735,6 +772,7 @@ static void run_asset_tests(void) {
     RUN(test_font_chunk_and_layout);
     RUN(test_face_text_metrics);
     RUN(test_assets_synthetic_install);
+    RUN(test_string_table_hdr10);
     RUN(test_assets_selected_language_source);
     RUN(test_scene_with_assets);
     RUN(test_demo_original_screens);
