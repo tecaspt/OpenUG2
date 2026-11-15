@@ -1038,11 +1038,12 @@ RhiPipeline rhi_pipeline_create(const RhiPipelineDesc *desc) {
         if (pipeline_desc_equal(&g_pipelines.desc[i], desc)) { out.id = i + 1; return out; }
     if (g_pipelines.count == g_pipelines.capacity) {
         uint32_t cap = g_pipelines.capacity ? g_pipelines.capacity * 2u : 64u;
+        size_t bytes = (size_t)cap * sizeof *g_pipelines.desc;   /* a 32-bit size_t can wrap here */
         if (cap > INT_MAX || cap < g_pipelines.capacity ||
-            (size_t)cap > SIZE_MAX / sizeof *g_pipelines.desc) {
+            bytes / sizeof *g_pipelines.desc != cap) {
             fprintf(stderr, "rhi: pipeline_create: out of handles\n"); return out;
         }
-        RhiPipelineDesc *next = realloc(g_pipelines.desc, (size_t)cap * sizeof *next);
+        RhiPipelineDesc *next = realloc(g_pipelines.desc, bytes);
         if (!next) { fprintf(stderr, "rhi: pipeline_create: out of memory\n"); return out; }
         g_pipelines.desc = next;
         g_pipelines.capacity = cap;
