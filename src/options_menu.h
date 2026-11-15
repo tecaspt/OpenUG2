@@ -60,11 +60,11 @@ float om_slider_fill(int v, int min, int max);
 
 /* ---- identifiers and data keys ------------------------------------------------------------------ */
 typedef enum { OM_CTX_FRONTEND = 0, OM_CTX_INGAME } OmContext;           /* SPEC_GUI 1.2 */
-typedef enum { OM_SCREEN_CLOSED = 0, OM_SCREEN_DISPLAY, OM_SCREEN_CUSTOMIZE, OM_SCREEN_HUB, OM_SCREEN_CONTROLS, OM_SCREEN_GAMEPLAY } OmScreen;
+typedef enum { OM_SCREEN_CLOSED = 0, OM_SCREEN_DISPLAY, OM_SCREEN_CUSTOMIZE, OM_SCREEN_HUB, OM_SCREEN_CONTROLS, OM_SCREEN_GAMEPLAY, OM_SCREEN_AUDIO, OM_SCREEN_PLAYER } OmScreen;
 typedef enum { OM_ROW_CHOICE = 0, OM_ROW_SLIDER, OM_ROW_BUTTON, OM_ROW_SPACER } OmRowKind;  /* 2.1 */
 typedef enum {                   /* what the row does */
     OM_ID_OPTION = 0,            /* an ordinary graphics option, `gfx` names its slot */
-    OM_ID_RESOLUTION, OM_ID_LEVEL, OM_ID_CUSTOMIZE, OM_ID_DEFAULTS, OM_ID_SPACER, OM_ID_MOUSE_LOOK
+    OM_ID_RESOLUTION, OM_ID_LEVEL, OM_ID_CUSTOMIZE, OM_ID_DEFAULTS, OM_ID_SPACER, OM_ID_MOUSE_LOOK, OM_ID_PROFILE
 } OmRowId;
 typedef enum {                   /* how the value text is produced (SPEC_GUI 3.1, 4.1) */
     OM_VT_NONE = 0, OM_VT_RESOLUTION, OM_VT_ONOFF, OM_VT_LOWHIGH, OM_VT_VSYNC
@@ -125,13 +125,14 @@ typedef struct OmConfig {
     int cpu_mhz;                 /* inputs of the performance level (SPEC 4.5) */
     double gpu_score;
     int *mouse_look;             /* optional OpenUG2 setting; host owns persistence */
+    StProfile *profile;         /* optional FE profile; NULL preserves legacy pause behavior */
 } OmConfig;
 void om_config_default(OmConfig *c, OmContext ctx);   /* modern hardware: 3000 MHz, GPU score 5 */
 
 /* What a leaving transition does at exit-complete. */
 typedef enum { OM_EXIT_NONE = 0, OM_EXIT_TO_DISPLAY, OM_EXIT_TO_CUSTOMIZE, OM_EXIT_LEAVE_DISPLAY,
                OM_EXIT_TO_PAUSE, OM_EXIT_RESUME, OM_EXIT_TO_CONTROLS,
-               OM_EXIT_TO_GAMEPLAY, OM_EXIT_LEAVE_GAMEPLAY } OmExit;
+               OM_EXIT_TO_GAMEPLAY, OM_EXIT_LEAVE_GAMEPLAY, OM_EXIT_TO_AUDIO, OM_EXIT_TO_PLAYER } OmExit;
 
 typedef struct OmHubEntry {      /* SPEC_GUI_ART 2.5 */
     uint32_t icon_key;
@@ -177,6 +178,7 @@ typedef struct OptionsMenu {
     unsigned blink_serial;       /* bumped on Left/Right on a row or hub entry */
     int blink_dir;               /* direction of the latest blink */
     unsigned exit_serial;        /* bumped when an exit begins */
+    int profile_requested;
     unsigned dialog_serial;      /* bumped when the dialog opens or closes */
 } OptionsMenu;
 
@@ -185,9 +187,10 @@ typedef struct OptionsMenu {
  * gfx and caps must outlive the menu. The remembered hub entry survives (see om_reset_session). */
 void om_open(OptionsMenu *m, const OmConfig *cfg, StGraphics *gfx, const StGfxCaps *caps,
              StRegStore *store, int remembered_focus);
-/* In game: opens the options hub (from the pause menu's Options entry). */
+/* Opens the hub in the supplied context (front end or pause Options). */
 void om_open_hub(OptionsMenu *m, const OmConfig *cfg, StGraphics *gfx, const StGfxCaps *caps,
                  StRegStore *store);
+int om_take_profile_request(OptionsMenu *m);
 void om_close(OptionsMenu *m);                    /* drops everything without writing anything */
 /* Lends the bindings and platform names and states whether the Controls screen may be offered. Without
  * `available` (or without bindings) the hub keeps its four baseline entries (CONTROLS_SPEC R3). Survives
