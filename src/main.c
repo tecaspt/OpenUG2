@@ -2328,7 +2328,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2551,6 +2551,7 @@ int main(int argc, char **argv) {
     int force_menu = 0, no_menu = 0, car_explicit = 0, track_explicit = 0;   /* retail front end (M1) */
     int touch_opt = -1;                  /* --touch 1 / --no-touch 0 / auto -1 */
     const char *script_spec = NULL;      /* --input-script SPEC */
+    long debug_sink = -1;                /* --debug-sink FRAME: drop the car 30 m through the world (recovery check) */
     int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
                                             engage the first available event, finish it in PLACE */
     for (int i = 1; i < argc; i++) {
@@ -2589,6 +2590,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--no-touch")) touch_opt = 0;
         else if (!strcmp(argv[i], "--input-script") && i+1 < argc) script_spec = argv[++i];
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
         else if (!strcmp(argv[i], "--carinfo") && i+1 < argc) carinfo = argv[++i];
@@ -3881,6 +3883,24 @@ int main(int argc, char **argv) {
                classes[0], classes[1], classes[2], classes[3],
                classes[4], classes[5], classes[6], classes[7]);
         printf("INSTANCE finite-coordinate-failures=%ld\n", finite_failures);
+        {   /* knockdown (breakable) props by family, and where the crash barrels are */
+            int signs = 0, fences = 0, barrels = 0, barrel_meshes = 0, solid_barrels = 0, shown = 0;
+            for (int i = 0; i < world.neighborhood.scene.count; i++) {
+                const N2Mesh *mesh = &world.neighborhood.scene.meshes[i];
+                int barrel = n2_crash_barrel(mesh->sname);
+                barrel_meshes += barrel;
+                if (barrel && mesh->prop_id) solid_barrels++;
+                if (!mesh->prop_id) continue;
+                if (n2_road_sign(mesh->sname)) signs++; else if (barrel) barrels++; else fences++;
+                if (barrel && shown < 6) {
+                    float x = 0, y = 0; for (int v = 0; v < mesh->nverts; v++) { x += mesh->verts[v*5]; y += mesh->verts[v*5+1]; }
+                    if (mesh->nverts) printf("INSTANCE barrel %s at (%.1f, %.1f)\n", mesh->sname, x / mesh->nverts, y / mesh->nverts);
+                    shown++;
+                }
+            }
+            printf("INSTANCE knockdown meshes signs=%d fences=%d barrels=%d; crash-barrel meshes=%d (breakable %d)\n",
+                   signs, fences, barrels, barrel_meshes, solid_barrels);
+        }
         printf("INSTANCE support spawn=(%.3f,%.3f,%.3f) reference=%.3f category=%s\n",
                world2_spawn_xy[0], world2_spawn_xy[1], world2_spawn_z,
                world2_support_ref,
@@ -8673,6 +8693,36 @@ int main(int argc, char **argv) {
             if (g_ride.impact > g_ride_maximpact) g_ride_maximpact = g_ride.impact;
         } else if (ground_cat != WSURF_NONE) carpos[2] = gz;
         (void)ride_nsup;
+        /* Fall-through recovery (owner report: car clipped under the map after leaving a circuit). [inferred]
+           retail behaviour: a car that falls out of the world is put back on the road. Off for audits, captures
+           and frozen runs so reference traces are unchanged. Samples on-road poses every 0.5 s; a car with no
+           support for 1.5 s, or 15 m under its last road height, returns to the pose from ~2 s earlier. */
+        if (debug_sink >= 0 && sf >= debug_sink) {
+            carpos[2] -= 30.0f; g_ride_ready = 0; debug_sink = -1;
+            printf("debug-sink: car dropped to z %.1f\n", carpos[2]);
+        }
+        if (race_state == 1 && !sstatic && !capture_policy.freeze_motion && !shot && !raudit && !daudit &&
+            !resident_drive_audit && !resident_route_audit && !ai_drive_audit) {
+            static float fr_ring[4][4]; static int fr_n, fr_tick, fr_lost;
+            int on_road = ground_cat == WSURF_ROAD && g_ride_ready && g_ride.contact_mask;
+            if (fr_n && hypotf(carpos[0] - fr_ring[(fr_n - 1) % 4][0], carpos[1] - fr_ring[(fr_n - 1) % 4][1]) > 60.0f &&
+                on_road) fr_n = 0;                                   /* teleport / track switch: start over */
+            if (on_road) {
+                fr_lost = 0;
+                if (++fr_tick >= 30) { fr_tick = 0; float *q = fr_ring[fr_n % 4];
+                                       q[0] = carpos[0]; q[1] = carpos[1]; q[2] = carpos[2]; q[3] = heading; fr_n++; }
+            } else if (ground_cat != WSURF_ROAD && ground_cat != WSURF_TERRAIN) fr_lost++;
+            else fr_lost = 0;
+            const float *last = fr_n ? fr_ring[(fr_n - 1) % 4] : NULL;
+            if (last && (fr_lost > 90 || carpos[2] < last[2] - 15.0f)) {
+                const float *q = fr_ring[(fr_n >= 4 ? fr_n - 4 : 0) % 4];   /* oldest kept sample, ~2 s back */
+                printf("recovery: car lost the road at (%.1f %.1f %.1f), back to (%.1f %.1f %.1f)\n",
+                       carpos[0], carpos[1], carpos[2], q[0], q[1], q[2]);
+                carpos[0] = q[0]; carpos[1] = q[1]; carpos[2] = q[2]; heading = q[3];
+                vel[0] = vel[1] = 0.0f; speed = 0.0f; stage1_drive_reset(&g_stage1, vel, heading);
+                g_ride_ready = 0; fr_lost = 0; fr_tick = 0; fr_n = 0; sim_reset = 1;
+            }
+        }
         if (raudit) {   /* observe the production state, after every push */
             float adz = da_dz < 0 ? -da_dz : da_dz;
             if (ground_cat != WSURF_NONE && adz > 0.10f && ra_ground_spikes < 80) {

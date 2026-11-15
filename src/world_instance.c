@@ -742,7 +742,7 @@ static int winst_visit_section(const WInstSection *section,
             placement.model_keys[lod] = n2_u32(type + 0x20 + lod * 4);
         const WGSelected *role=wg_selection_find(scenery,(unsigned)section->region_id,(unsigned)i);
         /* Narrow OpenUG2 eligibility policy, not decoded retail impact flags. */
-        placement.knockdown=n2_road_sign(type_name) || (role && (role->membership&WG_KNOCKDOWN) &&
+        placement.knockdown=n2_road_sign(type_name) || n2_crash_barrel(type_name) || (role && (role->membership&WG_KNOCKDOWN) &&
             strlen(type_name)>=8 && !strncmp(type_name,"XO_",3) &&
             n2_icontains((const unsigned char *)type_name+3,5,"FENCE"));
         placement.placement_id=((uint32_t)section->region_id<<16)|(unsigned)i;

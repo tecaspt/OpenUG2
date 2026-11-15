@@ -124,8 +124,8 @@ static int world_prop_impact(const N2Scene *scene,int mesh,const float velocity[
                 -(m->verts[5*v]-p->pivot[0])*p->direction[1]+(m->verts[5*v+1]-p->pivot[1])*p->direction[0]));
         }
         /* Calibrated light-debris response; no retail mass/friction claim.
-           Fence panels keep their existing hinged fall. */
-        if(n2_road_sign(scene->meshes[mesh].sname)) {
+           Fence panels keep their existing hinged fall; crash barrels scatter like signs. */
+        if(n2_road_sign(scene->meshes[mesh].sname) || n2_crash_barrel(scene->meshes[mesh].sname)) {
             p->speed=fminf(8,speed*.5f);p->debris=1;
             /* The panel's face sets its flat resting orientation; vehicle
                momentum sets travel, including glancing and reverse impacts. */
@@ -138,6 +138,7 @@ static int world_prop_impact(const N2Scene *scene,int mesh,const float velocity[
         }
     }
     for(int k=0;k<scene->count;k++)if(scene->meshes[k].prop_id==id)scene->meshes[k].prop_broken=1;
+    if(struck)printf("prop: knocked %s at (%.1f %.1f) %.0f km/h\n",scene->meshes[mesh].sname,p->pivot[0],p->pivot[1],speed*3.6f);
     return struck?1:2;
 }
 
