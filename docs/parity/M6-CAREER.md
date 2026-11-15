@@ -7,7 +7,7 @@ the real game must confirm; **[code]** existing OpenUG2 behaviour. Clean room: o
 
 ## What works
 
-Main > Career → free roam in the career city (STREAML4RA) → drive into an event zone below 30 km/h → the HUD
+Main > Career → the retail Career screen (`UI_StartCareer.fng`: Resume Career / Start New Career) → free roam in the career city (STREAML4RA) → drive into an event zone below 30 km/h → the HUD
 shows `ENTER RACE: <name> $<purse>` → Enter Race → the event loads in its own region → results → bank cash and
 reputation are paid → Continue → back in the city at the pre-race spot → after the stage's wins the next stage's
 events appear on the map. Quit to Main saves the free-roam pose; Career then continues the saved career.
@@ -32,7 +32,8 @@ Data checks exit 77 (SKIP) without `OPENUG2_DATA`.
 | Hook | Where |
 |---|---|
 | Career data load, Main > Career enabled only when it loads | after `fem_create` (`ch_init`, `fem_set_career`) |
-| Career request: continue if the profile has a save, else new | `FEM_REQ_CAREER` → `fem_persist_profile` → `ch_begin` → `gf_start` |
+| Career screen: Resume (only with a save, focused), New (with a save: a second choice confirms, label `CONFIRM_OVERWRITE_SAVED_GAME`) | `FEM_SCR_CAREER` in fe_menu, entries `fe_career_entries` |
+| Career request: 0 = resume, 1 = new | `FEM_REQ_CAREER` → `fem_persist_profile` → `ch_begin` → `gf_start` |
 | Enter Race inside a zone (key, pad, touch `enter_race`) | `career_zone` beats the outrun challenge |
 | Result → reward + save | `GF_CMD_OPEN_RESULTS` → `ch_on_result` |
 | Continue → city at the pre-race pose | `PR_ACT_CONTINUE` → `ch_return`; focus override in `prepare_map_switch`, same-track reload |
@@ -55,12 +56,12 @@ Data checks exit 77 (SKIP) without `OPENUG2_DATA`.
 2. Only a first win pays: purse + reputation base (100); losses and repeats pay nothing; won events disappear.
 3. Stage complete = first wins in the stage ≥ stage requirement (+URL/sponsor counts); DVD covers count as met.
 4. Engage below 30 km/h inside the zone; text `ENTER RACE: <name> $<purse>` (retail ENGAGE_* dialog not yet used).
-5. No Career sub-screen yet (UI_StartCareer / UI_CareerSelect): Career continues the save, else starts new.
+5. Career screen order Resume, New; New over an existing save needs a second choice; no Load (one career per profile). UI_StartCareer's header text resolves to the Options caption, so the host titles it with `UI_MAIN_CAREER`.
 6. Career race difficulty medium; laps from the heat; car = the car in use.
 7. Continue returns to the pre-race spot (nearest surface, saved heading).
 8. Career needs a saved profile; an in-memory default profile is saved on first Career.
 
 ## Not yet (next slices)
 
-Stage 0 intro and car lot, Career sub-screens and world map, ENGAGE dialog art, SMS, sponsors choice, multi-heat
+Stage 0 intro and car lot, UI_CareerSelect / world map, ENGAGE dialog art, SMS, sponsors choice, multi-heat
 URL tournaments and per-race AI count (M7 race rules), DVD/magazine covers, car/part unlocks, shops, retail save import.

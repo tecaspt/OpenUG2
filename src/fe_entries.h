@@ -17,11 +17,15 @@ extern "C" {
 typedef struct FeEntry { int id; uint32_t icon_key, label_key; const char *icon_name, *label; int disabled; } FeEntry;
 
 enum { FE_MAIN_CAREER, FE_MAIN_QUICK_RACE, FE_MAIN_GO_ONLINE, FE_MAIN_LAN, FE_MAIN_CUSTOMIZE, FE_MAIN_PROFILE, FE_MAIN_OPTIONS };
+enum { FE_CAREER_RESUME, FE_CAREER_NEW };   /* UI_StartCareer.fng entries (M6) */
 enum { FE_MODE_CIRCUIT, FE_MODE_SPRINT, FE_MODE_DRAG, FE_MODE_DRIFT, FE_MODE_STREET_X, FE_MODE_URL, FE_MODE_FREE_RUN };
 
 /* Main menu: 7 entries in list order. Bit k of `enabled_mask` enables entry FE_MAIN_k; Go Online and
  * LAN are always disabled. Returns the entry count. */
 int fe_main_entries(FeEntry out[GC_MAX], unsigned enabled_mask);
+/* Career start (UI_StartCareer.fng): Resume (enabled only with a save) then New. `confirm_new` swaps the New label for
+ * the retail restart confirmation (a save exists and New was chosen once). Order [inferred]. Returns 2. */
+int fe_career_entries(FeEntry out[GC_MAX], int has_save, int confirm_new);
 /* Quick Race mode select: 7 entries, all enabled. */
 int fe_mode_entries(FeEntry out[GC_MAX]);
 /* N2_RACE_* (race.h) of a FE_MODE_*; -1 for Free Run (and for an unknown mode). */
