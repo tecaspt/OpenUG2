@@ -8,6 +8,7 @@ FeGarage *feg_create(const char *root);
 void feg_destroy(FeGarage *);
 /* Optional prevalidated host cache; also permits asset-free navigation tests. */
 int feg_use_catalog(FeGarage *,const GarageCatalog *,const GarageConfig *);
+int feg_use_rims(FeGarage *,const GarageRims *);
 int feg_current(FeGarage *,const char *car,const GarageConfig *);
 int feg_open(FeGarage *,GvScreen *,UgAssets *);
 /* 0 unchanged, 1 rebuild package, 2 return to Main. Inputs use FES_IN_* values. */

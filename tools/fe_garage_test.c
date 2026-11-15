@@ -18,7 +18,38 @@ static void test_parts_binding(void) {
  objects[7].res_index=1;assert(!gv_carousel_bind_parts(&v,&s,&car));objects[7].res_index=0;
  objects[8].guid=objects[7].guid;assert(!gv_carousel_bind_parts(&v,&s,&car));
 }
+static void test_rims(void) {
+ GarageCatalog *cat=calloc(1,sizeof *cat);GarageRims *rims=calloc(1,sizeof *rims);assert(cat&&rims);
+ strcpy(cat->car,"SYNTH");rims->count=3;
+ strcpy(rims->options[0].brand,"ALPHA");rims->options[0].style=1;
+ strcpy(rims->options[1].brand,"BETA");rims->options[1].style=2;
+ strcpy(rims->options[2].brand,"BETA");rims->options[2].style=3;
+ GarageConfig cfg={0};strcpy(cfg.rim_brand,"BETA");cfg.rim_style=3;
+ FeGarage *g=feg_create("");assert(g&&feg_use_catalog(g,cat,&cfg)&&feg_use_rims(g,rims));
+ rims->options[2].style=2;assert(!feg_use_rims(g,rims));rims->options[2].style=3;
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_SLOTS);
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_BRANDS);
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_RIMS);
+ feg_advance(g,1);GarageRequest r;assert(feg_take(g,&r)&&!strcmp(r.config.rim_brand,"BETA")&&r.config.rim_style==3);
+ feg_ack(g,r.serial,1,NULL);assert(feg_input(g,FES_IN_LEFT)==0);feg_advance(g,1);
+ assert(feg_take(g,&r)&&r.config.rim_style==2);feg_ack(g,r.serial,1,NULL);
+ assert(feg_input(g,FES_IN_BACK)==0);assert(feg_take(g,&r)&&r.action==GAR_RESTORE&&r.config.rim_style==3);
+ feg_ack(g,r.serial,1,NULL);assert(feg_advance(g,0)&&feg_page(g)==FEG_BRANDS);
+ assert(feg_input(g,FES_IN_LEFT)==0);assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_RIMS);
+ feg_advance(g,1);assert(feg_take(g,&r)&&!strcmp(r.config.rim_brand,"ALPHA"));feg_ack(g,r.serial,1,NULL);
+ assert(feg_input(g,FES_IN_ACCEPT)==0);assert(feg_take(g,&r)&&r.action==GAR_KEEP);feg_ack(g,r.serial,1,NULL);
+ assert(feg_advance(g,0)&&feg_page(g)==FEG_SLOTS);
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_BRANDS);
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_page(g)==FEG_RIMS);feg_advance(g,1);
+ assert(feg_take(g,&r)&&!strcmp(r.config.rim_brand,"ALPHA"));feg_ack(g,r.serial,1,NULL);
+ assert(feg_input(g,FES_IN_BACK)==0);assert(feg_take(g,&r)&&r.action==GAR_RESTORE);feg_ack(g,r.serial,1,NULL);
+ assert(feg_advance(g,0)&&feg_page(g)==FEG_BRANDS);assert(feg_input(g,FES_IN_BACK)==0);
+ assert(feg_take(g,&r)&&r.action==GAR_RESTORE&&!strcmp(r.config.rim_brand,"ALPHA"));feg_ack(g,r.serial,1,NULL);
+ assert(feg_advance(g,0)&&feg_page(g)==FEG_SLOTS);
+ feg_destroy(g);free(rims);free(cat);
+}
 int main(void){
+ test_rims();
  test_parts_binding();
  GarageCatalog *cat=calloc(1,sizeof *cat);assert(cat);strcpy(cat->car,"SYNTH");
  cat->menu[GARAGE_KIT].count=20;for(int i=0;i<20;i++){cat->menu[GARAGE_KIT].options[i].value=i;snprintf(cat->menu[GARAGE_KIT].options[i].label,48,"Synthetic %d",i);}

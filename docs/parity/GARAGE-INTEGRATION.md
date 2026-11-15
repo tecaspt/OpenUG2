@@ -94,3 +94,53 @@ if(fem && fem_screen(fem)==FEM_SCR_GARAGE) {
 [inferred] Extend the scripted telemetry screen-name array near12608 with OPTIONS, PROFILE, CAREER,
 GARAGE in enum order, and replace its hardcoded scr>6 guard with the actual array element count.
 Otherwise correct Garage captures are misleadingly logged as NONE.
+
+## Rim preview transaction (priority 2)
+
+[inferred] Keep the original wheel_brands indices; append these archive brands to that array near6250:
+```c
+"DAVIN","DONZ","FOXX","GIANELLE","GIOVANNA","KAIZER","OASIS","SPINNER","WELDWHEEL"
+```
+[inferred] In the Garage/body-kit transaction above, immediately after declaring `error` and
+`BodyKitCandidate kit={0};N2CarConfig next=carcfg;`, prepare a detached rim candidate.
+The existing `load_rim_style` helper receives empty outputs, so it cannot destroy active rims.
+```c
+N2Scene garage_rims={0};GpuMesh *garage_rim_gpu=NULL;
+            RhiTexture garage_rim_tex={0};int garage_rim_count=0,garage_rim_mode=0;
+            unsigned char *garage_rim_data=NULL;long garage_rim_len=0;
+            int garage_rim_brand=-1,garage_rim_changed=0;
+            if(garage_apply && (strcmp(garage_request.config.rim_brand,wheel_brands[wheel_brand]) ||
+                               garage_request.config.rim_style!=wheel_style)) {
+                garage_rim_changed=1;
+                for(int b=0;b<n_wheel_brands;b++)if(!strcmp(garage_request.config.rim_brand,wheel_brands[b]))garage_rim_brand=b;
+                if(garage_rim_brand<0)error="Rim brand is unavailable. Current config kept.";
+                else {
+                    char path[1024];snprintf(path,sizeof path,"%s/CARS/WHEELS/GEOMETRY_%s.BIN",dataroot,wheel_brands[garage_rim_brand]);
+                    garage_rim_data=n2_read_file(path,&garage_rim_len);
+                    if(!load_rim_style(garage_rim_data,garage_rim_len,wkeys,nwkeys,garage_request.config.rim_style,
+                                      &garage_rims,&garage_rim_gpu,&garage_rim_count,wtdata,wtlen,
+                                      &garage_rim_tex,&garage_rim_mode,carWheelR))
+                        error="Rim could not be loaded. Current config kept.";
+                }
+            }
+```
+[inferred] Keep the complete existing body preparation/clearance/commit block. Immediately before
+its `body_kit_release(&kit);`, swap the prepared rims only if the entire transaction succeeded;
+otherwise discard them. There are no fallible operations after body commit.
+```c
+if(!error && garage_rim_changed) {
+                free_scene_gpu(wheelgm,nwheelgm);n2_free_scene(&wheellib);
+                if(rimtex.id)rhi_texture_destroy(rimtex);
+                free(wldata);wldata=garage_rim_data;wllen=garage_rim_len;garage_rim_data=NULL;
+                wheellib=garage_rims;memset(&garage_rims,0,sizeof garage_rims);
+                wheelgm=garage_rim_gpu;garage_rim_gpu=NULL;nwheelgm=garage_rim_count;
+                rimtex=garage_rim_tex;garage_rim_tex=(RhiTexture){0};rimmode=garage_rim_mode;
+                wheel_brand=garage_rim_brand;wheel_style=garage_request.config.rim_style;presentation_snap=1;
+                printf("garage rims: %s STYLE%02d action=%d\n",wheel_brands[wheel_brand],wheel_style,garage_request.action);
+            }
+            free(garage_rim_data);free_scene_gpu(garage_rim_gpu,garage_rim_count);n2_free_scene(&garage_rims);
+            if(garage_rim_tex.id)rhi_texture_destroy(garage_rim_tex);
+```
+[inferred] Retain the final fem_garage_ack from priority1. Rim previews, Keep and Back carry the
+whole config through the same serial/ack contract. Never acknowledge before both body and rims
+are ready. The host must continue polling while a Restore is pending.

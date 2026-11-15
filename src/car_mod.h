@@ -2,6 +2,7 @@
 #define OPENUG2_CAR_MOD_H
 #include "nfsu2.h"
 #include <limits.h>
+#include <dirent.h>
 
 static const char *const n2_mod_libraries[] = {
     "", "SPOILER", "SPOILER_HATCH", "SPOILER_SUV", "EXHAUST", "ROOF"
@@ -286,7 +287,7 @@ static int n2_mod_garage_scene(const char *root,const unsigned char *data,long l
     for(int i=0;i<scene->count;i++) {
         N2Mesh *m=scene->meshes+i;triangles+=m->nidx/3;
         if(m->nverts<1||!m->verts||!m->idx)return 0;
-        for(int v=0;v<m->nverts;v++)for(int a=0;a<3;a++)if(!isfinite(m->verts[v*(m->authored_normals?8:5)+a]))return 0;
+        for(int v=0;v<m->nverts;v++)for(int a=0;a<3;a++)if(!isfinite(m->verts[v*5+a]))return 0;
         for(int j=0;j<m->nidx;j++)if(m->idx[j]>=m->nverts)return 0;
     }
     if(!triangles)return 0;
@@ -329,5 +330,60 @@ static int n2_mod_garage_catalog(const char *root,const char *name,GarageCatalog
         }
     }
     n2_free_scene(&stock);free(data);return ok;
+}
+
+/* [data] Enumerate installed wheel archives and their STYLE variants; no numeric guesses. */
+static int n2_mod_rim_scene(const unsigned char *data,long len,const unsigned char *textures,long tlen,
+                            const uint32_t *keys,int nkeys,int style,N2Scene *scene) {
+    N2CarConfig cfg={.hood_style=style,.wheel_style_id=style};
+    if(n2_load_car(data,len,scene,keys,nkeys,&cfg)<=0 || n2_rim_select_tier(scene)<=0 ||
+       scene->meshes[0].vkind!=2 || scene->meshes[0].vnum!=style)return 0;
+    int triangles=0;
+    for(int i=0;i<scene->count;i++) {
+        const N2Mesh *m=scene->meshes+i;
+        if(!m->verts||!m->idx||m->nverts<1)return 0;
+        triangles+=m->nidx/3;
+        for(int v=0;v<m->nverts;v++)for(int a=0;a<3;a++)if(!isfinite(m->verts[v*5+a]))return 0;
+        for(int j=0;j<m->nidx;j++)if(m->idx[j]>=m->nverts)return 0;
+    }
+    N2Tex tex={0};int ok=triangles>0 && scene->meshes[0].texkey && n2_load_car_tex_by_key(textures,tlen,scene->meshes[0].texkey,&tex) && tex.rgb && tex.w>0 && tex.h>0;
+    free(tex.rgb);free(tex.alpha);free(tex.dxt);return ok;
+}
+static int n2_mod_rim_catalog(const char *root,GarageRims *out) {
+    if(!root||!out)return 0;
+    memset(out,0,sizeof *out);char folder[1024],file[1100];
+    snprintf(folder,sizeof folder,"%s/CARS/WHEELS",root);
+    snprintf(file,sizeof file,"%s/TEXTURES.BIN",folder);long tlen=0;
+    unsigned char *textures=n2_read_file(file,&tlen);if(!textures)return 0;
+    uint32_t keys[512];int nkeys=n2_car_tex_keys(textures,tlen,keys,512);
+    DIR *dir=opendir(folder);if(!dir){free(textures);return 0;}struct dirent *e;int overflow=0;
+    while((e=readdir(dir))) {
+        size_t n=strlen(e->d_name);
+        if(n<14||strncmp(e->d_name,"GEOMETRY_",9)||strcmp(e->d_name+n-4,".BIN")||n-13>=24)continue;
+        char brand[24]={0};memcpy(brand,e->d_name+9,n-13);
+        int valid=1;for(const char *p=brand;*p;p++)if(!((*p>='A'&&*p<='Z')||(*p>='0'&&*p<='9')||*p=='_'))valid=0;
+        if(!valid)continue;
+        snprintf(file,sizeof file,"%.1023s/%.36s",folder,e->d_name);long len=0;unsigned char *data=n2_read_file(file,&len);if(!data)continue;
+        int ids[100],count=n2_car_variant_numbers(data,len,2,ids,100);
+        for(int k=0;k<count;k++) {
+            N2Scene scene={0};int ok=n2_mod_rim_scene(data,len,textures,tlen,keys,nkeys,ids[k],&scene);n2_free_scene(&scene);
+            if(!ok)continue;
+            if(out->count>=GARAGE_MAX_RIMS){overflow=1;break;}
+            GarageRimOption *option=out->options+out->count++;
+            snprintf(option->brand,sizeof option->brand,"%s",brand);option->style=ids[k];
+        }
+        free(data);if(overflow)break;
+    }
+    closedir(dir);free(textures);
+    if(overflow){out->count=0;return 0;}
+    for(int i=1;i<out->count;i++) {
+        GarageRimOption value=out->options[i];int j=i;
+        while(j && (strcmp(out->options[j-1].brand,value.brand)>0 ||
+              (!strcmp(out->options[j-1].brand,value.brand)&&out->options[j-1].style>value.style))) {
+            out->options[j]=out->options[j-1];j--;
+        }
+        out->options[j]=value;
+    }
+    return out->count>0;
 }
 #endif

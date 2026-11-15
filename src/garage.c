@@ -6,6 +6,8 @@ int garage_config_valid(const GarageConfig *c) {
  if(!c||!memchr(c->rim_brand,0,sizeof c->rim_brand)||c->rim_style<0||c->rim_style>999||
  c->car.body_kit<0||c->car.body_kit>99||c->car.hood_style<0||c->car.hood_style>999||
  c->car.spoiler_style<0||c->car.spoiler_style>999||c->car.wheel_style_id<0||c->car.wheel_style_id>999)return 0;
+ for(const char *p=c->rim_brand;*p;p++)if(!((*p>='A'&&*p<='Z')||(*p>='0'&&*p<='9')||*p=='_'))return 0;
+ if(!c->rim_brand[0]&&c->rim_style)return 0;
  for(int i=0;i<N2_PART_COUNT;i++)if(c->car.parts[i]<0||c->car.parts[i]>5999)return 0;
  return 1;
 }
@@ -19,6 +21,7 @@ int garage_begin(Garage *g,int slot) {
 }
 int garage_select(Garage *g,int index) {
  if(!g||!g->editing||g->action>GAR_PREVIEW||(g->inflight&&g->flight.action>GAR_PREVIEW))return 0;
+ if(g->slot<0||g->slot>=GARAGE_SLOTS)return 0;
  const N2PartMenu *m=&g->catalog->menu[g->slot];if(index<0||index>=m->count)return 0;
  if(g->slot==GARAGE_KIT) {
   g->pending.car.body_kit=m->options[index].value;
@@ -49,4 +52,19 @@ void garage_ack(Garage *g,uint32_t serial,int success,const char *error) {
  if(g->flight.action!=GAR_PREVIEW) {
   g->applied=g->pending=g->flight.config;g->editing=0;g->event=g->flight.action;
  }
+}
+
+int garage_begin_rims(Garage *g,const GarageRims *rims) {
+ if(!g||!rims||rims->count<1||rims->count>GARAGE_MAX_RIMS||g->editing||g->inflight)return 0;
+ g->rims=rims;g->slot=GARAGE_RIM;g->baseline=g->pending=g->applied;
+ g->editing=1;g->event=0;g->status[0]=0;return 1;
+}
+int garage_select_rim(Garage *g,int index) {
+ if(!g||!g->editing||g->slot!=GARAGE_RIM||!g->rims||index<0||index>=g->rims->count||
+    g->action>GAR_PREVIEW||(g->inflight&&g->flight.action>GAR_PREVIEW))return 0;
+ GarageConfig next=g->pending;
+ memcpy(next.rim_brand,g->rims->options[index].brand,sizeof next.rim_brand);
+ next.rim_style=g->rims->options[index].style;
+ if(!garage_config_valid(&next))return 0;
+ g->pending=next;g->quiet=0;g->action=GAR_PREVIEW;g->status[0]=0;return 1;
 }

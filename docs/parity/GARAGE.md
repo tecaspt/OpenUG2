@@ -55,3 +55,28 @@ same names under reports/garage/gles. Desktop/GLES contact sheets and the kept-f
 visible stock→KIT01→KIT02→KIT01 geometry and tap-reachable Back without gameplay gauges.
 [observed] The production host is not wired by this worker; GARAGE-INTEGRATION.md supplies exact
 source/build changes. Persistence, rims, paint/vinyl and performance research are not yet delivered.
+
+## Priority 2 — rims (validation in progress)
+
+[data] Runtime archive enumeration finds 115 renderable, diffuse-resolvable STYLEnn choices across
+24 named wheel archives. The checker rebuilds each candidate independently; all29 player-car
+visual catalogues are also rechecked after correcting the finite-vertex validator to the loader's
+five-float vertex stride (authored normals occupy a separate tail).
+
+[inferred] Visual > Rim Styles opens UI_ChooseRimBrand, then UI_Rims_Browser. Brand groups use
+archive names with RIMS_BRAND language captions where present. Styles display their STYLEnn
+identity. Available VISUAL_RIMS_BRAND art is used; other archives use the genuine VISUAL_PART_RIMS
+category texture, rather than inventing a brand logo. This is an application mapping, not verified
+retail brand ordering or eligibility. Spinner archives are static geometry under the existing rim
+renderer; spinning effects, prices, unlocks and wheel-size selection are not implemented.
+
+[inferred] Selecting a style previews after0.3s; Keep commits on host acknowledgement. Back from
+styles restores the previous full config and returns to brands; Back from brands returns to parts.
+The host stages all rim GPU/texture resources before changing the body and swaps only after all
+preparation succeeds.
+
+[observed] Model tests pass desktop/GLES and ASan+UBSan (LSan disabled for the existing ptrace
+limitation). FE navigation tests pass desktop/GLES; all seven requested FE regressions and the
+mandatory pause-menu regression pass. Runtime CPU checks pass115rims and29cars/10363visualchoices.
+Initial desktop screen review caught an icon/selection scroll mismatch; gc_snap_to corrects it.
+The corrected desktop/GLES capture run is still pending; no final rendered PASS is claimed yet.
