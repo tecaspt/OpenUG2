@@ -60,6 +60,7 @@ SRC += src/sfx_bank.c src/sfx_play.c src/sfx_game.c   # M8: retail .abk banks ->
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
+SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
@@ -962,7 +963,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
-SCREENS_TEST_SRC = src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC = src/garage.c src/fe_garage.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
 	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_track_test.c src/fe_track.c src/fe_car.c -Wl,--gc-sections -o build/fe_track_test
@@ -1116,3 +1117,20 @@ race-rewards-test:
 	$(CC) $(CFLAGS) -Isrc tools/race_rewards_test.c src/race_rules.c -o build/race_rewards_test -lm
 	./build/race_rewards_test
 .PHONY: drag-physics-test drag-speed-check race-drag-rules-test race-drift-rules-test race-series-rules-test race-series-ai-test race-options-test race-rewards-test
+
+# Garage (task J): synthetic store/model, FE flow, and retail-data check.
+.PHONY: garage-test fe-garage-test garage-check
+garage-test:
+	@mkdir -p build
+	$(CC) -g -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function $(GARAGE_TEST_FLAGS) -Isrc tools/garage_test.c src/garage.c src/settings.c $(SETTINGS_LIBS) -lm -o build/garage_test
+	./build/garage_test
+
+fe-garage-test:
+	@mkdir -p build
+	$(CC) -g -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections $(GARAGE_TEST_FLAGS) $(SDL_CFLAGS) -Isrc tools/fe_garage_test.c src/fe_garage.c src/garage.c src/fe_profile.c src/settings.c src/gui_view.c src/gui_carousel.c src/ugui/ugui_scene.c src/ugui/ugui_util.c -Wl,--gc-sections $(SETTINGS_LIBS) -lm -o build/fe_garage_test
+	./build/fe_garage_test
+
+garage-check:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/garage_check.c src/game_catalog.c src/world.c src/resource.c src/ugui/ugui_util.c -Wl,--gc-sections $(SDL_LIBS) -lGL -lz -lm -o build/garage_check
+	./build/garage_check "$(OPENUG2_DATA)"
