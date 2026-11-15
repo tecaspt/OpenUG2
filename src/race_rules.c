@@ -14,7 +14,7 @@ uint32_t rr_drag_grade_label(int grade) {
     case RR_SHIFT_EARLY:return 0x2303d76cu; /* HUD_SHIFT_SHORT */
     case RR_SHIFT_GOOD:return 0x27d2dd45u; /* HUD_SHIFT_GOOD */
     case RR_SHIFT_PERFECT:return 0x0598b065u; /* HUD_SHIFT_PERFECT */
-    case RR_SHIFT_LATE:return 0x27d75cd8u; /* HUD_SHIFT_OVER */
+    case RR_SHIFT_LATE:return 0x75941dc1u; /* HUD_SHIFT_MISSED ("Missed Shift!"); the table has no HUD_SHIFT_OVER */
     default:return 0;
     }
 }
