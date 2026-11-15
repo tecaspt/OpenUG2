@@ -45,7 +45,10 @@ int ch_init(CareerHost *ch, const char *dataroot, const GameCatalog *cat)
 static int ch_save(CareerHost *ch)
 {
     int rc = cr_save_file(ch->root, ch->profile, &ch->st);
-    if (rc != ST_OK) fprintf(stderr, "career: save failed (%d) for profile %s\n", rc, ch->profile);
+    if (rc != ST_OK) {
+        snprintf(ch->last, sizeof ch->last, "career: save failed (%d) for profile %s", rc, ch->profile);
+        fprintf(stderr, "%s\n", ch->last);
+    }
     return rc == ST_OK;
 }
 

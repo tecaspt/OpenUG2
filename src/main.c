@@ -66,6 +66,7 @@
 #include "touch_controls.h"
 #include "ui_flat.h"
 #include "fe_menu.h"
+#include "career_host.h"   /* M6 career */
 #include "postrace.h"
 #include "hud_host_map.h"
 #include "gps_marker.h"
@@ -1605,6 +1606,20 @@ static int track_authored_focus(const char *troot, const char *track, float xy[2
     return ok;
 }
 
+/* M6 career: one career host; a one-shot focus override lets a career return load the city around the
+ * pre-race pose instead of the authored focus (consumed by the next prepare_map_switch). */
+static CareerHost g_career;
+static int g_focus_override_set;
+static float g_focus_override[2];
+
+/* Career save present for the FE's current profile (drives Main > Career: continue vs new). */
+static int career_has_save(const FeMenu *fem) {
+    static CareerState probe;
+    const StProfile *fp = fem ? fem_current_profile(fem) : NULL;
+    const char *root = fem ? fem_profile_root(fem) : NULL;
+    return fp && root && cr_load_file(root, fp->name, &probe) == ST_OK && probe.started;
+}
+
 /* Build a complete resident map off to the side. The active resident remains
  * untouched until every CPU, collision, texture and batch step succeeds. */
 static int prepare_map_switch(const char *troot, const char *track,
@@ -1615,6 +1630,8 @@ static int prepare_map_switch(const char *troot, const char *track,
     if (!out || !spawn || !heading || !policy || !strcmp(track, "ALL")) return 0;
     float focus[2] = {0, 0};
     if (!track_authored_focus(troot, track, focus)) return 0;
+    if (g_focus_override_set) { focus[0] = g_focus_override[0]; focus[1] = g_focus_override[1]; }
+    g_focus_override_set = 0;
     WorldResident *candidate = (WorldResident *)calloc(1, sizeof *candidate);
     if (!candidate) return 0;
     WResidentBuildArgs args = { troot, track, scenery_event, sky_profile, *policy };
@@ -2306,7 +2323,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--career-dev",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2529,6 +2546,8 @@ int main(int argc, char **argv) {
     int force_menu = 0, no_menu = 0, car_explicit = 0, track_explicit = 0;   /* retail front end (M1) */
     int touch_opt = -1;                  /* --touch 1 / --no-touch 0 / auto -1 */
     const char *script_spec = NULL;      /* --input-script SPEC */
+    int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
+                                            engage the first available event, finish it in PLACE */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--path")) {
             if (i+1 >= argc || !argv[i+1][0] || !strncmp(argv[i+1], "--", 2)) {
@@ -2564,6 +2583,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--touch")) { touch_opt = 1; SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1"); }
         else if (!strcmp(argv[i], "--no-touch")) touch_opt = 0;
         else if (!strcmp(argv[i], "--input-script") && i+1 < argc) script_spec = argv[++i];
+        else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
         else if (!strcmp(argv[i], "--carinfo") && i+1 < argc) carinfo = argv[++i];
@@ -6515,6 +6535,10 @@ int main(int argc, char **argv) {
     HudRaceClock hud_race_clock={0};
     int outrun_slot=-1;Uint32 outrun_until=0; /* free-roam outrun shown on the race HUD */
     int outrun_offer=-1,outrun_challenge=0;   /* challengeable rival; Enter Race pressed */
+    int career_zone=-1,career_enter=0;        /* M6: available career event under the car; Enter Race pressed */
+    int career_reload=0,career_heading_set=0,career_dev_frames=0,career_save_shown=-1;
+    float career_heading=0.0f;
+    int career_place=0; GfLaunch career_launch; memset(&career_launch,0,sizeof career_launch);
     const char *outrun_notice=NULL;Uint32 outrun_notice_until=0;
     /* Retail front end (M1 Phase 3): catalogue, menu, launch state machine, touch overlay. */
     FeMenu *fem = NULL;
@@ -6530,6 +6554,10 @@ int main(int argc, char **argv) {
         if (fem) {
             fem_set_current(fem, carname, trackname);
             fem_set_graphics(fem, &saved_gfx);   /* M2: FE Display starts from the host's startup selection */
+            int career_ok = ch_init(&g_career, dataroot, &g_catalog);   /* M6: Career only with career data */
+            printf("%s\n", g_career.last);
+            career_save_shown = career_has_save(fem);
+            fem_set_career(fem, career_ok, career_save_shown);
             fem_open(fem, FEM_SCR_MAIN);
             if (!fem_visual_available(fem)) {
                 fprintf(stderr, "front end unavailable (%s); starting free roam\n", fem_status(fem));
@@ -6762,7 +6790,7 @@ int main(int argc, char **argv) {
             int ww0 = 1, wh0 = 1; SDL_GetWindowSize(win, &ww0, &wh0);
             unsigned tctx = 0;
             if (world.city.race.active && world.city.race.kind == N2_RACE_DRAG) tctx |= TC_CTX_DRAG;
-            if (outrun_offer >= 0) tctx |= TC_CTX_OUTRUN;
+            if (outrun_offer >= 0 || career_zone >= 0) tctx |= TC_CTX_OUTRUN;   /* M6: Enter Race in a career zone too */
             tc_set_window_size(&g_touch, ww0, wh0);
             tc_set_frame(&g_touch, pause_frame, tctx, th > 0 ? (float)tw / (float)th : 1.0f);
             if (script_spec) {
@@ -6840,6 +6868,7 @@ int main(int argc, char **argv) {
                     if (pad_edge & ((1u<<CB_ACT_SHIFT_UP)|(1u<<CB_ACT_SHIFT_DOWN))) { drag_shift=(pad_edge&(1u<<CB_ACT_SHIFT_UP))?1:-1; continue; }
                     if (pad_edge & ((1u<<CB_ACT_STEER_LEFT)|(1u<<CB_ACT_STEER_RIGHT))) { drag_change=(pad_edge&(1u<<CB_ACT_STEER_LEFT))?1:-1; continue; }
                 }
+                if ((pad_edge & (1u<<CB_ACT_ENTER_RACE)) && career_zone>=0) { career_enter=1; continue; }
                 if ((pad_edge & (1u<<CB_ACT_ENTER_RACE)) && outrun_offer>=0) { outrun_challenge=1; continue; }
                 if ((pad_edge & (1u<<CB_ACT_CAMERA)) && race_state != 3) {
                     int drift_ev=world.city.race.active && world.city.race.kind==N2_RACE_DRIFT;
@@ -6921,6 +6950,10 @@ int main(int argc, char **argv) {
                 if (k == SDLK_g && hud && !e.key.repeat && !kbound) {
                     g_dbg.gps_n = 0; g_dbg.gps_request = 0;   /* cancel guidance */
                     printf("HUD: destination cleared\n");
+                }
+                else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
+                         career_zone >= 0) {
+                    career_enter = 1;   /* Enter Race inside a career event zone (M6) */
                 }
                 else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
                          outrun_offer >= 0) {
@@ -7139,6 +7172,8 @@ int main(int argc, char **argv) {
                     fe_engine_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.engine));
                     fe_tire_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.tire));
                 }
+                int has = career_has_save(fem);
+                if (has != career_save_shown) { career_save_shown = has; fem_set_career(fem, g_career.loaded, has); }
             }
             /* Car Select preview: a frozen-world car switch, not a launch (fem debounces it). */
             const char *preview = fem_preview_car(fem);
@@ -7160,12 +7195,98 @@ int main(int argc, char **argv) {
                        gl.event_id, gl.track, gl.car);
                 gf_start(&gflow, &gl);
             }
+            else if (frq.kind == FEM_REQ_CAREER) {
+                const StProfile *fp = fem_current_profile(fem);
+                const char *root = fem_profile_root(fem);
+                GfLaunch gl;
+                int prc = fp ? fem_persist_profile(fem) : ST_E_ARG;   /* [inferred] Career saves the profile first */
+                if (!fp || !root || prc != ST_OK) {
+                    fprintf(stderr, "career: no saved profile (%d); create one first\n", prc);
+                    fem_open(fem, FEM_SCR_PROFILE);
+                } else if (!ch_begin(&g_career, frq.event_id, root, fp->name, frq.car[0] ? frq.car : carname, &gl)) {
+                    fprintf(stderr, "%s\n", g_career.last[0] ? g_career.last : "career: start failed (save the profile first)");
+                    fem_open(fem, FEM_SCR_PROFILE);
+                } else {
+                    printf("%s\n", g_career.last);
+                    career_save_shown = 1; fem_set_career(fem, 1, 1);
+                    career_place = 1;
+                    gf_start(&gflow, &gl);
+                    career_launch = gl;
+                }
+            }
+            /* Career free roam: the available event under the car (Enter Race), or the developer automation. */
+            int career_roam = g_career.active && g_career.race < 0 && gflow.state == GF_RUNNING &&
+                              gflow.launch.free_run && !world.city.race.active && !fem_is_open(fem);
+            career_zone = career_roam ? ch_zone(&g_career, carpos[0], carpos[1], PHYS_KMH(speed)) : -1;
+            if (!career_roam) career_enter = 0;
+            float ce_x = carpos[0], ce_y = carpos[1], ce_kmh = PHYS_KMH(speed);
+            if (career_dev > 0 && career_roam && ++career_dev_frames > 90) {
+                int list[CD_MAX_RACES];
+                if (cr_list(&g_career.st, &g_career.cd, list, CD_MAX_RACES) > 0) {
+                    int z = cd_find_zone(&g_career.cd, g_career.cd.race[list[0]].locator_hash);
+                    if (z >= 0) {
+                        const CdZone *q = &g_career.cd.zone[z];
+                        ce_x = 0.25f * (q->poly[0][0] + q->poly[1][0] + q->poly[2][0] + q->poly[3][0]);
+                        ce_y = 0.25f * (q->poly[0][1] + q->poly[1][1] + q->poly[2][1] + q->poly[3][1]);
+                        ce_kmh = 0.0f; career_enter = 1;
+                        printf("career-dev: engage at zone of %s (%.1f %.1f)\n", g_career.cd.race[list[0]].name, ce_x, ce_y);
+                    }
+                }
+                career_dev_frames = 0;
+            }
+            if (career_enter) {
+                career_enter = 0;
+                GfLaunch gl;
+                int r = ch_engage(&g_career, ce_x, ce_y, heading, ce_kmh, carname, &gl);
+                printf("%s\n", g_career.last);
+                if (r >= 0) { career_dev_frames = 0; gf_start(&gflow, &gl); }
+            }
+            /* After a career launch or return: put the car back at the saved free-roam pose. A different track
+               loads around it (focus override); the same track is reloaded in place for the same result. */
+            if (career_place) {
+                career_place = 0;
+                float sp[4];
+                if (ch_take_spawn(&g_career, sp)) {
+                    g_focus_override[0] = sp[0]; g_focus_override[1] = sp[1]; g_focus_override_set = 1;
+                    career_heading = sp[3]; career_heading_set = 1;
+                    if (!strcmp(career_launch.track, trackname)) {
+                        vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
+                        pending_track = seltrack; career_reload = 1;
+                    }
+                }
+            }
         }
         if (post) {   /* post-race results -> game flow */
-            switch (pr_update(post, (float)fmin(frame_seconds, .1))) {
-            case PR_ACT_RESTART: gf_pause_action(&gflow, FE_ACTION_RESTART); break;
+            int pr_act = pr_update(post, (float)fmin(frame_seconds, .1));
+            static int career_dev_results;   /* --career-dev: Continue after a short look at the results */
+            if (career_dev > 0 && g_career.active && pr_is_open(post) && pr_act == PR_ACT_NONE) {
+                /* the player's keys: Return (results -> menu), Right (Restart -> Continue), Return */
+                int k = ++career_dev_results;
+                SDL_Keycode key = k == 60 ? SDLK_RETURN : k == 90 ? SDLK_RIGHT : k == 120 ? SDLK_RETURN : 0;
+                if (key) {
+                    SDL_Event ke; memset(&ke, 0, sizeof ke);
+                    ke.type = SDL_KEYDOWN; ke.key.keysym.sym = key; ke.key.keysym.scancode = SDL_GetScancodeFromKey(key);
+                    SDL_PushEvent(&ke);
+                    ke.type = SDL_KEYUP; SDL_PushEvent(&ke);
+                }
+            } else career_dev_results = 0;
+            switch (pr_act) {
+            case PR_ACT_RESTART:
+                if (g_career.active && g_career.race >= 0) g_career.resolved = 0;   /* a retry is a new attempt */
+                gf_pause_action(&gflow, FE_ACTION_RESTART); break;
             case PR_ACT_QUIT_MAIN: gf_pause_action(&gflow, FE_ACTION_QUIT); break;
-            case PR_ACT_CONTINUE: if (fem) fem_open(fem, FEM_SCR_MAIN); break;
+            case PR_ACT_CONTINUE:
+                if (g_career.active) {   /* M6: back to the career city at the pre-race pose */
+                    GfLaunch gl;
+                    if (ch_return(&g_career, carname, &gl)) {
+                        printf("career: return to free roam (%s)\n", gl.track);
+                        career_place = 1; career_launch = gl;
+                        gf_start(&gflow, &gl);
+                        break;
+                    }
+                }
+                if (fem) fem_open(fem, FEM_SCR_MAIN);
+                break;
             default: break;
             }
         }
@@ -7215,12 +7336,19 @@ int main(int argc, char **argv) {
                 sim_reset = 1;
                 break;
             case GF_CMD_OPEN_MAIN:
+                if (g_career.active) {   /* M6: keep the free-roam pose; an unfinished race counts as aborted */
+                    ch_suspend(&g_career, carpos[0], carpos[1], carpos[2], heading);
+                    printf("career: suspended (stage %d bank %lld)\n", g_career.st.stage, (long long)g_career.st.bank);
+                }
                 /* Leaving a race or free run: the car must not keep rolling into the next session. */
                 vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); sim_reset = 1;
                 if (fem) fem_open(fem, FEM_SCR_MAIN);
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
             case GF_CMD_OPEN_RESULTS:
+                if (g_career.active && g_career.race >= 0 &&
+                    ch_on_result(&g_career, gh.finish_place, gh.cars, gh.race_failed, 0, gh.race_seconds))
+                    printf("%s\n", g_career.last);
                 if (post) {
                     PostRaceInfo info; memset(&info, 0, sizeof info);
                     info.event_id = gh.race_event_id; info.kind = world.city.race.kind;
@@ -7353,7 +7481,8 @@ int main(int argc, char **argv) {
             sim_reset=1;
             int requested = pending_track;
             pending_track = -1;
-            if (requested >= 0 && requested < ntrack && requested != seltrack) {
+            int reload_same = career_reload; career_reload = 0;
+            if (requested >= 0 && requested < ntrack && (requested != seltrack || reload_same)) {
                 const char *next_track = tracklist[requested];
                 WorldResident *next_resident = NULL;
                 float next_spawn[3], next_heading = 0.0f;
@@ -7440,6 +7569,10 @@ int main(int argc, char **argv) {
                     world2_support_ref = next_spawn[2];
                     world2_support_cat = WSURF_ROAD;
                     heading0 = next_heading; heading = next_heading;
+                    if (career_heading_set) {   /* M6 career pose */
+                        heading0 = heading = career_heading;
+                        printf("career: placed at (%.1f %.1f %.1f) heading %.2f\n", next_spawn[0], next_spawn[1], next_spawn[2], heading);
+                    }
                     vel[0] = vel[1] = 0.0f; speed = 0.0f;
                     stage1_drive_reset(&g_stage1,vel,heading);
                     p_lap = p_prev = 0; g_ride_ready = 0;
@@ -7474,6 +7607,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (pending_track < 0) { g_focus_override_set = 0; career_heading_set = 0; }
         /* Both K and the panel use one stopped-car transaction, before drawing. */
         if(g_dbg.vinyl_catalog_request)load_vinyl_catalog(dataroot,carname);
         if(g_dbg.vinyl_request>=0) {
@@ -9175,6 +9309,11 @@ int main(int argc, char **argv) {
                 } else if(race_drivers[k].progress.finished)finish_place++;
             }
             race_state=2;
+        }
+        if (career_dev > 0 && g_career.active && g_career.race >= 0 && race_state == 1 && world.city.race.active &&
+            ++career_dev_frames > 120) {   /* --career-dev: finish the career race in the requested place */
+            world.city.race.finished = 1; finish_place = career_dev; race_state = 2; career_dev_frames = 0;
+            printf("career-dev: finish in place %d\n", finish_place);
         }
         if (ai_race && !world.city.race.active && race_state == 1 && p_lap >= LAP_TARGET) {
             int ahead = 0, pp = p_lap*aipath.n + p_prev;
@@ -11468,9 +11607,14 @@ int main(int argc, char **argv) {
                 hs.opponent_xy=rival_xy;hs.opponent_n=rivals;hs.opponent_heading=rival_head;
                 /* Event icons on the free-roam map (retail legend colours; kinds without one are not drawn). */
                 static HudMapIcon map_icons[256];
-                hs.map_icons=map_icons;hs.map_icon_n=hud_host_event_icons(map_icons,256,&world.city);
+                hs.map_icons=map_icons;
+                hs.map_icon_n=g_career.active?ch_icons(&g_career,map_icons,256)   /* M6: career events only */
+                                             :hud_host_event_icons(map_icons,256,&world.city);
             }
+            static char career_notice[96];
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
+                      !hs.racing && career_zone>=0 && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
+                                                                career_notice,sizeof career_notice)?career_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
 
             /* Guidance: only when a route was actually solved. The bearing is

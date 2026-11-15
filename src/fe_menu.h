@@ -17,7 +17,7 @@ extern "C" {
 
 struct GameCatalog;                /* game_catalog.h */
 
-typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT } FemReqKind;
+typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; } FemRequest;
 typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE } FemScreen;
 typedef struct FeMenu FeMenu;
@@ -60,6 +60,13 @@ unsigned fem_take_apply(FeMenu *);
 const StGraphics *fem_graphics(const FeMenu *);
 const StProfile *fem_current_profile(const FeMenu *);
 int fem_options_page(const FeMenu *);
+/* M6: enables Main > Career (career data loaded) and says whether the current profile has a save.
+ * Choosing Career returns FEM_REQ_CAREER with event_id 1 = new career, 0 = continue, car = current car. */
+void fem_set_career(FeMenu *, int available, int has_save);
+/* Directory holding the profile folders (career saves live inside them); NULL before storage opens. */
+const char *fem_profile_root(const FeMenu *);
+/* Writes the current profile if it only exists in memory (a career save needs its folder). ST_OK or ST_E_*. */
+int fem_persist_profile(FeMenu *);
 
 typedef struct FeChoice {
     const GameCatalog *cat;

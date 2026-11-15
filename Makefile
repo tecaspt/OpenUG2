@@ -58,6 +58,7 @@ HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
 SRC += src/sfx_bank.c   # M8: retail .abk reader (task D); the game does not call it yet
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
+SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
@@ -1037,3 +1038,23 @@ sfx-bank-census: tools/sfx_bank_census.c src/sfx_bank.c src/sfx_bank.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/sfx_bank_census.c src/sfx_bank.c -o build/sfx_bank_census
 .PHONY: sfx-bank-test sfx-bank-census
+
+# M6 career (data reader, rules/save, host glue). Data-dependent checks need OPENUG2_DATA (exit 77 = SKIP).
+CAREER_CORE := src/career_data.c src/career.c src/settings.c
+career-data-test: tools/career_data_test.c src/career_data.c src/career_data.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_data_test.c src/career_data.c -o build/career_data_test -lm
+	./build/career_data_test
+career-test: tools/career_test.c src/career.c src/career.h src/career_data.c src/settings.c
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_test.c $(CAREER_CORE) -o build/career_test -lm
+	./build/career_test
+career-data-check: tools/career_data_check.c src/career_data.c src/career_data.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_data_check.c src/career_data.c -o build/career_data_check -lm
+	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/career_data_check "$$OPENUG2_DATA"
+career-host-check: tools/career_host_check.c src/career_host.c src/career_host.h $(CAREER_CORE)
+	@mkdir -p build/career_host_tmp
+	$(CC) -O1 -g -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -fsanitize=address,undefined $(SDL_CFLAGS) -Isrc tools/career_host_check.c src/career_host.c $(CAREER_CORE) -o build/career_host_check -lm
+	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/career_host_check "$$OPENUG2_DATA" build/career_host_tmp
+.PHONY: career-data-test career-test career-data-check career-host-check

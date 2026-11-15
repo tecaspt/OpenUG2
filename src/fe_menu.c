@@ -35,6 +35,8 @@ struct FeMenu {
     char dataroot[512];
     const struct GameCatalog *cat;
     int allow_quit;
+    unsigned main_enabled;   /* FE_MAIN_* bits; Career joins when the host says career data loaded (M6) */
+    int career_save;         /* the current profile has a saved career: Career continues it */
     UgAssets assets;
     UgSkin skin;
     UgGL *gl;
@@ -191,7 +193,7 @@ static void build_screen(FeMenu *m) {
         FeEntry e[GC_MAX];
         int n;
         if(m->screen==FEM_SCR_PROFILE)profile_entries(m,e,&n);
-        else n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, FE_M1_MAIN_ENABLED) : fe_mode_entries(e);
+        else n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, m->main_enabled) : fe_mode_entries(e);
         fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->mode_focus, rail_width(&m->scr, GC_RAIL_PAUSE));
         ok = gv_carousel_bind(&m->car_v, &m->scr, &m->fes.car);
         m->has_carousel = ok;
@@ -211,7 +213,7 @@ static void build_screen(FeMenu *m) {
 static void ensure_logic(FeMenu *m) {
     if (m->has_carousel || (m->screen != FEM_SCR_MAIN && m->screen != FEM_SCR_QR_MODE)) return;
     FeEntry e[GC_MAX];
-    int n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, FE_M1_MAIN_ENABLED) : fe_mode_entries(e);
+    int n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, m->main_enabled) : fe_mode_entries(e);
     fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->mode_focus, GC_RAIL_PAUSE);
 }
 
@@ -283,6 +285,7 @@ FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allo
     m->cat = cat;
     m->choice.cat=cat;m->choice.laps=2;m->choice.kind=1;
     m->allow_quit = allow_quit;
+    m->main_enabled = FE_M1_MAIN_ENABLED;
     m->main_focus = FE_MAIN_QUICK_RACE;
     m->mode_focus = FE_MODE_CIRCUIT;
     m->loading_event = -1;
@@ -632,7 +635,11 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         if (ev == FES_EV_CHOSEN) {
             if (m->screen == FEM_SCR_MAIN) {
                 m->main_focus = id;
-                if (id == FE_MAIN_QUICK_RACE) fem_open(m, FEM_SCR_QR_MODE);
+                if (id == FE_MAIN_CAREER && (m->main_enabled & (1u << FE_MAIN_CAREER))) {
+                    /* [inferred] no Career sub-screen yet: continue the saved career, else start a new one */
+                    req.kind = FEM_REQ_CAREER; req.event_id = m->career_save ? 0 : 1;
+                    snprintf(req.car, sizeof req.car, "%s", m->cur_car); m->locked = 1;
+                } else if (id == FE_MAIN_QUICK_RACE) fem_open(m, FEM_SCR_QR_MODE);
                 else if(id==FE_MAIN_OPTIONS)fem_open(m,FEM_SCR_OPTIONS);
                 else if(id==FE_MAIN_PROFILE)fem_open(m,FEM_SCR_PROFILE);
                 else fem_open(m,FEM_SCR_MAIN);
@@ -709,3 +716,13 @@ const StProfile *fem_current_profile(const FeMenu *m){return m && m->profile && 
 int fem_options_page(const FeMenu *m){return m && m->screen==FEM_SCR_OPTIONS?m->options.screen:OM_SCREEN_CLOSED;}
 
 void fem_set_graphics(FeMenu *m,const StGraphics *graphics){if(m && graphics && m->screen!=FEM_SCR_OPTIONS)m->graphics=*graphics;}
+
+void fem_set_career(FeMenu *m, int available, int has_save)
+{
+    if (!m) return;
+    if (available) m->main_enabled |= 1u << FE_MAIN_CAREER; else m->main_enabled &= ~(1u << FE_MAIN_CAREER);
+    m->career_save = has_save != 0;
+    if (m->screen == FEM_SCR_MAIN) build_screen(m);
+}
+const char *fem_profile_root(const FeMenu *m){return m && m->profile?m->profile->root:NULL;}
+int fem_persist_profile(FeMenu *m){if(!m || !m->profile || !m->profile->valid)return ST_E_ARG;return m->profile->persisted?ST_OK:fep_save(m->profile);}

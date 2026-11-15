@@ -37,6 +37,7 @@ int main(int argc, char **argv)
     if (!ch_init(&ch, argv[1], &cat)) { printf("SKIP: %s\n", ch.last); return 77; }
     printf("%s\n", ch.last);
     char prof[512]; snprintf(prof, sizeof prof, "%s/CAREERT", argv[2]); mkdir(prof, 0700);
+    { char f[640]; snprintf(f, sizeof f, "%s/%s", prof, CR_FILE_NAME); remove(f); }   /* start without a save */
 
     GfLaunch gl;
     CHECK(!ch_begin(&ch, 0, argv[2], "CAREERT", "GOLF", &gl), "continue without a save must fail");
