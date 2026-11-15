@@ -625,6 +625,10 @@ static void pf_open(const char *path) {
 }
 static void pf_row(long frame,const int counts[13]) {
     if(!pf_csv)return;
+    /* Bounded and crash-safe for device runs: flush every second of frames, stop after ~10 minutes. */
+    static long pf_rows;
+    if(++pf_rows>36000){fclose(pf_csv);pf_csv=NULL;return;}
+    if(pf_rows%60==0)fflush(pf_csv);
     double total=0;
     fprintf(pf_csv,"%ld",frame);
     for(int i=1;i<13;i++)fprintf(pf_csv,",%d",counts[i]);
@@ -2324,7 +2328,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--career-dev",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -4114,6 +4118,7 @@ int main(int argc, char **argv) {
     { RhiDeviceDesc dev = { RHI_BACKEND_DEFAULT,
                             (shot || ai_drive_audit) ? 0u : (uint32_t)RHI_DEVICE_VSYNC, win };
       if (rhi_device_create(&dev) != RHI_OK) return 1; }
+    N2_IOS_AFTER_GL(win);   /* iOS: cap the GL backing scale (fill-rate) before anything reads the drawable size */
     const RhiCaps *caps = rhi_caps();
     { int32_t dw,dh; const int32_t *limit = caps->max_viewport;
       rhi_drawable_size(&dw,&dh);

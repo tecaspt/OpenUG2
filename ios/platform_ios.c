@@ -43,6 +43,33 @@ static int ios_event_watch(void *ud, SDL_Event *e) {
     return 1;
 }
 
+#if defined(__APPLE__)
+#include <SDL_syswm.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+typedef struct { double x, y, w, h; } N2Rect;   /* CGRect on arm64 (CGFloat = double) */
+void n2_ios_apply_render_scale(SDL_Window *win) {
+    SDL_SysWMinfo info; SDL_VERSION(&info.version);
+    if (!win || !SDL_GetWindowWMInfo(win, &info) || info.subsystem != SDL_SYSWM_UIKIT) return;
+    id uiwin = (id)info.info.uikit.window;
+    id vc = uiwin ? ((id (*)(id, SEL))objc_msgSend)(uiwin, sel_registerName("rootViewController")) : NULL;
+    id view = vc ? ((id (*)(id, SEL))objc_msgSend)(vc, sel_registerName("view")) : NULL;
+    if (!view) { fprintf(stderr, "render scale: no SDL view\n"); return; }
+    const char *cls = class_getName(object_getClass(view));
+    if (!cls || !strstr(cls, "opengl")) { fprintf(stderr, "render scale: view class %s, not the GL view; unchanged\n", cls ? cls : "?"); return; }
+    N2Rect b = ((N2Rect (*)(id, SEL))objc_msgSend)(view, sel_registerName("bounds"));
+    double native = ((double (*)(id, SEL))objc_msgSend)(view, sel_registerName("contentScaleFactor"));
+    double s = n2_ios_render_scale(b.w, b.h, native, N2_IOS_PIXEL_BUDGET);
+    printf("render scale: view %.0fx%.0f pt, native %.2f, using %.2f (%.0fx%.0f px)\n", b.w, b.h, native, s, b.w * s, b.h * s);
+    if (s >= native - 0.01) return;
+    ((void (*)(id, SEL, double))objc_msgSend)(view, sel_registerName("setContentScaleFactor:"), s);
+    ((void (*)(id, SEL))objc_msgSend)(view, sel_registerName("setNeedsLayout"));
+    ((void (*)(id, SEL))objc_msgSend)(view, sel_registerName("layoutIfNeeded"));   /* SDL reallocates the GL buffers */
+}
+#else
+void n2_ios_apply_render_scale(SDL_Window *win) { (void)win; }   /* ios-host check on Linux */
+#endif
+
 void n2_ios_frame_gate(void) {
     while (SDL_AtomicGet(&g_background)) { SDL_PumpEvents(); SDL_Delay(50); }
 }
@@ -173,7 +200,7 @@ static void write_readme(const char *docs) {
 }
 
 int n2_ios_startup(int *pargc, char ***pargv) {
-    static char *new_argv[IOS_MAX_ARGS + 4];
+    static char *new_argv[IOS_MAX_ARGS + 6];
     static char root_buf[IOS_PATH_MAX];
     static char path_opt[] = "--path";
 
@@ -208,7 +235,13 @@ int n2_ios_startup(int *pargc, char ***pargv) {
             new_argv[k++] = argc > 0 ? argv[0] : path_opt;
             new_argv[k++] = path_opt;
             new_argv[k++] = root_buf;
-            for (int i = 1; i < argc && k < IOS_MAX_ARGS + 3; i++) new_argv[k++] = argv[i];
+            /* Frame timings for device performance reports: Documents/OpenUG2-perf.csv, rewritten each launch,
+             * capped by the writer (--perf-csv keeps the menu; see direct_launch_requested). */
+            static char perf_opt[] = "--perf-csv", perf_buf[IOS_PATH_MAX];
+            if (snprintf(perf_buf, sizeof perf_buf, "%s/OpenUG2-perf.csv", docs) < (int)sizeof perf_buf) {
+                new_argv[k++] = perf_opt; new_argv[k++] = perf_buf;
+            }
+            for (int i = 1; i < argc && k < IOS_MAX_ARGS + 5; i++) new_argv[k++] = argv[i];
             new_argv[k] = NULL;
             *pargc = k; *pargv = new_argv;
             return 0;
