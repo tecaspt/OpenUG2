@@ -48,7 +48,7 @@ void ch_suspend(CareerHost *ch, float x, float y, float z, float heading);
 /* Map icons for available career events. Returns count. */
 int  ch_icons(const CareerHost *ch, HudMapIcon *out, int cap);
 /* Notice text when the player is in an engageable zone ("Press Enter Race: <name>"), else NULL. */
-const char *ch_prompt(const CareerHost *ch, float x, float y, float kmh, char *buf, int cap);
+const char *ch_prompt(const CareerHost *ch, float x, float y, float kmh, const char *label, char *buf, int cap);
 /* Takes a pending spawn (1) and clears it. */
 int  ch_take_spawn(CareerHost *ch, float spawn[4]);
 #endif

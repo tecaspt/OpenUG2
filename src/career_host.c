@@ -175,12 +175,13 @@ int ch_icons(const CareerHost *ch, HudMapIcon *out, int cap)
     return k;
 }
 
-const char *ch_prompt(const CareerHost *ch, float x, float y, float kmh, char *buf, int cap)
+const char *ch_prompt(const CareerHost *ch, float x, float y, float kmh, const char *label, char *buf, int cap)
 {
     int r = ch_zone(ch, x, y, kmh);
     if (r < 0 || !buf || cap <= 0) return NULL;
     const CdRace *race = &ch->cd.race[r];
-    snprintf(buf, (size_t)cap, "ENTER RACE: %s  $%u", race->name, race->purse);   /* [inferred] text; retail ENGAGE_* later */
+    /* label: the host's retail "Enter Race / Shop" caption; the name/purse layout is [inferred] */
+    snprintf(buf, (size_t)cap, "%s: %s  $%u", label && *label ? label : "Enter Race", race->name, race->purse);
     return buf;
 }
 

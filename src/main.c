@@ -11857,6 +11857,7 @@ int main(int argc, char **argv) {
             static char career_notice[96];
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
                       !hs.racing && career_zone>=0 && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
+                                                                pause_menu_text(pause_menu,0x4a1341b3u,NULL),   /* "Enter Race / Shop" */
                                                                 career_notice,sizeof career_notice)?career_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
 

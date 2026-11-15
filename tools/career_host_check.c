@@ -54,8 +54,8 @@ int main(int argc, char **argv)
         int r = list[k]; float x, y; char buf[96];
         CHECK(zone_of(&ch, r, &x, &y), "zone for %s", ch.cd.race[r].name);
         CHECK(ch_zone(&ch, x, y, 50.0f) < 0, "too fast must not engage");
-        CHECK(ch_prompt(&ch, x, y, 0.0f, buf, sizeof buf) != NULL, "prompt in zone %s", ch.cd.race[r].name);
-        CHECK(ch_prompt(&ch, x + 500.0f, y + 500.0f, 0.0f, buf, sizeof buf) == NULL, "no prompt far away");
+        CHECK(ch_prompt(&ch, x, y, 0.0f, NULL, buf, sizeof buf) != NULL, "prompt in zone %s", ch.cd.race[r].name);
+        CHECK(ch_prompt(&ch, x + 500.0f, y + 500.0f, 0.0f, NULL, buf, sizeof buf) == NULL, "no prompt far away");
         int e = ch_engage(&ch, x, y, 1.0f, 0.0f, "GOLF", &gl);
         CHECK(e == r, "engage %s -> %d (%s)", ch.cd.race[r].name, e, ch.last);
         printf("%s\n", ch.last);
