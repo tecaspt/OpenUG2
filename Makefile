@@ -59,6 +59,7 @@ SRC += src/hud_race.c
 SRC += src/sfx_bank.c src/sfx_play.c src/sfx_game.c   # M8: retail .abk banks -> in-game impact/skid/road/shift effects
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
+SRC += src/race_rules.c   # M7 race rules (task F)
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
@@ -1072,3 +1073,45 @@ career-host-check: tools/career_host_check.c src/career_host.c src/career_host.h
 	$(CC) -O1 -g -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -fsanitize=address,undefined $(SDL_CFLAGS) -Isrc tools/career_host_check.c src/career_host.c $(CAREER_CORE) -o build/career_host_check -lm
 	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/career_host_check "$$OPENUG2_DATA" build/career_host_tmp
 .PHONY: career-data-test career-test career-data-check career-host-check
+
+# M7 race rules (task F): synthetic unit tests and data checks. Recipes from docs/parity/M7-RACE-RULES-INTEGRATION.md.
+M7_TFLAGS := -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function
+drag-physics-test:
+	@mkdir -p build
+	$(CC) $(M7_TFLAGS) -ffunction-sections -fdata-sections -Isrc tools/drag_physics_test.c src/physics.c src/race_rules.c -Wl,--gc-sections -lm -o build/drag_physics_test
+	./build/drag_physics_test
+drag-speed-check:
+	@mkdir -p build
+	$(CC) $(M7_TFLAGS) -ffunction-sections -fdata-sections -Isrc tools/drag_speed_check.c src/physics.c src/race_rules.c src/drivetrain.c src/drive_stage1.c src/braking.c src/resistance.c src/lateral.c src/contact.c src/body_response.c src/drive_contact.c -Wl,--gc-sections -lm -o build/drag_speed_check
+	./build/drag_speed_check
+race-drag-rules-test:
+	@mkdir -p build
+	$(CC) $(M7_TFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_drag_rules_test.c src/race_rules.c src/physics.c -Wl,--gc-sections -lm -o build/race_drag_rules_test
+	./build/race_drag_rules_test
+race-drift-rules-test:
+	@mkdir -p build
+	$(CC) $(M7_TFLAGS) -Isrc tools/race_drift_rules_test.c src/race_rules.c -lm -o build/race_drift_rules_test
+	./build/race_drift_rules_test
+race-series-rules-test:
+	@mkdir -p build
+	$(CC) $(M7_TFLAGS) -Isrc tools/race_series_rules_test.c src/race_rules.c -lm -o build/race_series_rules_test
+	./build/race_series_rules_test
+race-series-ai-test:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/race_series_ai_test.c src/ai.c src/physics.c src/race_rules.c -Wl,--gc-sections -lm -o build/race_series_ai_test
+	./build/race_series_ai_test
+race-options-test:
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/race_options_test.c src/race_rules.c -o build/race_options_test -lm
+	./build/race_options_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_options_ai_test.c src/ai.c src/physics.c src/race_rules.c -Wl,--gc-sections -o build/race_options_ai_test -lm
+	./build/race_options_ai_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_direction_test.c src/world.c src/physics.c src/race_rules.c -Wl,--gc-sections $(SDL_LIBS) $(GL_LIBS) -o build/race_direction_test -lm
+	./build/race_direction_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_options_field_test.c src/ai.c src/world.c src/physics.c src/race_rules.c -Wl,--gc-sections $(SDL_LIBS) $(GL_LIBS) -o build/race_options_field_test -lm
+	./build/race_options_field_test
+race-rewards-test:
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/race_rewards_test.c src/race_rules.c -o build/race_rewards_test -lm
+	./build/race_rewards_test
+.PHONY: drag-physics-test drag-speed-check race-drag-rules-test race-drift-rules-test race-series-rules-test race-series-ai-test race-options-test race-rewards-test

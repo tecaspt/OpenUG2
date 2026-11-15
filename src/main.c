@@ -1356,6 +1356,7 @@ static int ride_gather(const N2Scene *sc, const float pos[3], float heading,
 }
 static PhysVehicle g_vehicle = { 1, 1, 1, 1, 1, 1 };   /* M121: this car */
 static N2PhysicsAttr g_vehicle_source;
+static PhysDragConfig g_drag_config;   /* M7 P1: drag longitudinal adapter (borrows g_vehicle_source) */
 static int g_vehicle_source_valid;
 
 /* Diagnostic only: physical source dimensions are not visual mesh bounds.
@@ -2338,6 +2339,26 @@ static int direct_launch_requested(int argc, char **argv) {
         if (!known) return 1;
     }
     return 0;
+}
+
+/* M7 P4: URL tournament sequencing over the Quick Race catalogue. */
+static int m7_url_events(const GameCatalog *cat, int first, int out[RR_MAX_URL_RACES]) {
+    int ids[GC_MAX_EVENTS], n = 0;
+    for (int k = 0; k < cat->nev && n < GC_MAX_EVENTS; ++k)
+        if (cat->ev[k].kind == N2_RACE_URL) ids[n++] = cat->ev[k].id;
+    return rr_url_select_events(ids, n, first, RR_DEFAULT_URL_ROUNDS, out);
+}
+static int m7_next_url(GameFlow *flow, const GameCatalog *cat, const RrUrl *series) {
+    int id = rr_url_next_event(series); if (!id) return 0;
+    GfLaunch next = flow->last; next.event_id = id; next.free_run = 0;
+    for (int e = 0; e < cat->nev; ++e) if (cat->ev[e].id == id) {
+        for (int r = 0; r < cat->nregion; ++r)
+            if (!strcmp(cat->ev[e].region, cat->region[r].stem)) {
+                snprintf(next.track, sizeof next.track, "%s", cat->region[r].track);
+                gf_start(flow, &next); return 1;
+            }
+    }
+    return -1;
 }
 
 int main(int argc, char **argv) {
@@ -5069,6 +5090,8 @@ int main(int argc, char **argv) {
             }
             g_vehicle_source_valid=physics_from_global;
             if(physics_from_global)g_vehicle_source=pa;
+            g_drag_config=(PhysDragConfig){0};
+            if(physics_from_global)phys_drag_config_read(&g_drag_config,&g_vehicle_source,globdata,globlen,carname,0,0);
             publish_performance_source(physics_from_global?&g_vehicle_source:NULL,globdata,globlen,carname);
             g_vehicle = physics_from_global
                 ? phys_vehicle_from_source(&pa,0,0,bh,wb,g_dbg.wheel.front_track,carprof.wheel_w)
@@ -5559,6 +5582,11 @@ int main(int argc, char **argv) {
     }
     AiCar ai_templates[N_OPENWORLD_AI];memcpy(ai_templates,ais,sizeof ai_templates);
     AiRace race_drivers[N_RACE_AI]={0};
+    RrKnockout knockout = {0}; int knockout_live = 0, race_lap_knockout = 0;   /* M7 P4 */
+    RrUrl url_series = {0}; RrRound url_round = {0}; int url_live = 0;
+    int url_pending[RR_MAX_URL_RACES], url_pending_count = 0;
+    RrOptions race_options = rr_options_default();   /* M7 P5: Quick Race options; FE rows pending (task J) */
+    int saved_traffic_target = -1;
     PhysManual drag_gear={0};AiDrive drag_line={0};
     float drag_lane=0,drag_lanes[WORLD_MAXGRID];int drag_lanen=0,drag_shift=0,drag_change=0;
     int race_prepare_pending=world.city.race.active;
@@ -6818,6 +6846,10 @@ int main(int argc, char **argv) {
         if(g_dbg.traffic_target<0)g_dbg.traffic_target=0;
         if(g_dbg.traffic_target>N_TRAFFIC_MAX)g_dbg.traffic_target=N_TRAFFIC_MAX;
         traffic_world.traffic_target=g_dbg.traffic_target;
+        traffic_world.race_options=&race_options;   /* M7 P5: catch-up/traffic policy for races */
+        if (saved_traffic_target>=0 && world.city.race.active)
+            traffic_world.traffic_target=rr_traffic_target(&race_options,saved_traffic_target);
+        else if (!world.city.race.active) saved_traffic_target=-1;
         {   /* touch overlay frame state, then this frame's scripted input */
             int32_t tw = 1, th = 1; rhi_drawable_size(&tw, &th);
             int ww0 = 1, wh0 = 1; SDL_GetWindowSize(win, &ww0, &wh0);
@@ -7224,9 +7256,20 @@ int main(int argc, char **argv) {
                 snprintf(gl.track, sizeof gl.track, "%s", frq.track);
                 snprintf(gl.car, sizeof gl.car, "%s", frq.car);
                 gl.laps = frq.laps; gl.difficulty = frq.difficulty;
-                printf("fe: launch %s event %d track %s car %s\n", gl.free_run ? "free run" : "quick race",
-                       gl.event_id, gl.track, gl.car);
-                gf_start(&gflow, &gl);
+                url_live = 0; url_pending_count = 0; knockout_live = 0;   /* M7 P4: a fresh launch starts a fresh series */
+                int url_ok = 1;
+                if (!gl.free_run)
+                    for (int k = 0; k < g_catalog.nev; k++)
+                        if (g_catalog.ev[k].id == gl.event_id && g_catalog.ev[k].kind == N2_RACE_URL) {
+                            url_pending_count = m7_url_events(&g_catalog, gl.event_id, url_pending);
+                            url_ok = url_pending_count > 0;
+                        }
+                if (!url_ok) fem_show_error(fem, "This URL tournament has no usable courses.");
+                else {
+                    printf("fe: launch %s event %d track %s car %s\n", gl.free_run ? "free run" : "quick race",
+                           gl.event_id, gl.track, gl.car);
+                    gf_start(&gflow, &gl);
+                }
             }
             else if (frq.kind == FEM_REQ_CAREER) {
                 const StProfile *fp = fem_current_profile(fem);
@@ -7306,8 +7349,9 @@ int main(int argc, char **argv) {
             switch (pr_act) {
             case PR_ACT_RESTART:
                 if (g_career.active && g_career.race >= 0) g_career.resolved = 0;   /* a retry is a new attempt */
+                if (url_live) rr_url_undo_last(&url_series);                       /* M7 P4: replay this round */
                 gf_pause_action(&gflow, FE_ACTION_RESTART); break;
-            case PR_ACT_QUIT_MAIN: gf_pause_action(&gflow, FE_ACTION_QUIT); break;
+            case PR_ACT_QUIT_MAIN: url_live = knockout_live = 0; gf_pause_action(&gflow, FE_ACTION_QUIT); break;
             case PR_ACT_CONTINUE:
                 if (g_career.active) {   /* M6: back to the career city at the pre-race pose */
                     GfLaunch gl;
@@ -7317,6 +7361,12 @@ int main(int argc, char **argv) {
                         gf_start(&gflow, &gl);
                         break;
                     }
+                }
+                {   /* M7 P4: the next URL round, else back to Main */
+                    int next = url_live ? m7_next_url(&gflow, &g_catalog, &url_series) : 0;
+                    if (next > 0) { printf("url: next round, event %d\n", gflow.launch.event_id); break; }
+                    url_live = knockout_live = 0;
+                    if (next < 0 && fem) { fem_show_error(fem, "The next URL course is unavailable."); break; }
                 }
                 if (fem) fem_open(fem, FEM_SCR_MAIN);
                 break;
@@ -7330,6 +7380,7 @@ int main(int argc, char **argv) {
             gh.race_event_id = world.city.race.active && world.city.race.ev >= 0 ? world.city.ev[world.city.race.ev].id : 0;
             gh.race_failed = world.city.race.failed; gh.finish_place = finish_place; gh.cars = nai + 1;
             gh.race_seconds = hud_race_clock.elapsed; gh.race_error = g_dbg.race_error;
+            if (url_live && race_state == 2 && !url_round.ready) { gh.race_state = 1; gh.race_failed = 0; }   /* M7 P4: field still finishing */
             GfCommand gcmd = gf_step(&gflow, &gh, (float)fmin(frame_seconds, .1));
             switch (gcmd.kind) {
             case GF_CMD_SHOW_LOADING:
@@ -7351,9 +7402,15 @@ int main(int argc, char **argv) {
                 int evi = -1;
                 for (int k = 0; k < world.city.nev; k++) if (world.city.ev[k].id == gcmd.event_id) evi = k;
                 g_dbg.race_error[0] = 0;
+                PhysDragConfig launch_drag = g_drag_config;   /* M7 P1 */
+                launch_drag.power_level = g_dbg.perf_power_level;
+                launch_drag.transmission_level = g_dbg.perf_transmission_level;
                 if (evi < 0) {
                     snprintf(g_dbg.race_error, sizeof g_dbg.race_error, "Event %d is not available in the loaded area.", gcmd.event_id);
                     fprintf(stderr, "fe: event %d not found\n", gcmd.event_id);
+                } else if (world.city.ev[evi].info.kind == N2_RACE_DRAG && !phys_drag_config_valid(&launch_drag)) {
+                    snprintf(g_dbg.race_error, sizeof g_dbg.race_error, "Drag wheel/engine/resistance data is unavailable.");
+                    fprintf(stderr, "fe: event %d: %s\n", gcmd.event_id, g_dbg.race_error);
                 } else {
                     if (gcmd.difficulty >= 0) g_dbg.race_ai_difficulty = gcmd.difficulty;
                     if (gcmd.laps > 0) g_dbg.race_maxlaps_want = gcmd.laps;
@@ -7362,7 +7419,7 @@ int main(int argc, char **argv) {
                     printf("race armed: event %d\n", gcmd.event_id);
                 }
                 break; }
-            case GF_CMD_STOP_RACE: g_dbg.race_stop_request = 1; break;
+            case GF_CMD_STOP_RACE: g_dbg.race_stop_request = 1; url_live = knockout_live = 0; break;
             case GF_CMD_CLOSE_MENU:
                 if (fem) fem_close(fem);
                 if (adev) SDL_PauseAudioDevice(adev, 0);
@@ -7385,8 +7442,35 @@ int main(int argc, char **argv) {
                 if (post) {
                     PostRaceInfo info; memset(&info, 0, sizeof info);
                     info.event_id = gh.race_event_id; info.kind = world.city.race.kind;
+                    if (info.kind == N2_RACE_DRIFT) {   /* M7 P3 */
+                        info.have_drift_points = 1;
+                        info.drift_points = (uint32_t)fminf(RR_SCORE_LIMIT, fmaxf(0.0f, world.city.race.drift.bank));
+                    }
                     info.finish_place = gh.finish_place; info.failed = gh.race_failed; info.seconds = gh.race_seconds;
                     snprintf(info.car, sizeof info.car, "%s", carname);
+                    if (url_live) {   /* M7 P4: record this round, show the tournament standings */
+                        int places[RR_MAX_CARS] = {0};
+                        if (!rr_round_places(&url_round, places) || !rr_url_record(&url_series, info.event_id, places)) {
+                            url_live = 0; info.failed = RR_FAIL_INVALID_RULES;
+                        } else {
+                            info.have_url_standings = 1; info.standing_count = url_series.count;
+                            info.url_round = url_series.completed; info.url_rounds = url_series.races;
+                            info.finish_place = rr_url_place(&url_series, 0);
+                            for (int k = 0; k < url_series.count; ++k) {
+                                if (!k) snprintf(info.standing[k].name, sizeof info.standing[k].name, "Player");
+                                else snprintf(info.standing[k].name, sizeof info.standing[k].name, "Racer %d", k);
+                                if (!k) snprintf(info.standing[k].car, sizeof info.standing[k].car, "%s", carname);
+                                info.standing[k].points = url_series.points[k];
+                                info.standing[k].place = rr_url_place(&url_series, k);
+                            }
+                        }
+                    }
+                    /* M7 P6: only the career pays (quick races have no purse); show what it actually credited. */
+                    if (g_career.active && g_career.race >= 0 && g_career.resolved) {
+                        info.reward.cash = (uint32_t)(g_career.outcome.reward.cash > 0 ? g_career.outcome.reward.cash : 0);
+                        info.reward.reputation = (uint32_t)(g_career.outcome.reward.rep > 0 ? g_career.outcome.reward.rep : 0);
+                        info.reward.available = 1; info.reward.inferred = 1;
+                    }
                     if (fem) fem_close(fem);
                     pr_open(post, &info);
                     printf("results: event %d place %d failed %d %.2fs\n", info.event_id, info.finish_place, info.failed, info.seconds);
@@ -7395,6 +7479,7 @@ int main(int argc, char **argv) {
                 if (adev) SDL_PauseAudioDevice(adev, 1);
                 break;
             case GF_CMD_ERROR:
+                url_live = knockout_live = 0;
                 fprintf(stderr, "fe: launch failed: %s\n", gcmd.message);
                 if (world.city.race.active) g_dbg.race_stop_request = 1;
                 if (fem) fem_show_error(fem, gcmd.message);   /* back to Track Select with the reason */
@@ -7452,6 +7537,9 @@ int main(int argc, char **argv) {
                         float wb=g_dbg.wheel.front_axle-g_dbg.wheel.rear_axle;
                         g_vehicle_source_valid=candidate.has_physics;
                         if(candidate.has_physics)g_vehicle_source=candidate.physics;
+                        g_drag_config=(PhysDragConfig){0};
+                        if(candidate.has_physics)phys_drag_config_read(&g_drag_config,&g_vehicle_source,
+                            candidate.globaldata,candidate.globallen,next_car,0,0);
                         g_dbg.perf_power_level=g_dbg.perf_transmission_level=0;
                         publish_performance_source(candidate.has_physics?&g_vehicle_source:NULL,candidate.globaldata,candidate.globallen,next_car);
                         g_vehicle = candidate.has_physics
@@ -8094,7 +8182,9 @@ int main(int argc, char **argv) {
                 nai=ai_race_prepare(troot,&world.city.ev[world.city.race.ev],&world.city.race,
                                     &traffic_world,&aipath,ais,race_drivers,&player);
                 const WEvent *event=&world.city.ev[world.city.race.ev];
-                int wanted=event->info.kind==N2_RACE_URL?5:3;
+                int authored=event->info.kind==N2_RACE_URL?5:3;   /* M7 P5: options pick the field size */
+                int wanted=event->info.downhill?0:rr_opponent_count(&race_options,authored,world.city.race.ngrid);
+                if(saved_traffic_target<0)saved_traffic_target=g_dbg.traffic_target;
                 g_dbg.race_ai_active=nai && race_drivers[0].source
                     ?race_ai_source_select(race_ai_source,event->id,wanted,g_dbg.race_ai_choice):-1;
                 for(int k=0;k<N_RACE_AI;k++){
@@ -8104,7 +8194,7 @@ int main(int argc, char **argv) {
                 }
                 if(g_dbg.race_ai_active>=0)printf("race AI: %s, difficulty %d, source skill/catch-up adaptation\n",
                     race_ai_source->event[g_dbg.race_ai_active].name,g_dbg.race_ai_difficulty);
-                if(aipath.n<2 || (!event->info.downhill && nai!=wanted)) {
+                if(aipath.n<2 || wanted<0 || (!event->info.downhill && nai!=wanted)) {
                     if(aipath.n<2)snprintf(g_dbg.race_error,sizeof g_dbg.race_error,"This course's route is not available yet.");
                     else snprintf(g_dbg.race_error,sizeof g_dbg.race_error,"This course needs %d opponents; only %d starting slots are usable.",wanted,nai);
                     fprintf(stderr,"race start rejected: event %d has no usable course or complete grid (%d/%d opponents)\n",
@@ -8114,6 +8204,24 @@ int main(int argc, char **argv) {
                     memcpy(ais,ai_templates,sizeof ai_templates);
                     nai=ai_traffic_spawn(&roam_roads,&traffic_world,ais,traffic_routes,carpos,heading);
                 } else {
+                    knockout_live = race_lap_knockout && event->info.kind == N2_RACE_CIRCUIT && nai > 0;   /* M7 P4 */
+                    if (knockout_live) {
+                        rr_knockout_init(&knockout, nai + 1);
+                        world.city.race.maxlaps = nai;
+                        for (int k = 0; k < nai; ++k) race_drivers[k].progress.maxlaps = world.city.race.maxlaps;
+                    }
+                    if (event->info.kind == N2_RACE_URL) {
+                        if (url_pending_count) {
+                            url_live = rr_url_init(&url_series, nai + 1, url_pending, url_pending_count, NULL);
+                            url_pending_count = 0;
+                        }
+                        if (url_live && url_series.count != nai + 1) {
+                            /* [deviation] the doc asks to abort preparation; this host runs the round alone instead */
+                            fprintf(stderr, "url: field size changed (%d vs %d); tournament ended\n", url_series.count, nai + 1);
+                            url_live = 0;
+                        }
+                        if (url_live) rr_round_init(&url_round, nai + 1);
+                    } else url_live = 0;
                     memcpy(carpos,player.pos,sizeof player.pos);
                     heading=world.city.race.grid_named && !event->info.downhill?
                         player.head:ai_course_heading(&aipath,carpos);
@@ -8186,7 +8294,7 @@ int main(int argc, char **argv) {
                 snprintf(mark.asset,sizeof mark.asset,"%s",cat!=WSURF_NONE && hit.mesh>=0 && hit.mesh<scene.count?scene.meshes[hit.mesh].sname:"");
                 snprintf(mark.note,sizeof mark.note,"%s",g_dbg.race_log_note);
                 race_log_mark(&race_log,&mark);
-                for(int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes)) {
+                for(int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) {
                     int racer=ai_race && k<nai;
                     race_log_write(&race_log,"MARKCAR,%ld,%ld,%d,%s,%.3f,%.3f,%.3f,%.5f,%.2f,%.2f,%d,%d,%.3f,%d\n",
                         race_log.marks,race_log.tick,k,racer?"opponent":"traffic",ais[k].pos[0],ais[k].pos[1],ais[k].pos[2],
@@ -8269,7 +8377,7 @@ int main(int argc, char **argv) {
         pose_before=pose_now;dynamic_before=dynamic_now;shake_before=landing_offset;
         for(int k=0;k<draw_nai;k++) {
             ai_pose_before[k]=ai_pose_now[k];
-            ai_pose_present[k]=ai_actor_present(k,ai_race,nai,traffic_routes);
+            ai_pose_present[k]=ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers);
             int slot=ai_actor_slot(k,ai_race);
             ai_pose_generation[k]=slot>=0?traffic_routes[slot].respawns:0;
         }
@@ -8522,14 +8630,7 @@ int main(int argc, char **argv) {
                     carbb[5]-carbb[2],
                     g_dbg.wheel.front_axle-g_dbg.wheel.rear_axle,
                     g_dbg.wheel.front_track,carprof.wheel_w);
-            float drag_gain=1;
-            if(drag_active && race_state==1 && g_vehicle_source_valid) {
-                drag_gain=phys_manual_step(&drag_gear,&g_vehicle_source,g_dbg.perf_power_level,
-                    g_dbg.perf_transmission_level,carprof.wheel_r*g_dbg.wheel_scale,
-                    speed,throttle,drag_shift,1/PHYS_TICKRATE);
-                if(drag_gain<=0 && throttle>0)throttle=0;
-            }
-            PhysVehicle driven=g_vehicle;if(drag_active)driven.accel*=drag_gain;
+            PhysVehicle driven=g_vehicle;   /* M7 P1: drag uses phys_drag_step below, not a thrust multiplier */
             /* A short top-speed headroom gives the visual trigger a real
                response while preserving the existing tune after the step. */
             float saved_top = g_phys_tune.top_kmh;
@@ -8544,6 +8645,17 @@ int main(int argc, char **argv) {
                     ordinary_session&&race_state==0&&!race_prepare_pending);
                 dmag=stage1_drive_step(&g_stage1,carpos,vel,&heading,&speed,
                     throttle,steer_filtered,handbrake,&surf_now,&g_vehicle,g_ride_ready?&g_ride:NULL);
+            } else if (drag_active && race_state == 1) {   /* M7 P1/P2: dimensional drag adapter + shift grading */
+                PhysDragConfig drag_config = g_drag_config;
+                drag_config.power_level = g_dbg.perf_power_level;
+                drag_config.transmission_level = g_dbg.perf_transmission_level;
+                drag_gear.shift_point_rpm = 0.0f;
+                if (g_stage1.ready && g_dbg.perf_power_level == 0 && g_dbg.perf_transmission_level == 0 &&
+                    drag_gear.gear >= 1 && drag_gear.gear <= g_stage1.drivetrain.car.gear_count)
+                    drag_gear.shift_point_rpm = g_stage1.drivetrain.car.up_rpm[drag_gear.gear + 1];
+                dmag = phys_drag_step(&drag_gear, &drag_config, carpos, vel, &heading, &speed,
+                    throttle, steer_filtered, handbrake, drag_shift,
+                    &surf_now, &driven, g_ride_ready ? &g_ride : NULL);
             } else dmag = phys_drive_step(carpos, vel, &heading, &speed,
                                  throttle, steer_filtered, handbrake,
                                  &surf_now, &driven,g_ride_ready?&g_ride:NULL);
@@ -8579,7 +8691,9 @@ int main(int argc, char **argv) {
           if(stage1_active) {
               stage1_presentation(&g_stage1,&gear,&gear_changing);
           } else if(drag_active && g_vehicle_source_valid) {
-              gear=drag_gear.gear;g_engine.target_rpm=drag_gear.rpm;g_engine.load=fmaxf(0,throttle);
+              gear=drag_gear.gear;g_engine.target_rpm=drag_gear.rpm;
+              g_engine.load=(drag_gear.shift>0 || drag_gear.failed || drag_gear.rpm>=g_vehicle_source.limiter_rpm)
+                  ?0.0f:fmaxf(0,throttle);   /* M7 P1: torque cuts stay audible */
               gear_changing = drag_gear.shift > 0.0f;   /* drivetrain's 0.15 s shift-cut */
           } else { eng_gearbox_step(sp, throttle, 1.0f/60.0f, &gear, &shift_t);
               gear_changing = shift_t > 0.0f; }          /* ENG_SHIFT_S clutch window */
@@ -9205,7 +9319,7 @@ int main(int argc, char **argv) {
         }
         outrun_offer=offer;outrun_challenge=0;
         pf_mark(PF_AI_FOLLOW);
-        for (int k = 0; race_state == 1 && k < nai; k++) {
+        for (int k = 0; (race_state == 1 || (url_live && race_state == 2 && !url_round.ready)) && k < nai; k++) {
             if(ai_race && world.city.race.active && aipath.n>1) {
                 AiCar player={.pos={carpos[0],carpos[1],carpos[2]},.head=heading,.spd=speed,
                     .half_length=(carbb[3]-carbb[0])*.5f,.half_width=(carbb[4]-carbb[1])*.5f,
@@ -9245,16 +9359,16 @@ int main(int argc, char **argv) {
         /* Solve player and traffic together: a later pair can re-open an earlier
            contact. Stopped cars in view remain solid. */
         float race_contact=0;
-        if(race_state==1) {
+        if(race_state==1 || (url_live && race_state==2 && !url_round.ready)) {
           AiCar player={.pos={carpos[0],carpos[1],carpos[2]},.vel={vel[0],vel[1]},
               .spd=speed,.head=heading,.half_length=(carbb[3]-carbb[0])*.5f,
               .half_width=(carbb[4]-carbb[1])*.5f,.height=carbb[5]-carbb[2],
               .mass=g_vehicle_source_valid?g_vehicle_source.mass_tonnes:0,
               .ride=g_ride,.support=g_sup,.ride_ready=g_ride_ready};
           AiCar *contacts[N_WORLD_AI+1];int count=0;
-          if(!follow_roam_ai)contacts[count++]=&player;
+          if(!follow_roam_ai && !(url_live && url_round.done[0]))contacts[count++]=&player;   /* finished: out of the way */
           for(int k=0;k<nai;k++)
-              if(ai_race || traffic_routes[k].present)contacts[count++]=&ais[k];
+              if(ai_race ? !race_drivers[k].eliminated : traffic_routes[k].present)contacts[count++]=&ais[k];
           for(int k=0;k<race_traffic_count;k++)if(traffic_routes[k].present)
               contacts[count++]=ais+N_RACE_AI+k;
           float thud=ai_car_contacts(contacts,count,&traffic_world,
@@ -9313,7 +9427,7 @@ int main(int argc, char **argv) {
         }
         if(heat_active && ++heat_ticks>=15) {
             heat_ticks=0;heatmap_begin(&g_dbg.heatmap,.25f);
-            for(int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes)) {
+            for(int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) {
                 int slot=ai_actor_slot(k,ai_race);
                 int from=slot<0?-1:traffic_routes[slot].from;
                 int to=slot<0?-1:traffic_routes[slot].to;
@@ -9330,7 +9444,7 @@ int main(int argc, char **argv) {
         g_dbg.traffic_active=g_dbg.traffic_racers=0;
         g_dbg.traffic_available=roam_roads.n>0 && race_state==1 && (!ai_race || (world.city.race.active &&
             race_has_traffic(world.city.race.kind,world.city.ev[world.city.race.ev].info.downhill)));
-        for(int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes)) {
+        for(int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) {
             if(ai_race?k<nai:ai_traffic_is_racer(k))g_dbg.traffic_racers++;
             else g_dbg.traffic_active++;
         }
@@ -9366,13 +9480,57 @@ int main(int argc, char **argv) {
             world.city.race.failed=drag_failure;world.city.race.finished=1;
             race_state=2;finish_place=nai+1;
         }
+        if (url_live && (race_state == 1 || race_state == 2)) {   /* M7 P4: URL round collector, once per tick */
+            int fin[RR_MAX_CARS] = {0}, fl[RR_MAX_CARS] = {0};
+            float prog[RR_MAX_CARS] = {0};
+            fin[0] = world.city.race.finished; fl[0] = world.city.race.failed != 0;
+            prog[0] = world_race_progress_value(&world.city.race, carpos[0], carpos[1]);
+            for (int k = 0; k < nai && k + 1 < RR_MAX_CARS; ++k) {
+                fin[k + 1] = race_drivers[k].progress.finished;
+                fl[k + 1] = race_drivers[k].progress.failed || (race_drivers[k].drive.failed && !fin[k + 1]);
+                prog[k + 1] = world_race_progress_value(&race_drivers[k].progress, ais[k].pos[0], ais[k].pos[1]);
+            }
+            if (rr_round_step(&url_round, fin, fl, prog, 1.0 / PHYS_TICKRATE) < 0) {
+                url_live = 0; world.city.race.failed = RR_FAIL_INVALID_RULES;
+            }
+        }
+        if (knockout_live && race_state == 1) {   /* M7 P4: last car at each lap end is knocked out */
+            float progress[RR_MAX_CARS] = {0};
+            const WRace *pr = &world.city.race;
+            int lap = pr->finished ? pr->maxlaps : pr->lap > 0 ? pr->lap - 1 : 0;
+            progress[0] = world_race_progress_value(pr, carpos[0], carpos[1]);
+            for (int k = 0; k < nai && k + 1 < RR_MAX_CARS; ++k) {
+                const WRace *r = &race_drivers[k].progress;
+                progress[k + 1] = world_race_progress_value(r, ais[k].pos[0], ais[k].pos[1]);
+                if (!race_drivers[k].eliminated) {
+                    int completed = r->finished ? r->maxlaps : r->lap > 0 ? r->lap - 1 : 0;
+                    if (completed > lap) lap = completed;
+                }
+            }
+            int gone = rr_knockout_lap(&knockout, lap, progress);
+            if (gone > 0) ai_race_eliminate(ais + gone - 1, race_drivers + gone - 1);
+            if (!knockout.alive[0] || rr_knockout_winner(&knockout) >= 0) {
+                finish_place = knockout.place[0];
+                world.city.race.failed = knockout.alive[0] ? 0 : RR_FAIL_KNOCKOUT;
+                world.city.race.finished = 1; race_state = 2;
+            }
+        }
         if(ai_race && race_state==1 && world.city.race.active && world.city.race.finished) {
-            finish_place=1;
-            for(int k=0;k<nai;k++) {
-                if(world.city.race.kind==N2_RACE_DRIFT) {
-                    const RaceDrift *d=&race_drivers[k].progress.drift;
-                    if(d->bank+d->chain>world.city.race.drift.bank)finish_place++;
-                } else if(race_drivers[k].progress.finished)finish_place++;
+            if (world.city.race.kind == N2_RACE_DRIFT) {   /* M7 P3: bank every chain once, rank by points */
+                float totals[RR_MAX_CARS] = {0};
+                race_drift_bank(&world.city.race.drift);
+                totals[0] = world.city.race.drift.bank;
+                for (int k = 0; k < nai && k + 1 < RR_MAX_CARS; ++k) {
+                    race_drift_bank(&race_drivers[k].progress.drift);
+                    totals[k + 1] = race_drivers[k].progress.drift.bank;
+                }
+                int rank = nai + 1 <= RR_MAX_CARS ? rr_points_place(totals, nai + 1, 0) : 0;
+                finish_place = rank > 0 ? rank : nai + 1;
+                if (!rank) world.city.race.failed = RR_FAIL_INVALID_RULES;
+            } else {
+                finish_place = 1;
+                for (int k = 0; k < nai; ++k)
+                    if (race_drivers[k].progress.finished) ++finish_place;
             }
             race_state=2;
         }
@@ -9409,7 +9567,7 @@ int main(int argc, char **argv) {
                     hit.z,cat,nwc,race_contact,frame_seconds*1000,drag_lane,drag_gear.gear,drag_gear.rpm,world.city.race.failed);
                 race_log_text(&race_log,cat!=WSURF_NONE && hit.mesh>=0 && hit.mesh<scene.count?scene.meshes[hit.mesh].sname:"");
                 race_log_write(&race_log,"\n");
-                for(int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes)) {
+                for(int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) {
                     int slot=ai_actor_slot(k,ai_race),racer=ai_race && k<nai;
                     const AiRace *driver=racer?race_drivers+k:NULL;
                     race_log_write(&race_log,"CAR,%ld,%d,%s,%.3f,%.3f,%.3f,%.5f,%.2f,%.2f,%d,%d,%d,%.3f,%d,%d,%d,%u,%d\n",
@@ -9451,7 +9609,7 @@ int main(int argc, char **argv) {
             player_wheel_angle=fmodf(mean,6.2831853f);
         } else player_wheel_angle=fmodf(player_wheel_angle+speed/
             fmaxf(carprof.wheel_r*sim_wheel_scale,.05f),6.2831853f);
-        for(int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes)) {
+        for(int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) {
             float radius=ais[k].tyre_radius>0?ais[k].tyre_radius:opponent_profile.wheel_r;
             ais[k].wheel_angle=fmodf(ais[k].wheel_angle+ais[k].spd/
                 fmaxf(radius*sim_wheel_scale,.05f),6.2831853f);
@@ -9472,7 +9630,7 @@ int main(int argc, char **argv) {
         {   /* gameplay camera: one update per simulation tick (SPEC 6) */
             char gpresent[N_WORLD_AI];
             GameCamProbe gprobe={&scene,(const float (*)[4])world.neighborhood.mbb,ais,gpresent,draw_nai};
-            for(int k=0;k<draw_nai;k++)gpresent[k]=ai_actor_present(k,ai_race,nai,traffic_routes);
+            for(int k=0;k<draw_nai;k++)gpresent[k]=ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers);
             int incar=gc.cam.requested==CAM_BUMPER || gc.cam.requested==CAM_HOOD;
             gamecam_tick(&gc,carpos,vel,heading,g_ride_ready?&g_ride:NULL,car_body_ride,gc_drift,
                          incar?&gprobe:NULL,sim_tick==0 && pose_snap);
@@ -9705,7 +9863,7 @@ int main(int argc, char **argv) {
                 for(int pass=0;pass<4;pass++) {
                     int moved=0;
                     for(int k=0;k<draw_nai;k++) {
-                        if(!ai_actor_present(k,ai_race,nai,traffic_routes))continue;
+                        if(!ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers))continue;
                         float ex=render_ais[k].pos[0]-view_cam[0],ey=render_ais[k].pos[1]-view_cam[1],
                               ez=render_ais[k].pos[2]-view_cam[2];
                         if(ex*ex+ey*ey+ez*ez>GAMECAM_CAR_RANGE*GAMECAM_CAR_RANGE)continue;
@@ -9772,7 +9930,7 @@ int main(int argc, char **argv) {
             else for(int a=0;a<3;a++){vbb[a]=opponent_profile.body[a*2];vbb[a+3]=opponent_profile.body[a*2+1];}
             float vc[3],vr=car_view_sphere(vbb,render_ais[k].pos,render_ais[k].head,vc);
             ais[k].render_visible=render_ais[k].render_visible=g_dbg.traffic_cull_off || sphere_in_view(MVP,vc,vr);
-            if((ai_actor_present(k,ai_race,nai,traffic_routes)) && sphere_in_view(MVP,vc,vr))g_dbg.traffic_visible++;
+            if((ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers)) && sphere_in_view(MVP,vc,vr))g_dbg.traffic_visible++;
         }
         rp.p->uUnlit = 0.0f; rp.p->uSpec = 0.0f;   /* world is matte */
         rp.p->uAmbient = g_dbg.ambient; rp.p->uDiffuse = g_dbg.diffuse;
@@ -10209,7 +10367,7 @@ int main(int argc, char **argv) {
             ug2_vec3(rp.p->uColor, 0.0f, 0.0f, 0.0f); rp.p->uAlpha = 0.5f;
             for (int c=0; g_dbg.car_shadow_quality<=0 && c<=draw_nai; c++) {
                 if((c==0 && player_hidden) ||
-                   (c>0 && !ai_actor_present(c-1,ai_race,nai,traffic_routes)) ||
+                   (c>0 && !ai_actor_present_rules(c-1,ai_race,nai,traffic_routes,race_drivers)) ||
                    (c>0 && !render_ais[c-1].render_visible))continue;
                 float *cp = c==0 ? render_player.pos : render_ais[c-1].pos;
                 WGroundHit ground;
@@ -10642,7 +10800,7 @@ int main(int argc, char **argv) {
                Their geometry is the initial car snapshot, so its stance and
                wheel tier must stay paired with it after an in-process switch. */
             for (int k = 0; k < draw_nai; k++) {
-                if(!ai_actor_present(k,ai_race,nai,traffic_routes))continue;
+                if(!ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers))continue;
                 int visual=ai_actor_visual(k,ai_race,nai,world.city.race.active);
                 const CarSwitchCandidate *tv=(!ai_race || world.city.race.active) && traffic[visual].gpu?&traffic[visual]:NULL;
                 const N2Scene *draw_scene=tv?&tv->scene:&opponent_car;
@@ -11045,7 +11203,7 @@ int main(int argc, char **argv) {
             rhi_cmd_bind_pipeline(cpipe.halo);   /* over its own lens, but still occluded */
             rp.p->uUnlit = 1.0f; rp.p->uUseTex = 0.0f; rp.p->uSoft = 1.0f;
             for (int c=0; c<draw_nai; c++) {
-                if((!ai_actor_present(c,ai_race,nai,traffic_routes)) || !render_ais[c].render_visible)continue;
+                if((!ai_actor_present_rules(c,ai_race,nai,traffic_routes,race_drivers)) || !render_ais[c].render_visible)continue;
                 int visual=ai_actor_visual(c,ai_race,nai,world.city.race.active);
                 const CarSwitchCandidate *tv=(!ai_race || world.city.race.active) && traffic[visual].gpu?&traffic[visual]:NULL;
                 const float (*lamps)[4]=tv?tv->bloom:opponent_bloom;
@@ -11350,7 +11508,7 @@ int main(int argc, char **argv) {
                     ug2_copy(rp.p->uMVP, M, 16); ug2_vec3(rp.p->uColor, r, g, b); render_draw_gpumesh(&quad); \
                     g_dbg.drawn++; }while(0)
                 for (int i=0;i<aipath.n;i++) MMDOT(aipath.xy[i*2],aipath.xy[i*2+1], 0.004f, 0.4f,0.4f,0.46f);
-                for (int k=0;k<draw_nai;k++)if(ai_actor_present(k,ai_race,nai,traffic_routes))
+                for (int k=0;k<draw_nai;k++)if(ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers))
                     MMDOT(ais[k].pos[0],ais[k].pos[1], 0.010f,
                            ais[k].col[0],ais[k].col[1],ais[k].col[2]);
                 MMDOT(carpos[0],carpos[1], 0.013f, 0.95f,0.15f,0.15f);
@@ -11465,12 +11623,17 @@ int main(int argc, char **argv) {
         }
         if (g_dbg.race_start_request) {
             g_dbg.race_start_request = 0;
-            if (world.city.active_ev >= 0 && world_race_start(&world,troot,
-                world.city.active_ev,g_dbg.race_maxlaps_want)>0) {
+            int evi=world.city.active_ev;   /* M7 P5: directed start (forward unless the options ask for reverse) */
+            int armed=evi>=0 && world_race_start_direction(&world,troot,evi,g_dbg.race_maxlaps_want,
+                race_options.reverse,g_dbg.race_error,sizeof g_dbg.race_error)>0;
+            if (armed) {
                 race_place_on_grid(&world,&scene,carpos,&heading);
                 race_prepare_pending=1;ai_race=1;nai=0;
                 race_state=0;racetimer=0;speed=vel[0]=vel[1]=0;g_ride_ready=0;
                 stage1_drive_reset(&g_stage1,vel,heading);
+            } else {
+                if (!g_dbg.race_error[0]) snprintf(g_dbg.race_error,sizeof g_dbg.race_error,"Race direction/grid unavailable");
+                ai_race=0;race_prepare_pending=0;race_state=1;
             }
         }
         if (g_dbg.race_stop_request) {
@@ -11613,12 +11776,16 @@ int main(int argc, char **argv) {
                 if(event_race) {
                     if (ev >= 0 && ev < world.city.nev) hs.race_event_id = world.city.ev[ev].id;
                     hs.race_kind=wr->kind;hs.drift_score=wr->drift.bank;hs.drift_chain=wr->drift.chain;
+                    hs.drift_multiplier=fmaxf(1.0f,wr->drift.multiplier);   /* M7 P3 */
                     hs.drift_angle=wr->drift.angle;
                     if(wr->kind==N2_RACE_DRAG && g_vehicle_source_valid) {
                         hs.rpm=drag_gear.rpm;hs.rpm_redline=g_vehicle_source.redline_rpm;hs.gear=drag_gear.gear;
                         hs.rpm_maximum=g_vehicle_source.limiter_rpm;
                         hs.engine_heat=drag_gear.heat;hs.engine_failed=wr->failed==1;
                         hs.shift_ready=drag_gear.rpm>=g_vehicle_source.redline_rpm;
+                        hs.shift_quality=drag_gear.shift_quality;   /* M7 P2 */
+                        hs.shift_quality_seconds=drag_gear.feedback_seconds;
+                        hs.shift_quality_key=drag_gear.feedback_seconds>0?rr_drag_grade_label(drag_gear.shift_quality):0;
                     }
                 }
                 if (event_race) {

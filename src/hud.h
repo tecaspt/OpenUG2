@@ -47,7 +47,11 @@ typedef struct {
     int   race_kind;
     int   race_event_id;      /* positive for an authored event, 0 otherwise */
     float drift_score,drift_chain,engine_heat;
+    float drift_multiplier;          /* M7 P3: x1..x5 */
     int shift_ready,engine_failed;
+    int shift_quality;               /* M7 P2: RR_SHIFT_* of the last drag shift */
+    uint32_t shift_quality_key;      /* installed language key of its grade caption, 0 = hide */
+    float shift_quality_seconds;     /* remaining feedback time */
     int   racing;             /* 0 = free roam, 1 = in an event */
     int   circuit;            /* race only: 1 = laps, 0 = sprint (progress) */
     int   lap, laps;          /* circuit only */
