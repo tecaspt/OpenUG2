@@ -130,7 +130,7 @@ static void eaxa_decode(const unsigned char *d, int16_t *out, uint32_t nsamp) {
                        2^shift instead. shift is 5..20 here, so 1<<shift and
                        the product (|nib| <= 8) both stay well inside int. */
                     int s = ((nib * (1 << shift)) + prev*EAXA_C1[ci] + prev2*EAXA_C2[ci] + 0x80) >> 8;
-                    if (s > 32767) s = 32767; if (s < -32768) s = -32768;
+                    if (s > 32767) { s = 32767; } if (s < -32768) s = -32768;
                     prev2 = prev; prev = s;
                     out[n++] = (int16_t)s;
                 }
@@ -204,7 +204,7 @@ static void xas_decode(const unsigned char *d, int16_t *out, uint32_t nsamp) {
                    nonnegative-shifted value's implementation-defined (not
                    undefined) arithmetic shift, same as before. */
                 float s = (float)((nib * 4096) >> shift) + p1*XC1[ci] + p2*XC2[ci];
-                if (s > 32767.0f) s = 32767.0f; if (s < -32768.0f) s = -32768.0f;
+                if (s > 32767.0f) { s = 32767.0f; } if (s < -32768.0f) s = -32768.0f;
                 p2 = p1; p1 = s;
                 out[n++] = (int16_t)s;
             }
@@ -261,7 +261,7 @@ static float gin_rpm_at(const GinsuSweep *s, float pos) {
 /* sample position for an rpm (clamped to the sweep's range) */
 static float gin_pos_at(const GinsuSweep *s, float rpm) {
     float t = (rpm - s->rpm_min) / (s->rpm_max - s->rpm_min);
-    if (t < 0) t = 0; if (t > 1) t = 1;
+    if (t < 0) { t = 0; } if (t > 1) t = 1;
     float fi = t * (float)s->n_rpm;
     int i = (int)fi; if (i >= s->n_rpm) i = s->n_rpm - 1;
     return (float)s->rpm_pos[i] + (fi - (float)i) *
@@ -397,7 +397,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     EngineSynthState *e = &g_engine;
     float target = e->target_rpm, load = e->load, master = e->master_volume;
     float road = g_road_vol, skid = g_skid, wall=g_scrape;
-    if (g_hit > hit) hit = g_hit; g_hit = 0.0f;   /* latch a new collision */
+    if (g_hit > hit) { hit = g_hit; } g_hit = 0.0f;   /* latch a new collision */
     for (int i = 0; i < n; i++) {
         /* engine inertia: revs chase the target (~110ms), load a bit faster */
         e->current_rpm  += (target - e->current_rpm)  * 0.0002f;
@@ -463,7 +463,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
             /* Ginsu path: idle loop below ~2200rpm, crossfading into the 3
                RPM-band loop pairs; accel vs decel crossfaded by load */
             float wi = (2200.0f - e->current_rpm) / 1200.0f;   /* 1 at idle, 0 by 2200 */
-            if (wi < 0) wi = 0; if (wi > 1) wi = 1;
+            if (wi < 0) { wi = 0; } if (wi > 1) wi = 1;
             AudioSampleBand *ib = &e->idle_band;
             ib->playback_index += (e->current_rpm / ENG_IDLE_RPM) * (ib->srate / 44100.0f);
             while (ib->playback_index >= (float)ib->sample_count)
@@ -561,7 +561,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         scrape+=(wall-scrape)*.0005f;scrape_lp+=(nz-scrape_lp)*.03f;
         float s = eng + env + scr + thud*.8f + scrape_lp*scrape;
         int v = (int)(s * 11000.0f);
-        if (v > 32767) v = 32767; if (v < -32768) v = -32768;
+        if (v > 32767) { v = 32767; } if (v < -32768) v = -32768;
         out[i] = (int16_t)v;
     }
 }

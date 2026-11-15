@@ -334,7 +334,7 @@ float phys_manual_step(PhysManual *s,const N2PhysicsAttr *a,int power,int transm
     const N2GearboxAttr *box=a->gearbox+transmission;
     if(box->gear_count<1 || box->gear_count>6 || a->limiter_rpm<=a->idle_rpm ||
        box->final_drive<=0 || box->forward[0]<=0)return 0;
-    if(s->gear<1)s->gear=1;if(s->gear>box->gear_count)s->gear=box->gear_count;
+    if(s->gear<1){ s->gear=1; }if(s->gear>box->gear_count)s->gear=box->gear_count;
     if(shift && s->shift<=0 && !s->failed) {
         int gear=s->gear+(shift>0?1:-1);
         if(gear>=1 && gear<=box->gear_count){s->gear=gear;s->shift=.15f;}
@@ -398,7 +398,7 @@ static float chassis_step(float pos[3], float vel[2], float *heading, float *spe
     /* surface and vehicle both scale retention; keep the product a contraction
        so a slide can never be amplified. */
     if(stage1!=2) { float lat = sf->lat * vh->lat;
-      if (lat > 0.99f) lat = 0.99f; if (lat < 0.50f) lat = 0.50f;
+      if (lat > 0.99f) { lat = 0.99f; } if (lat < 0.50f) lat = 0.50f;
       vl *= handbrake ? fminf(HANDBRAKE_GRIP,lat+0.07f) : lat; }
     if (handbrake) {
         /* Rear grip releases for a turn, but the brake still dissipates
@@ -937,7 +937,7 @@ int phys_prepare_boundaries(N2Scene *s) {
         if(b->post)for(int pass=0;pass<2;pass++) {
             for(int j=0;j<unique;j++) {
                 BoundaryBase *q=&bases[j];
-                if(q->x<b->x-3.5f)continue;if(q->x>b->x+3.5f)break;
+                if(q->x<b->x-3.5f){ continue; }if(q->x>b->x+3.5f)break;
                 if(j==i || !q->post || fabsf(q->z0-b->z0)>.75f ||
                    strcmp(m->sname,s->meshes[q->mesh].sname))continue;
                 float dx=q->x-b->x,dy=q->y-b->y,dd=dx*dx+dy*dy;
@@ -1045,7 +1045,7 @@ static int cw_shape_feature(const N2Scene *s, int mi, float px, float py,
             const double *p0 = P[e], *p1 = P[(e+1)%np];
             double dx = p1[0]-p0[0], dy = p1[1]-p0[1], l2 = dx*dx+dy*dy;
             double u = l2 > 1e-9f ? ((px-p0[0])*dx + (py-p0[1])*dy) / l2 : 0.0f;
-            if (u < 0) u = 0; if (u > 1) u = 1;
+            if (u < 0) { u = 0; } if (u > 1) u = 1;
             double sx = p0[0]+dx*u, sy = p0[1]+dy*u;
             double ox = px - sx, oy = py - sy, d2 = ox*ox + oy*oy;
             double hx=px,hy=py;
@@ -1244,7 +1244,7 @@ static int cw_resolve(float *pos, float *vel, const float obst[][4],
         float qy0=pos[1]+fminf(ay,by)-m, qy1=pos[1]+fmaxf(ay,by)+m;
         int cx0=(int)floorf((qx0-g_cwi.x0)/CWI_CELL), cx1=(int)floorf((qx1-g_cwi.x0)/CWI_CELL);
         int cy0=(int)floorf((qy0-g_cwi.y0)/CWI_CELL), cy1=(int)floorf((qy1-g_cwi.y0)/CWI_CELL);
-        if(cx0<0)cx0=0; if(cy0<0)cy0=0; if(cx1>=g_cwi.gw)cx1=g_cwi.gw-1; if(cy1>=g_cwi.gh)cy1=g_cwi.gh-1;
+        if(cx0<0){ cx0=0; } if(cy0<0)cy0=0; if(cx1>=g_cwi.gw)cx1=g_cwi.gw-1; if(cy1>=g_cwi.gh)cy1=g_cwi.gh-1;
         if (++g_cwi.tick == 0) { memset(g_cwi.stamp,0,(size_t)g_cwi.ncap*sizeof *g_cwi.stamp); g_cwi.tick=1; }
         int nc = 0;
         for (int k=0;k<g_cwi.nbig;k++) { g_cwi.stamp[g_cwi.big[k]]=g_cwi.tick; g_cwi.cand[nc++]=g_cwi.big[k]; }
@@ -1385,9 +1385,9 @@ int phys_collect_walls(const N2Scene *s, float (*obst)[4], int *src,
         int nv=mesh->wall_verts?mesh->wall_nverts:mesh->nverts;
         const float *verts=mesh->wall_verts?mesh->wall_verts:mesh->verts;
         for (int v=0;v<nv;v++){ const float *p=verts+v*5;
-            if(p[0]<ox0)ox0=p[0]; if(p[0]>ox1)ox1=p[0];
-            if(p[1]<oy0)oy0=p[1]; if(p[1]>oy1)oy1=p[1];
-            if(p[2]<oz0)oz0=p[2]; if(p[2]>oz1)oz1=p[2]; }
+            if(p[0]<ox0){ ox0=p[0]; } if(p[0]>ox1)ox1=p[0];
+            if(p[1]<oy0){ oy0=p[1]; } if(p[1]>oy1)oy1=p[1];
+            if(p[2]<oz0){ oz0=p[2]; } if(p[2]>oz1)oz1=p[2]; }
         /* BUILDING/WALL/STRUCT are authored solid semantics, so their height
          * is not a classifier. In particular L4RA's XW_SANDSTONEBASE pieces
          * are only 0.548 m tall but have real 0.539 m vertical faces. Let the
@@ -1428,7 +1428,7 @@ float phys_car_contacts(float carpos[3], float vel[2], float speed,
     float pl=bb?0.5f*(bb[3]-bb[0]):2.2f;
     float pw=bb?0.5f*(bb[4]-bb[1]):1.0f;
     float ph=bb?bb[5]-bb[2]:1.6f;
-    if(pl<1.0f)pl=2.2f;if(pw<0.5f)pw=1.0f;if(ph<1.0f)ph=1.6f;
+    if(pl<1.0f){ pl=2.2f; }if(pw<0.5f)pw=1.0f;if(ph<1.0f)ph=1.6f;
     float pf[2]={cosf(heading),sinf(heading)},ps[2]={pf[1],-pf[0]};
     float thud = 0.0f;
     float inv=1.0f/(mass>0?mass:1.4f);

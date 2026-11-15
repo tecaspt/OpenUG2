@@ -330,7 +330,7 @@ void ai_step(AiCar *ai, int k, const N2Path *aipath, N2Scene *scene,
     float corner = 0.4f + 0.6f*(cosang>0?cosang:0);   /* 1 straight, 0.4 sharp */
     int aiprog = ai->lap*aipath->n + ai->prevrel;
     float gap = (float)(player_prog-aiprog)/(aipath->n*0.4f);
-    if (gap>1) gap=1; if (gap<-1) gap=-1;             /* + = AI behind -> faster */
+    if (gap>1) { gap=1; } if (gap<-1) gap=-1;             /* + = AI behind -> faster */
     float target = PHYS_MAXSPD*(0.68f + k*0.015f) * corner * (1.0f + 0.18f*gap);
     AiTrafficWorld world={.scene=scene};
     ai_vehicle_step(ai,ai_throttle(target,ai->spd),
@@ -480,7 +480,7 @@ int ai_roads_load(AiRoadNet *roads,const char *troot) {
         else {roads->n=oldn;fprintf(stderr,"free-roam road paths: invalid record in %s\n",path);}
         free(data);
     }
-    for(int f=0;f<nf;f++)free(files[f]);free(files);
+    for(int f=0;f<nf;f++){ free(files[f]); }free(files);
     printf("free-roam road paths: %d nodes, %d authored joins from %d RoutesFreeRoam.bin files\n",
            roads->n,roads->njoin,nfiles);
     if(roads->n>0 && !ai_roads_index(roads))printf("road query index: unavailable, linear scans\n");
@@ -552,7 +552,7 @@ static int ai_road_candidates(const AiRoadNet *r,int at,int pass,int *out,int ca
         for(int j=begin;j<end;j++)if(r->join[j][0]==at) {
             int to=r->join[j][1];
             if(hypotf(r->xy[2*to]-r->xy[2*at],r->xy[2*to+1]-r->xy[2*at+1])>=1) {
-                if(n>=cap)return 0;out[n++]=to;
+                if(n>=cap){ return 0; }out[n++]=to;
             } else {
                 if(r->next[to]>=0){if(n>=cap)return 0;out[n++]=r->next[to];}
                 int begin=r->pred_start?r->pred_start[to]:0;
@@ -1215,7 +1215,7 @@ int ai_traffic_respawn(const AiRoadNet *roads, const AiTrafficWorld *world,
 
 static int traffic_slot_wanted(int k,const AiTrafficWorld *world) {
     int target=world?world->traffic_target:N_AI;
-    if(target<0)target=0;if(target>N_TRAFFIC_MAX)target=N_TRAFFIC_MAX;
+    if(target<0){ target=0; }if(target>N_TRAFFIC_MAX)target=N_TRAFFIC_MAX;
     return ai_traffic_is_racer(k)?!(world && world->ambient_only):(k<N_AI?k:k-2)<target;
 }
 
