@@ -63,6 +63,24 @@ static void fields(void) {
     s.race_phase=HUD_RACE_FAILED;s.engine_failed=1;
     assert(hud_race_text(&s,HR_BANNER,out)&&!strcmp(out,"ENGINE BLOWN"));
     s.have_race_time=0;assert(!hud_race_text(&s,HR_TIME,out));
+    /* M9: drag shift grade (host-resolved caption) and drift multiplier */
+    HudState g={0};g.racing=1;g.race_kind=N2_RACE_DRAG;g.shift_quality_key=0x0598b065u;g.shift_quality_text="Perfect Shift!";
+    assert(!hud_race_text(&g,HR_SHIFT_GRADE,out));                       /* no feedback time left */
+    g.shift_quality_seconds=.5f;assert(hud_race_text(&g,HR_SHIFT_GRADE,out)&&!strcmp(out,"Perfect Shift!"));
+    g.shift_quality_key=0;assert(!hud_race_text(&g,HR_SHIFT_GRADE,out));  /* key hidden */
+    g.shift_quality_key=1;g.shift_quality_text=NULL;assert(!hud_race_text(&g,HR_SHIFT_GRADE,out));
+    g.shift_quality_text="Good Shift!";g.shift_quality_seconds=NAN;assert(!hud_race_text(&g,HR_SHIFT_GRADE,out));
+    g.shift_quality_seconds=1;g.race_kind=N2_RACE_CIRCUIT;assert(!hud_race_text(&g,HR_SHIFT_GRADE,out));
+    HudState d={0};d.racing=1;d.race_kind=N2_RACE_DRIFT;d.drift_multiplier=3.7f;
+    assert(!hud_race_text(&d,HR_DRIFT_MULTIPLIER,out));                  /* no live chain */
+    d.drift_chain=10;assert(hud_race_text(&d,HR_DRIFT_MULTIPLIER,out)&&!strcmp(out,"X3"));
+    d.drift_multiplier=0;assert(hud_race_text(&d,HR_DRIFT_MULTIPLIER,out)&&!strcmp(out,"X1"));
+    d.drift_multiplier=99;assert(hud_race_text(&d,HR_DRIFT_MULTIPLIER,out)&&!strcmp(out,"X5"));
+    d.drift_multiplier=NAN;assert(!hud_race_text(&d,HR_DRIFT_MULTIPLIER,out));
+    d.drift_multiplier=2;d.race_kind=N2_RACE_DRAG;assert(!hud_race_text(&d,HR_DRIFT_MULTIPLIER,out));
+    assert(hud_race_field_key(N2_RACE_DRAG,HR_SHIFT_GRADE)==0x66842662u);
+    assert(hud_race_field_key(N2_RACE_DRIFT,HR_DRIFT_MULTIPLIER)==0xe5d37182u);
+    assert(!hud_race_field_key(N2_RACE_DRIFT,HR_FIELD_COUNT));
 }
 static void put32(unsigned char*p,unsigned x){for(int i=0;i<4;i++)p[i]=(unsigned char)(x>>(8*i));}
 static void packages(void){

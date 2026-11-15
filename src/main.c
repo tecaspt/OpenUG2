@@ -9508,7 +9508,15 @@ int main(int argc, char **argv) {
                 }
             }
             int gone = rr_knockout_lap(&knockout, lap, progress);
-            if (gone > 0) ai_race_eliminate(ais + gone - 1, race_drivers + gone - 1);
+            if (gone > 0) {
+                ai_race_eliminate(ais + gone - 1, race_drivers + gone - 1);
+                outrun_notice = pause_menu_text(pause_menu, 0x5d82dba2u, "Knocked Out");   /* M9: retail banner caption */
+                outrun_notice_until = SDL_GetTicks() + 2000;
+            }
+            if (!knockout.alive[0]) {
+                outrun_notice = pause_menu_text(pause_menu, 0x1b59940cu, "You were knocked out!");
+                outrun_notice_until = SDL_GetTicks() + 3000;
+            }
             if (!knockout.alive[0] || rr_knockout_winner(&knockout) >= 0) {
                 finish_place = knockout.place[0];
                 world.city.race.failed = knockout.alive[0] ? 0 : RR_FAIL_KNOCKOUT;
@@ -11786,6 +11794,7 @@ int main(int argc, char **argv) {
                         hs.shift_quality=drag_gear.shift_quality;   /* M7 P2 */
                         hs.shift_quality_seconds=drag_gear.feedback_seconds;
                         hs.shift_quality_key=drag_gear.feedback_seconds>0?rr_drag_grade_label(drag_gear.shift_quality):0;
+                        hs.shift_quality_text=pause_menu_text(pause_menu,hs.shift_quality_key,NULL);   /* M9: retail "Perfect Shift!" etc. */
                     }
                 }
                 if (event_race) {

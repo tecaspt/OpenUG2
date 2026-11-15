@@ -721,3 +721,7 @@ int pause_menu_draw_reference(PauseMenu *p, int width, int height, float elapsed
     pause_menu_draw(p, width, height);
     return pause_menu_visual_available(p) && (!pause_menu_dialog_open(p) || pause_menu_dialog_visual_available(p));
 }
+
+const char *pause_menu_text(const PauseMenu *p, uint32_t key, const char *fallback) {
+    return p && p->assets_open && key ? gv_text(&p->assets, key, fallback) : fallback;
+}

@@ -6,7 +6,10 @@
 enum { HUD_RACE_NONE, HUD_RACE_COUNTDOWN, HUD_RACE_RUNNING, HUD_RACE_FINISHED, HUD_RACE_FAILED };
 enum { HR_POSITION, HR_ORDINAL, HR_CARS, HR_LAP_LABEL, HR_LAP, HR_LAPS,
        HR_TIME_LABEL, HR_TIME, HR_BANNER, HR_DRIFT_CHAIN, HR_DRIFT_TOTAL,
-       HR_DRIFT_TOTAL_LABEL, HR_DRIFT_ANGLE, HR_FIELD_COUNT };
+       HR_DRIFT_TOTAL_LABEL, HR_DRIFT_ANGLE,
+       HR_SHIFT_GRADE,      /* M9: HUD_Drag "Perfect Shift!" slot, host caption while feedback runs */
+       HR_DRIFT_MULTIPLIER, /* M9: HUD_Drift "X5" slot beside the chain score */
+       HR_FIELD_COUNT };
 typedef struct { int event, phase, active; double elapsed; } HudRaceClock;
 const char *hud_race_package(int kind);
 int hud_race_package_read(const unsigned char *data, size_t len,

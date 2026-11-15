@@ -52,6 +52,7 @@ typedef struct {
     int shift_quality;               /* M7 P2: RR_SHIFT_* of the last drag shift */
     uint32_t shift_quality_key;      /* installed language key of its grade caption, 0 = hide */
     float shift_quality_seconds;     /* remaining feedback time */
+    const char *shift_quality_text;  /* M9: host-resolved retail caption for shift_quality_key, NULL = hide */
     int   racing;             /* 0 = free roam, 1 = in an event */
     int   circuit;            /* race only: 1 = laps, 0 = sprint (progress) */
     int   lap, laps;          /* circuit only */

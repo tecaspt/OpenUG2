@@ -103,6 +103,14 @@ int hud_race_text(const HudState *s,int field,char out[64]) {
     case HR_DRIFT_TOTAL:if(s->race_kind==N2_RACE_DRIFT&&isfinite(s->drift_score)&&s->drift_score>=0)snprintf(out,64,"%.0f",fminf(1e9f,s->drift_score));break;
     case HR_DRIFT_TOTAL_LABEL:if(s->race_kind==N2_RACE_DRIFT)snprintf(out,64,"Total:");break;
     case HR_DRIFT_ANGLE:if(s->race_kind==N2_RACE_DRIFT&&isfinite(s->drift_angle))snprintf(out,64,"%.0f",fminf(180,fabsf(s->drift_angle)));break;
+    case HR_SHIFT_GRADE:
+        if(s->race_kind==N2_RACE_DRAG&&isfinite(s->shift_quality_seconds)&&s->shift_quality_seconds>0&&
+           s->shift_quality_key&&s->shift_quality_text&&s->shift_quality_text[0])snprintf(out,64,"%s",s->shift_quality_text);
+        break;
+    case HR_DRIFT_MULTIPLIER:
+        if(s->race_kind==N2_RACE_DRIFT&&isfinite(s->drift_chain)&&s->drift_chain>0&&isfinite(s->drift_multiplier)){
+            int m=(int)floorf(s->drift_multiplier);snprintf(out,64,"X%d",m<1?1:m>5?5:m);}
+        break;
     }
     return out[0]!=0;
 }
@@ -110,7 +118,8 @@ uint32_t hud_race_field_key(int kind,int field) {
     /* Opaque object-name identifiers read from the supplied HUD packages. */
     static const uint32_t keys[HR_FIELD_COUNT]={0x9c183bf8,0x44f24239,0x3bbd6268,
         0x8b7e6ea1,0x57f0e3a5,0xf2685238,0x05092833,0x30d9802e,0xa7806ddb,
-        0x6a4beef0,0x39dfbebd,0x576e3eed,0xb5c6103b};
+        0x6a4beef0,0x39dfbebd,0x576e3eed,0xb5c6103b,
+        0x66842662,0xe5d37182};
     if(field<0||field>=HR_FIELD_COUNT)return 0;
     if(kind==N2_RACE_DRAG && field==HR_TIME)return 0x657cb989;
     return keys[field];

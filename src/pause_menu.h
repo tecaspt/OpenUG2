@@ -41,6 +41,8 @@ const PauseScreen *pause_menu_screen(const PauseMenu *p);
 /* Resources may be unavailable while state/input remains usable. */
 int pause_menu_visual_available(const PauseMenu *p);
 const char *pause_menu_status(const PauseMenu *p);
+/* M9: the in-game language table entry for `key` (retail string), or `fallback` when the key or table is missing. */
+const char *pause_menu_text(const PauseMenu *p, uint32_t key, const char *fallback);
 /* Confirmation dialog over the pause screen or the options screens (UI_InGameDialog.fng OK/Cancel,
  * GenericDialog_SMALL.fng Yes/No): the authored dialog, or logic only when its resources are unavailable. */
 int pause_menu_dialog_open(const PauseMenu *p);
