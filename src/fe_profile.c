@@ -1,5 +1,9 @@
 /* [inferred] FE lifecycle around the existing, byte-preserving profile container. */
-#include "career.h"   /* CR_FILE_NAME only */
+#include <errno.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "fe_profile.h"
 #include "controls_store.h"
 #include <dirent.h>
@@ -70,32 +74,72 @@ int fep_save(FeProfile *p) {
     int rc=st_profile_save(p->root,&p->value);
     if(rc==ST_OK){p->persisted=1;rc=active(p);}return result(p,rc);
 }
-/* M6: the career save (career.h CR_FILE_NAME) lives in the profile directory; a rename carries it over before
- * the old directory is removed. Plain byte copy so this file does not link the career code. 1 ok/absent, 0 error. */
-static int carry_career(const char *root,const char *from,const char *to) {
+/* [inferred] Profile rename carries career and Garage bytes opaquely before removing the
+ * old directory. This also preserves unknown/newer saves. Only ENOENT means absent. */
+static int carry_aux(const char *root,const char *from,const char *to,const char *file) {
     char src[1200],dst[1200];
-    if(snprintf(src,sizeof src,"%s/%s/%s",root,from,CR_FILE_NAME)>=(int)sizeof src ||
-       snprintf(dst,sizeof dst,"%s/%s/%s",root,to,CR_FILE_NAME)>=(int)sizeof dst)return 0;
-    FILE *in=fopen(src,"rb");if(!in)return 1;
+    if(snprintf(src,sizeof src,"%s/%s/%s",root,from,file)>=(int)sizeof src ||
+       snprintf(dst,sizeof dst,"%s/%s/%s",root,to,file)>=(int)sizeof dst)return 0;
+    struct stat info;
+#ifdef _WIN32
+    DWORD attributes=GetFileAttributesA(src);
+    if(attributes==INVALID_FILE_ATTRIBUTES)return GetLastError()==ERROR_FILE_NOT_FOUND;
+    if(attributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))return 0;
+    if(stat(src,&info)!=0)return 0;
+#else
+    if(lstat(src,&info)!=0)return errno==ENOENT;
+    if(!S_ISREG(info.st_mode))return 0;
+#endif
+    FILE *in=fopen(src,"rb");if(!in)return 0;
     FILE *out=fopen(dst,"wb");if(!out){fclose(in);return 0;}
     char buf[4096];size_t n;int ok=1;
     while((n=fread(buf,1,sizeof buf,in))>0)if(fwrite(buf,1,n,out)!=n){ok=0;break;}
     if(ferror(in))ok=0;
-    fclose(in);if(fclose(out)!=0)ok=0;
+    if(fclose(in)!=0)ok=0;
+    if(fclose(out)!=0)ok=0;
     if(!ok)remove(dst);
     return ok;
+}
+/* Preserve opaque regular auxiliary files; refuse directories/special files before mutation. */
+static int carry_profile_aux(const char *root,const char *from,const char *to,int copy) {
+ char dirpath[1200];if(snprintf(dirpath,sizeof dirpath,"%s/%s",root,from)>=(int)sizeof dirpath)return 0;
+ DIR *dir=opendir(dirpath);if(!dir)return 0;
+ struct dirent *e;int ok=1;
+ while((e=readdir(dir))) {
+  if(!strcmp(e->d_name,".")||!strcmp(e->d_name,"..")||!strcmp(e->d_name,from))continue;
+  char path[1600];struct stat info;
+  if(!strcmp(e->d_name,to)||snprintf(path,sizeof path,"%s/%s",dirpath,e->d_name)>=(int)sizeof path){ok=0;break;}
+#ifdef _WIN32
+  DWORD attrs=GetFileAttributesA(path);
+  if(attrs==INVALID_FILE_ATTRIBUTES||(attrs&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))||stat(path,&info)){ok=0;break;}
+#else
+  if(lstat(path,&info)||!S_ISREG(info.st_mode)){ok=0;break;}
+#endif
+  if(copy&&!carry_aux(root,from,to,e->d_name)){ok=0;break;}
+ }
+ if(closedir(dir))ok=0;
+ return ok;
 }
 int fep_rename(FeProfile *p,const char *name) {
     if(!p->valid || !st_profile_name_valid(name))return result(p,ST_E_ARG);
     if(!strcmp(name,p->value.name))return fep_save(p);
     if(st_profile_status(p->root,name)!=ST_E_NOTFOUND)return result(p,ST_E_ARG);
     char old[33];snprintf(old,sizeof old,"%s",p->value.name);
+    if(p->persisted&&!carry_profile_aux(p->root,old,name,0))return result(p,ST_E_IO);
     snprintf(p->value.name,sizeof p->value.name,"%s",name);
     int rc=st_profile_save(p->root,&p->value);
     if(rc!=ST_OK){snprintf(p->value.name,sizeof p->value.name,"%s",old);return result(p,rc);}
     rc=active(p);
-    if(rc==ST_OK && p->persisted && !carry_career(p->root,old,name))rc=ST_E_IO;
-    if(rc==ST_OK && p->persisted)rc=st_profile_delete(p->root,old);
+    if(rc==ST_OK && p->persisted && !carry_profile_aux(p->root,old,name,1))rc=ST_E_IO;
+    if(rc==ST_OK && p->persisted) {
+        rc=st_profile_delete(p->root,old);
+        if(rc!=ST_OK) {
+            /* Cleanup may already have removed old children. Preserve the complete new copy. */
+            p->persisted=1;fep_refresh(p);result(p,rc);
+            snprintf(p->status,sizeof p->status,"Renamed; old profile cleanup failed (%d)",rc);
+            return rc;
+        }
+    }
     if(rc!=ST_OK){st_profile_delete(p->root,name);snprintf(p->value.name,sizeof p->value.name,"%s",old);active(p);return result(p,rc);}
     p->persisted=1;fep_refresh(p);return result(p,ST_OK);
 }

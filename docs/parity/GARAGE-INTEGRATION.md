@@ -144,3 +144,201 @@ if(!error && garage_rim_changed) {
 [inferred] Retain the final fem_garage_ack from priority1. Rim previews, Keep and Back carry the
 whole config through the same serial/ack contract. Never acknowledge before both body and rims
 are ready. The host must continue polling while a Restore is pending.
+
+## Saved configurations (priority 3, scratch compile pending)
+
+[inferred] `fem_garage_saved(menu,car,&cfg)` reads the selected profile's Garage document.
+ST_E_NOTFOUND means stock for this profile/car; every other error blocks loading/launch.
+The host normalizes an empty stock rim identity to NFSU STYLE01. The menu saves a Keep itself
+only after a matching successful acknowledgement, lazily persisting a new profile first.
+No additional host save call is needed. Existing settings/profile bytes keep their format.
+
+[inferred] Apply the following exact host patch after the visual/rim transaction above.
+Base486ce08 anchors: prepare_car_switch469; opponent visual caller550; pending_car6606;
+FEM_APPLY_PROFILE7181; GfHost7306; active player-car transaction7393. The hunks include
+the preceding priority1/2 additions, so their line numbers include those insertions.
+A profile change reloads the same car; every player-car switch resolves a fresh per-car config
+before committing body/rim/tyre GPU resources. Failed loads keep the current car and cancel
+launch. These hooks serve Car Select previews, Quick Race, Free Run and career's existing
+shared car-switch path. The real orchestrator still owns production integration/end-to-end gates.
+
+```diff
+--- a/src/main.c
++++ b/src/main.c
+@@ -467,7 +467,7 @@
+ }
+
+ static int prepare_car_switch(CarSwitchCandidate *candidate,
+-                              const char *dataroot, const char *name) {
++                              const char *dataroot, const char *name, const N2CarConfig *custom) {
+     memset(candidate, 0, sizeof *candidate);
+     char path[1024];
+     snprintf(path, sizeof path, "%s/CARS/%s/GEOMETRY.BIN", dataroot, name);
+@@ -485,11 +485,13 @@
+         candidate->nkeys+=n2_tpk_keys(candidate->globaldata,candidate->globaltpk,
+                                       candidate->keys+candidate->nkeys,2048-candidate->nkeys);
+     candidate->config.body_kit = 0;
++    if (custom) candidate->config = *custom;
+     n2_car_skin_use(name, candidate->texdata, candidate->texlen);
+     if (!candidate->data || candidate->len <= 0 ||
+         n2_load_car_colored(candidate->data, candidate->len, &candidate->scene,
+                     candidate->keys, candidate->nkeys, &candidate->config,
+                     candidate->prelight) <= 0 ||
++        (custom && !n2_mod_assemble(dataroot,candidate->data,candidate->len,custom,&candidate->scene)) ||
+         n2_mod_add_plate(dataroot,candidate->data,candidate->len,&candidate->scene)<0 ||
+         !car_body_metrics(&candidate->scene, candidate->bb, candidate->bloom)) {
+         car_switch_release(candidate); return 0;
+@@ -547,7 +549,7 @@
+                                  int nvisual, const char *kind) {
+     for(int k=0;k<nvisual && count;k++) {
+         const char *name=names[k*count/nvisual];
+-        if(!prepare_car_switch(&visual[k],dataroot,name))continue;
++        if(!prepare_car_switch(&visual[k],dataroot,name,NULL))continue;
+         visual[k].body_floor=car_body_floor(&visual[k].scene,visual[k].bb[2]);
+         if(visual[k].stock_wheel<0)
+             wheels[k]=make_wheel(visual[k].profile.wheel_r,
+@@ -6609,6 +6611,7 @@
+     float menuspin = 0.0f;   /* orbit-camera angle on the menu screen */
+     int running = 1, shotframe = 0, final_status = 0;
+     int pending_car = -1, pending_track = -1;
++    int garage_reload_pending = fem != NULL, garage_load_failed = 0;
+     float nitro_fx = 0.0f;                 /* eased visual/boost state, 0..1 */
+     uint32_t t0 = SDL_GetTicks();   /* --shot prints avg ms/frame at exit */
+     /* tyre skid marks: a ring buffer of oriented ground SEGMENTS (ax,ay,az,
+@@ -7188,6 +7191,7 @@
+                     fprintf(stderr, "front end: display re-init requested; renderer reset hook not wired\n");
+             }
+             if (fe_apply & FEM_APPLY_PROFILE) {
++                garage_reload_pending = 1; garage_load_failed = 0;
+                 const StProfile *fp = fem_current_profile(fem);
+                 if (fp) {
+                     fe_master_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.master));
+@@ -7204,6 +7208,11 @@
+                 for (int k = 0; k < ncars; k++) if (!strcmp(carlist[k], preview)) idx = k;
+                 if (idx >= 0) { vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); pending_car = idx; }
+                 else fprintf(stderr, "fe: preview car %s unavailable\n", preview);
++            }
++            if ((garage_reload_pending || garage_load_failed) &&
++                (frq.kind == FEM_REQ_QUICK_RACE || frq.kind == FEM_REQ_FREE_RUN || frq.kind == FEM_REQ_CAREER)) {
++                fem_show_error(fem, "Garage configuration is not ready. Select a profile or retry the car.");
++                frq.kind = FEM_REQ_NONE;
+             }
+             if (frq.kind == FEM_REQ_QUIT) running = 0;
+             else if (frq.kind == FEM_REQ_QUICK_RACE || frq.kind == FEM_REQ_FREE_RUN) {
+@@ -7312,7 +7321,9 @@
+             default: break;
+             }
+         }
+-        if (gflow.enabled) {
++        if (garage_reload_pending && fem && fem_current_profile(fem) && pending_car < 0)
++            pending_car = selcar;
++        if (gflow.enabled && !garage_load_failed && !garage_reload_pending) {
+             GfHost gh; memset(&gh, 0, sizeof gh);
+             gh.track = trackname; gh.car = carname; gh.race_state = race_state;
+             gh.race_active = world.city.race.active;
+@@ -7400,14 +7411,40 @@
+             sim_reset=1;
+             int requested = pending_car;
+             pending_car = -1;
+-            if (requested >= 0 && requested < ncars && requested != selcar) {
++            if (requested >= 0 && requested < ncars && (requested != selcar || garage_reload_pending || garage_load_failed)) {
+                 const char *next_car = carlist[requested];
+                 if (fabsf(PHYS_KMH(speed)) > 1.0f) {
+                     printf("car switch deferred: stop the car before selecting %s\n", next_car);
+                 } else {
+-                    CarSwitchCandidate candidate;
++                    CarSwitchCandidate candidate={0};
++                    GarageConfig saved={0};
++                    int saved_rc = fem ? fem_garage_saved(fem,next_car,&saved) : ST_E_NOTFOUND;
++                    if (saved_rc == ST_E_NOTFOUND) {
++                        memset(&saved,0,sizeof saved);
++                        snprintf(saved.rim_brand,sizeof saved.rim_brand,"NFSU"); saved.rim_style=1;
++                    } else if (saved_rc == ST_OK && !saved.rim_brand[0] && saved.rim_style==0) {
++                        snprintf(saved.rim_brand,sizeof saved.rim_brand,"NFSU"); saved.rim_style=1;
++                    }
++                    N2Scene saved_rims={0};GpuMesh *saved_gpu=NULL;int saved_count=0,saved_mode=0;
++                    RhiTexture saved_tex={0};unsigned char *saved_data=NULL;long saved_len=0;
++                    int saved_brand=-1, saved_ready=0;
++                    if (saved_rc==ST_OK || saved_rc==ST_E_NOTFOUND) {
++                        for (int b=0;b<n_wheel_brands;b++) if (!strcmp(saved.rim_brand,wheel_brands[b])) saved_brand=b;
++                        if (saved_brand>=0 && prepare_car_switch(&candidate,dataroot,next_car,&saved.car)) {
++                            char path[1024];
++                            snprintf(path,sizeof path,"%s/CARS/WHEELS/GEOMETRY_%s.BIN",dataroot,wheel_brands[saved_brand]);
++                            saved_data=n2_read_file(path,&saved_len);
++                            saved_ready=load_rim_style(saved_data,saved_len,wkeys,nwkeys,saved.rim_style,
++                                &saved_rims,&saved_gpu,&saved_count,wtdata,wtlen,&saved_tex,&saved_mode,candidate.profile.wheel_r);
++                        }
++                    }
++                    GpuMesh saved_wheel={0};
++                    if (saved_ready && have_wheel) {
++                        saved_wheel=make_wheel(candidate.profile.wheel_r,fmaxf(0.04f,0.5f*candidate.profile.wheel_w));
++                        if (!saved_wheel.vbo.id || !saved_wheel.nbo.id || !saved_wheel.ibo.id) saved_ready=0;
++                    }
+                     DrvCar next_stage1;ResCar next_resistance;BrkCar next_brakes;LatCar next_lateral;CtCar next_contacts;BodyCar next_body;
+-                    if (!prepare_car_switch(&candidate, dataroot, next_car) ||
++                    if (!saved_ready ||
+                         (g_stage1_requested && (!stage1_car_read(candidate.globaldata,candidate.globallen,next_car,&next_stage1) ||
+                          !stage2_car_read(candidate.globaldata,candidate.globallen,next_car,&next_resistance) ||
+                          !stage3_car_read(candidate.globaldata,candidate.globallen,next_car,&next_brakes) ||
+@@ -7415,6 +7452,9 @@
+                          !stage5_car_read(candidate.globaldata,candidate.globallen,next_car,&next_contacts) ||
+                          !stage5_body_car_read(candidate.globaldata,candidate.globallen,next_car,&next_body)))) {
+                         car_switch_release(&candidate);
++                        garage_reload_pending=0; garage_load_failed=1;
++                        gf_init(&gflow,gflow.enabled);
++                        if (fem) fem_show_error(fem,"Garage configuration could not be loaded. Current car kept.");
+                         fprintf(stderr, "car switch failed for %s; keeping %s\n",
+                                 next_car, carname);
+                     } else {
+@@ -7464,13 +7504,15 @@
+                             rhi_buffer_destroy(wheelmesh.vbo);
+                             rhi_buffer_destroy(wheelmesh.nbo);
+                             rhi_buffer_destroy(wheelmesh.ibo);
+-                            wheelmesh = make_wheel(carprof.wheel_r,
+-                                                   fmaxf(0.04f, 0.5f*carprof.wheel_w));
++                            wheelmesh = saved_wheel; saved_wheel=(GpuMesh){0};
+                         }
+-                        /* Refit the currently selected rim against the new car. */
+-                        load_rim_style(wldata, wllen, wkeys, nwkeys, wheel_style,
+-                                       &wheellib, &wheelgm, &nwheelgm,
+-                                       wtdata, wtlen, &rimtex, &rimmode, carWheelR);
++                        free_scene_gpu(wheelgm,nwheelgm);n2_free_scene(&wheellib);
++                        if(rimtex.id)rhi_texture_destroy(rimtex);
++                        free(wldata);wldata=saved_data;wllen=saved_len;saved_data=NULL;
++                        wheellib=saved_rims;memset(&saved_rims,0,sizeof saved_rims);
++                        wheelgm=saved_gpu;saved_gpu=NULL;nwheelgm=saved_count;
++                        rimtex=saved_tex;saved_tex=(RhiTexture){0};rimmode=saved_mode;
++                        wheel_brand=saved_brand;wheel_style=saved.rim_style;
+                         nkit_ids = n2_car_variant_numbers(cdata, clen, 1, kit_ids, 100);
+                         if (nkit_ids == 0 || kit_ids[0] != 0) {
+                             if (nkit_ids < 100) nkit_ids++;
+@@ -7482,6 +7524,7 @@
+                            swap starts the new car without that decal. */
+                         clear_car_vinyl();
+                         carname = next_car; selcar = requested; kit_cursor = 0;
++                        for(int i=0;i<nkit_ids;i++)if(kit_ids[i]==carcfg.body_kit)kit_cursor=i;
+                         if(g_stage1_requested) {
+                             stage1_drive_init(&g_stage1,&next_stage1,&next_resistance,0);
+                             stage3_drive_brakes(&g_stage1,&next_brakes,0,0);
+@@ -7491,11 +7534,16 @@
+                             tm_car_read(candidate.globaldata,candidate.globallen,next_car,g_tm_width);
+                             vel[0]=vel[1]=0;speed=0;sim_reset=1;
+                         }
+-                        g_dbg.body_kit_current = 0; g_dbg.mod_current = carcfg;
++                        g_dbg.body_kit_current = carcfg.body_kit; g_dbg.mod_current = carcfg;
++                        garage_reload_pending=0;garage_load_failed=0;
++                        printf("garage saved: %s body=%d rim=%s STYLE%02d\n",carname,carcfg.body_kit,wheel_brands[wheel_brand],wheel_style);
+                         g_ride_ready = 0;
+                         printf("car switched in process: %s (position and world preserved)\n", carname);
+                         car_switch_release(&candidate);
+                     }
++                    rhi_buffer_destroy(saved_wheel.vbo);rhi_buffer_destroy(saved_wheel.nbo);rhi_buffer_destroy(saved_wheel.ibo);
++                    free(saved_data);free_scene_gpu(saved_gpu,saved_count);n2_free_scene(&saved_rims);
++                    if(saved_tex.id)rhi_texture_destroy(saved_tex);
+                 }
+             }
+         }
+```
+
+[observed] All patch anchors were checked against a separate copy of the scratch main.
+The resulting C and rendered persistence proof are still pending; the patch is not yet a PASS.

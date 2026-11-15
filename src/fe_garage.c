@@ -2,12 +2,14 @@
 #include "fe_garage.h"
 #include "fe_screen.h"
 #include "car_mod.h"
+#include "settings.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 struct FeGarage {
  char root[512],car[32],loaded_car[32],status[220];
  GarageConfig current;GarageCatalog catalog;Garage model;
+ FegSaveFn save;void *save_user;int recovery;char notice[160];
  int page,cursor,slot_cursor,first,count,slots[GARAGE_SLOTS+1],nslots;
  GarageRims rims;int rims_ready,brands[32],nbrands,brand,back_page;
  char labels[GC_MAX][48];
@@ -15,6 +17,11 @@ struct FeGarage {
 };
 FeGarage *feg_create(const char *root){FeGarage *g=calloc(1,sizeof *g);if(g)snprintf(g->root,sizeof g->root,"%s",root?root:"");return g;}
 void feg_destroy(FeGarage *g){free(g);}
+int feg_busy(const FeGarage *g){return g&&(g->model.editing||g->model.inflight||g->model.action||g->recovery);}
+int feg_set_save(FeGarage *g,FegSaveFn save,void *user){if(!g||feg_busy(g))return 0;g->save=save;g->save_user=user;return 1;}
+static void model_reset(FeGarage *g,const GarageConfig *cfg) {
+ uint32_t serial=g->model.serial;garage_init(&g->model,&g->catalog,cfg);g->model.serial=serial;
+}
 static void slots_build(FeGarage *g) {
  g->nslots=0;if(g->catalog.menu[GARAGE_KIT].count>1)g->slots[g->nslots++]=GARAGE_KIT;
  if(g->rims.count)g->slots[g->nslots++]=GARAGE_RIM;
@@ -27,7 +34,7 @@ int feg_use_catalog(FeGarage *g,const GarageCatalog *cat,const GarageConfig *c) 
   for(int i=0;i<m->count;i++)if(!memchr(m->options[i].label,0,sizeof m->options[i].label)||m->options[i].value<0||m->options[i].value>(slot==GARAGE_KIT?99:5999))return 0;
  }
  g->catalog=*cat;g->current=*c;snprintf(g->car,sizeof g->car,"%s",cat->car);snprintf(g->loaded_car,sizeof g->loaded_car,"%s",cat->car);
- garage_init(&g->model,&g->catalog,c);g->page=FEG_HUB;g->cursor=0;slots_build(g);return 1;
+ model_reset(g,c);g->page=FEG_HUB;g->cursor=0;slots_build(g);return 1;
 }
 int feg_use_rims(FeGarage *g,const GarageRims *rims) {
  if(!g||!rims||rims->count<0||rims->count>GARAGE_MAX_RIMS||g->model.editing||g->model.inflight)return 0;
@@ -65,7 +72,7 @@ int feg_open(FeGarage *g,GvScreen *s,UgAssets *a) {
   if(!n2_mod_garage_catalog(g->root,g->car,&g->catalog)){snprintf(s->status,sizeof s->status,"Car part catalogue is unavailable");return 0;}
   snprintf(g->loaded_car,sizeof g->loaded_car,"%s",g->car);g->page=FEG_HUB;g->cursor=0;
  }
- if(!g->model.editing&&!g->model.inflight)garage_init(&g->model,&g->catalog,&g->current);
+ if(!g->model.editing&&!g->model.inflight)model_reset(g,&g->current);
  if(!g->rims_ready) {
   GarageRims *r=calloc(1,sizeof *r);
   int ok=r&&n2_mod_rim_catalog(g->root,r)&&feg_use_rims(g,r);free(r);
@@ -86,6 +93,7 @@ int feg_open(FeGarage *g,GvScreen *s,UgAssets *a) {
 }
 int feg_input(FeGarage *g,int in) {
  if(!g||g->model.action>GAR_PREVIEW||(g->model.inflight&&g->model.flight.action>GAR_PREVIEW))return 0;
+ if(in&&!g->recovery)g->notice[0]=0;
  if(in==FES_IN_BACK) {
   if(g->page==FEG_HUB)return 2;
   if(g->page==FEG_SLOTS){g->page=FEG_HUB;g->cursor=0;return 1;}
@@ -128,9 +136,10 @@ int feg_advance(FeGarage *g,float seconds) {
  garage_update(&g->model,seconds);
  if(g->model.event){
   int event=g->model.event;g->current=g->model.applied;g->model.event=0;
-  if(event==GAR_RESTORE&&g->back_page==FEG_BRANDS){g->page=FEG_BRANDS;g->cursor=g->brand;garage_begin_rims(&g->model,&g->rims);}
+  if(!g->recovery&&event==GAR_RESTORE&&g->back_page==FEG_BRANDS){g->page=FEG_BRANDS;g->cursor=g->brand;garage_begin_rims(&g->model,&g->rims);}
   else {g->page=FEG_SLOTS;g->cursor=g->slot_cursor;}
-  return 1;
+  if(event==GAR_KEEP)g->notice[0]=0;
+  g->recovery=0;return 1;
  }
  return 0;
 }
@@ -170,7 +179,7 @@ int feg_sync(FeGarage *g,GvScreen *s,float ms) {
  gc_update(&g->carousel,ms/1000);
  const char *heading=g->page==FEG_BRANDS?gv_text(s->assets,0x94c5e7bfu,NULL):g->page==FEG_RIMS?gv_text(s->assets,0xe4504d8du,NULL):g->page==FEG_PARTS?(g->model.slot==GARAGE_KIT?"Body kit presets":gv_text(s->assets,ug_hash_upper(slot_keys[g->model.slot]),NULL)):
   gv_text(s->assets,ug_hash_upper(g->page==FEG_SLOTS?"CUST_CATEGORY_BODY":"UI_MAIN_CUSTOMIZE"),NULL);
- const char *title=g->model.status[0]?g->model.status:heading;
+ const char *title=g->model.status[0]?g->model.status:g->notice[0]?g->notice:heading;
  if(!title){snprintf(g->status,sizeof g->status,"Garage caption unavailable");return 0;}
  gv_carousel_apply(&g->view,&g->carousel,g->entry,visible,title,0,0);
  if(g->page==FEG_PARTS||g->page==FEG_RIMS) {
@@ -180,5 +189,23 @@ int feg_sync(FeGarage *g,GvScreen *s,float ms) {
  return 1;
 }
 int feg_take(FeGarage *g,GarageRequest *r){return g&&garage_take(&g->model,r);}
-void feg_ack(FeGarage *g,uint32_t serial,int ok,const char *error){if(g)garage_ack(&g->model,serial,ok,error);}
-const char *feg_status(const FeGarage *g){return !g?"Garage unavailable":g->model.status[0]?g->model.status:g->status;}
+void feg_ack(FeGarage *g,uint32_t serial,int ok,const char *error) {
+ if(!g||!g->model.inflight||serial!=g->model.flight.serial)return;
+ if(ok&&g->model.flight.action==GAR_KEEP&&g->save) {
+  int rc=g->save(g->save_user,g->car,&g->model.flight.config);
+  if(rc!=ST_OK) {
+   GarageConfig physical=g->model.flight.config;
+   snprintf(g->notice,sizeof g->notice,"Save failed (%d); previous config restored",rc);
+   garage_ack(&g->model,serial,0,"Save failed; restoring previous config");
+   g->model.displayed=physical;g->model.pending=g->model.baseline;
+   g->model.action=GAR_RESTORE;g->model.quiet=GARAGE_PREVIEW_SECONDS;
+   g->recovery=1;g->back_page=FEG_SLOTS;return;
+  }
+ }
+ if(!ok&&g->recovery) {
+  char message[160];snprintf(message,sizeof message,"Save failed; restore failed: %.115s",error?error:"host error");
+  garage_ack(&g->model,serial,0,message);return;
+ }
+ garage_ack(&g->model,serial,ok,error);
+}
+const char *feg_status(const FeGarage *g){return !g?"Garage unavailable":g->model.status[0]?g->model.status:g->notice[0]?g->notice:g->status;}

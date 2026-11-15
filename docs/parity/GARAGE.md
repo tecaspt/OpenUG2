@@ -56,7 +56,7 @@ visible stock→KIT01→KIT02→KIT01 geometry and tap-reachable Back without ga
 [observed] The production host is not wired by this worker; GARAGE-INTEGRATION.md supplies exact
 source/build changes. Persistence, rims, paint/vinyl and performance research are not yet delivered.
 
-## Priority 2 — rims (validation in progress)
+## Priority 2 — rims
 
 [data] Runtime archive enumeration finds 115 renderable, diffuse-resolvable STYLEnn choices across
 24 named wheel archives. The checker rebuilds each candidate independently; all29 player-car
@@ -79,4 +79,83 @@ preparation succeeds.
 limitation). FE navigation tests pass desktop/GLES; all seven requested FE regressions and the
 mandatory pause-menu regression pass. Runtime CPU checks pass115rims and29cars/10363visualchoices.
 Initial desktop screen review caught an icon/selection scroll mismatch; gc_snap_to corrects it.
-The corrected desktop/GLES capture run is still pending; no final rendered PASS is claimed yet.
+The corrected desktop/GLES captures were reviewed: brand focus, style preview, Keep and touch Back
+restore all PASS. The GLES250:quit run exited0. Desktop was intentionally stopped after its final
+restore capture to release memory before the separately gated GLES build; no clean desktop quit
+is claimed for this run. Final images: `reports/garage/{desktop,gles}/rim-brands.png`,
+`rims-before.png`, `rims-after.png`, `rims-kept.png`, `rims-before-cancel.png`, `rims-restored.png`.
+
+## Priority 3 — per-profile, per-car persistence (in progress)
+
+[inferred] Garage state uses a separate `openug2_garage.bin` within the selected profile directory.
+The existing profile/settings format is unchanged. The file uses the existing20CM container with
+an application header: little-endian magic0x5241474f and schema1. A-block extension bytes remain
+opaque. B is ordered TLV records: u16 tag, u16 reserved, u32 payload length. Tag1 has a120-byte
+prefix: car name[32], four legacy config i32 values, eleven part i32 values, rim brand[24], rim
+style i32. Fields are encoded individually. This schema is OpenUG2 policy, not a retail save format.
+
+[inferred] Updates preserve all unknown TLVs, known-record tails, reserved header bytes, A extensions,
+other cars and unchanged string padding. A missing car appends a zero-padded record. Every known
+record is validated, including records for other cars. Duplicate car keys, invalid fields,
+truncation, checksum mismatch, trailing bytes, schema0, and files exceeding1MiB are refused;
+newer schemas are incompatible. Failure leaves caller outputs and the existing save unchanged.
+
+[inferred] Keep saves only after a matching successful host acknowledgement. A save failure queues
+an explicit restore of the previous config; a failed restore remains editable and reports failure.
+Profile/root replacement is refused during a transaction. Serial allocation persists across screen
+rebuilds so stale acknowledgements cannot confirm a later Keep. Saves reload the latest document,
+write an exclusive temporary file beside it and replace it atomically. Only an actual missing file
+or profile means absent; unreadable, linked or special files are refused. Simultaneous writers are
+not supported. Profile rename carries Garage and career bytes opaquely before deleting the old
+profile, including unknown, corrupt and newer Garage documents.
+
+[observed] Pure store/model tests PASS on desktop/GLES and ASan+UBSan. FE save-failure recovery,
+stale-acknowledgement and profile rename/opaque-copy fixtures PASS desktop/GLES and ASan+UBSan.
+All seven required FE regressions and pause-menu tests PASS. LeakSanitizer remains disabled for
+the existing ptrace limitation. Scratch host compilation and rendered persistence checks remain
+pending; they are not counted as PASS. Windows filesystem code cannot be run on this Linux host and is
+NOT RUN. Production host/build files remain the orchestrator's responsibility.
+
+## Paint and vinyl scope (priority 4)
+
+[observed] The current body draw path accepts an RGB `uColor` (main.c near6490 and10513;
+shaders/ug2.frag near215). Body RGB rendering therefore exists. This is not evidence of a
+retail paint-choice mapping, finish/material selection or paint-category contract.
+
+[observed] Vinyl loading already reads each car's VINYLS.BIN (main.c near2110), but the current
+draw path applies the selected decal only to certain body meshes without their own texture
+(main.c near10495). Layer stacking and retail color ownership are unfinished; see
+VEHICLE_CUSTOMIZATION.md, Vinyl Colors and Layers, and FORMATS.md near1440. The existing vinyl
+palette notes concern vinyl image indices; they do not identify the UI_Paint body-color palette.
+
+[inferred] Paint/vinyl pages remain disabled. No guessed RGB swatches, whole-scene tint or fake
+retail material effect is added. The remaining work is to recover the actual paint/category
+color records and their material mapping, plus per-layer vinyl colors/composition, before a
+retail picker can be bound and persisted. This priority is research-only here; paint/vinyl UI
+and rendered selection checks are NOT RUN. Owner captures of category/color/finish transitions
+would help distinguish those choices from the existing debug RGB override.
+
+## Performance-part research (priority 5)
+
+[data] A bounded chunk-header probe of the owner's GLOBAL/GLOBALB.BUN finds two0x80034A10
+containers. Their0x34A15 children are bytewise equal, each11400bytes, exactly30records of380bytes.
+Across those records, u32 fields at offsets0,4,8 respectively have domains0..9,1..3,1..4. Each
+record has room for four92-byte descriptors starting at12. For the declared descriptor count,
+signed fields at descriptor offset0,64,68,72,76,80,84,88 all lie in-1..67. No out-of-range
+header/count/index field was found. These are structural observations, not recovered effects.
+
+[inferred] The repeated domains are consistent with category, level and component-count headers,
+followed by component references and exclusion/requirement references. Field roles are provisional;
+no activation order, prerequisite algorithm, handling multiplier, price, unlock or gameplay effect
+is inferred from these values. The existing provisional350Z documentation is used only to locate
+candidate fields; its behavior/composition rules are not adopted as original-game findings.
+
+[data] The0x34A1A and0x34A1C payloads are respectively1488 and3440bytes in both copies. The first
+copy contains708bytes of0x34A1E and288bytes of0x34A1F; the second copy has empty children at those
+IDs. Their record boundaries and semantics remain undecoded. Identical length or divisibility
+alone does not establish a record stride.
+
+[observed] The current career reader consumes0x34A11/0x34A18/0x34A1D, not the remaining tables.
+The local structural probe was independently rerun after env.sh. Only aggregate facts and field
+layouts are documented here; raw bytes, decoded per-record tables and probe outputs remain local.
+No performance category is enabled and no vehicle physics or career logic changes in this task.

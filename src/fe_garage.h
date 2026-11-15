@@ -4,6 +4,9 @@
 #include "gui_view.h"
 typedef struct FeGarage FeGarage;
 enum { FEG_HUB,FEG_SLOTS,FEG_PARTS,FEG_BRANDS,FEG_RIMS };
+typedef int (*FegSaveFn)(void *,const char *car,const GarageConfig *);
+int feg_set_save(FeGarage *,FegSaveFn,void *);
+int feg_busy(const FeGarage *);
 FeGarage *feg_create(const char *root);
 void feg_destroy(FeGarage *);
 /* Optional prevalidated host cache; also permits asset-free navigation tests. */

@@ -296,6 +296,13 @@ static void views_update(FeMenu *m, float ms) {
     }
 }
 
+static int save_garage(void *user,const char *car,const GarageConfig *cfg) {
+ FeMenu *m=user;
+ if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
+ int rc=fem_persist_profile(m);
+ return rc==ST_OK?garage_save(m->profile->root,m->profile->value.name,car,cfg):rc;
+}
+
 /* ---- creation --------------------------------------------------------------------------------- */
 
 FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allow_quit) {
@@ -304,6 +311,7 @@ FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allo
     snprintf(m->dataroot, sizeof m->dataroot, "%s", dataroot ? dataroot : "");
     m->cat = cat;
     m->garage=feg_create(dataroot);
+    feg_set_save(m->garage,save_garage,m);
     m->choice.cat=cat;m->choice.laps=2;m->choice.kind=1;
     m->allow_quit = allow_quit;
     m->main_enabled = FE_M1_MAIN_ENABLED;
@@ -348,12 +356,13 @@ void fem_destroy(FeMenu *m) {
 }
 
 void fem_open(FeMenu *m, FemScreen screen) {
+    if(m&&screen!=FEM_SCR_GARAGE&&feg_busy(m->garage))return;
     if (!m) return;
     if (screen == FEM_SCR_NONE) { fem_close(m); return; }
     m->pending_input=0;m->pressed=0;
     if(m->editing && screen!=FEM_SCR_PROFILE){m->editing=0;SDL_StopTextInput();}
     /* Pause uses a separate store handle; reload its keys before any FE write. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE) && m->screen==FEM_SCR_MAIN) {
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN) {
         StRegStore fresh={0};
         int rc=m->config_path[0]?st_reg_open_ini(&fresh,m->config_path):st_reg_open_default(&fresh);
         if(rc==ST_OK) {
@@ -367,7 +376,7 @@ void fem_open(FeMenu *m, FemScreen screen) {
         }
     }
     /* Pause Controls may have updated the existing OPENUG2 container since last visit. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE) && m->screen==FEM_SCR_MAIN &&
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN &&
        m->profile && m->profile->persisted)fep_load(m->profile,m->profile->value.name);
     if(screen==FEM_SCR_OPTIONS && (!om_is_open(&m->options) || m->screen!=FEM_SCR_OPTIONS)) {
         OmConfig cfg;om_config_default(&cfg,OM_CTX_FRONTEND);
@@ -384,7 +393,7 @@ void fem_open(FeMenu *m, FemScreen screen) {
 }
 
 void fem_close(FeMenu *m) {
-    if (!m || !m->open) return;
+    if (!m || !m->open || feg_busy(m->garage)) return;
     if(m->editing){m->editing=0;SDL_StopTextInput();}
     om_close(&m->options);
     if(m->screen==FEM_SCR_GARAGE)feg_input(m->garage,FES_IN_BACK);
@@ -736,7 +745,7 @@ void fem_draw(FeMenu *m, int w, int h) {
 }
 
 int fem_set_storage(FeMenu *m,const char *config,const char *root) {
-    if(!m || m->screen==FEM_SCR_OPTIONS || m->screen==FEM_SCR_PROFILE)return ST_E_ARG;
+    if(!m || m->screen==FEM_SCR_OPTIONS || m->screen==FEM_SCR_PROFILE || m->screen==FEM_SCR_GARAGE || feg_busy(m->garage))return ST_E_ARG;
     if(config && strlen(config)>=sizeof m->config_path)return ST_E_ARG;
     StRegStore next={0};int rc=config?st_reg_open_ini(&next,config):st_reg_open_default(&next);
     if(rc!=ST_OK)return rc;
@@ -771,3 +780,8 @@ int fem_garage_current(FeMenu *m,const char *car,const GarageConfig *cfg) {
 int fem_garage_take(FeMenu *m,GarageRequest *r){return m&&feg_take(m->garage,r);}
 void fem_garage_ack(FeMenu *m,uint32_t serial,int ok,const char *error){if(m)feg_ack(m->garage,serial,ok,error);}
 int fem_garage_page(const FeMenu *m){return m?feg_page(m->garage):-1;}
+
+int fem_garage_saved(const FeMenu *m,const char *car,GarageConfig *out) {
+ if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
+ return garage_load(m->profile->root,m->profile->value.name,car,out);
+}

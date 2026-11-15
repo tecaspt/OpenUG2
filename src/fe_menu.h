@@ -69,6 +69,8 @@ const char *fem_profile_root(const FeMenu *);
 /* Writes the current profile if it only exists in memory (a career save needs its folder). ST_OK or ST_E_*. */
 int fem_persist_profile(FeMenu *);
 /* Current host config is copied outside Garage; preview requests require a host acknowledgement. */
+/* ST_E_NOTFOUND: use stock for this profile/car; other errors refuse launch. */
+int fem_garage_saved(const FeMenu *,const char *car,GarageConfig *out);
 int fem_garage_current(FeMenu *,const char *car,const GarageConfig *);
 int fem_garage_take(FeMenu *,GarageRequest *);
 void fem_garage_ack(FeMenu *,uint32_t serial,int success,const char *error);

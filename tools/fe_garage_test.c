@@ -1,5 +1,9 @@
 #include "fe_garage.h"
 #include "fe_screen.h"
+#include "fe_profile.h"
+#include "career.h"
+#include <unistd.h>
+#include <sys/stat.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -48,7 +52,79 @@ static void test_rims(void) {
  assert(feg_advance(g,0)&&feg_page(g)==FEG_SLOTS);
  feg_destroy(g);free(rims);free(cat);
 }
+static size_t read_fixture(const char *path,unsigned char *bytes,size_t cap) {
+ FILE *f=fopen(path,"rb");assert(f);size_t n=fread(bytes,1,cap,f);assert(!ferror(f)&&feof(f));assert(!fclose(f));return n;
+}
+static void test_rename_carry(void) {
+ char root[]="/tmp/openug2-garage-profile-XXXXXX";assert(mkdtemp(root));
+ StRegStore reg;assert(st_reg_open_memory(&reg)==ST_OK);FeProfile *p=fep_create(root,&reg);assert(p);
+ assert(fep_new(p,"Original")==ST_OK);GarageConfig cfg={0},out={0};cfg.car.body_kit=1;
+ strcpy(cfg.rim_brand,"NFSU");cfg.rim_style=2;
+ assert(garage_save(root,"Original","SYNTH",&cfg)==ST_OK);
+ cfg.car.body_kit=2;assert(garage_save(root,"Original","OTHER",&cfg)==ST_OK);
+ char before[1200],after[1200],career[1200];unsigned char bytes[512],copy[512];
+ snprintf(before,sizeof before,"%s/Original/%s",root,GARAGE_FILE_NAME);
+ size_t n=read_fixture(before,bytes,sizeof bytes);
+ snprintf(career,sizeof career,"%s/Original/%s",root,CR_FILE_NAME);
+ FILE *f=fopen(career,"wb");assert(f&&fwrite("old",1,3,f)==3&&!fclose(f));
+ char opaque[1200];snprintf(opaque,sizeof opaque,"%s/Original/future.dat",root);
+ f=fopen(opaque,"wb");assert(f&&fwrite("opaque",1,6,f)==6&&!fclose(f));
+ char subdir[1200];snprintf(subdir,sizeof subdir,"%s/Original/nonempty",root);assert(!mkdir(subdir,0700));
+ assert(fep_rename(p,"Blocked")==ST_E_IO&&!strcmp(p->value.name,"Original"));
+ assert(st_profile_status(root,"Original")==ST_OK&&st_profile_status(root,"Blocked")==ST_E_NOTFOUND);
+ assert(!rmdir(subdir));assert(fep_rename(p,"Renamed")==ST_OK);
+ snprintf(opaque,sizeof opaque,"%s/Renamed/future.dat",root);
+ assert(read_fixture(opaque,copy,sizeof copy)==6&&!memcmp(copy,"opaque",6));
+ snprintf(after,sizeof after,"%s/Renamed/%s",root,GARAGE_FILE_NAME);
+ assert(read_fixture(after,copy,sizeof copy)==n&&!memcmp(bytes,copy,n));
+ assert(garage_load(root,"Renamed","SYNTH",&out)==ST_OK&&out.car.body_kit==1&&out.rim_style==2);
+ assert(garage_load(root,"Renamed","OTHER",&out)==ST_OK&&out.car.body_kit==2);
+ snprintf(career,sizeof career,"%s/Renamed/%s",root,CR_FILE_NAME);
+ assert(read_fixture(career,copy,sizeof copy)==3&&!memcmp(copy,"old",3));
+ /* Rename is opaque: even corrupt/future saves must travel unchanged. */
+ f=fopen(after,"wb");assert(f&&fwrite("future",1,6,f)==6&&!fclose(f));
+ assert(fep_rename(p,"Opaque")==ST_OK);
+ snprintf(after,sizeof after,"%s/Opaque/%s",root,GARAGE_FILE_NAME);
+ assert(read_fixture(after,copy,sizeof copy)==6&&!memcmp(copy,"future",6));
+ assert(garage_load(root,"Opaque","SYNTH",&out)!=ST_OK);
+ /* Refuse an auxiliary symlink and preserve the old profile on failed copy. */
+ assert(!unlink(after)&&!symlink("missing",after));
+ assert(fep_rename(p,"Rejected")==ST_E_IO&&!strcmp(p->value.name,"Opaque"));
+ assert(st_profile_status(root,"Opaque")==ST_OK&&st_profile_status(root,"Rejected")==ST_E_NOTFOUND);
+ assert(!unlink(after));assert(st_profile_delete(root,"Opaque")==ST_OK);
+ fep_destroy(p);st_reg_close(&reg);assert(!rmdir(root));
+}
+typedef struct SaveProbe {int calls,result;} SaveProbe;
+static int probe_save(void *user,const char *car,const GarageConfig *cfg) {
+ SaveProbe *p=user;assert(!strcmp(car,"SYNTH")&&cfg->car.body_kit==1);p->calls++;return p->result;
+}
+static void test_save_recovery(void) {
+ GarageCatalog *cat=calloc(1,sizeof *cat);assert(cat);strcpy(cat->car,"SYNTH");
+ cat->menu[GARAGE_KIT].count=2;cat->menu[GARAGE_KIT].options[1].value=1;
+ GarageConfig cfg={0};FeGarage *g=feg_create("");SaveProbe p={0,-2};GarageRequest r;
+ assert(g&&feg_use_catalog(g,cat,&cfg)&&feg_set_save(g,probe_save,&p));
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_input(g,FES_IN_ACCEPT)==1&&feg_busy(g));
+ assert(!feg_set_save(g,NULL,NULL));feg_input(g,FES_IN_RIGHT);feg_advance(g,1);
+ assert(feg_take(g,&r));feg_ack(g,r.serial,1,NULL);assert(!p.calls);
+ feg_input(g,FES_IN_ACCEPT);assert(feg_take(g,&r)&&r.action==GAR_KEEP);
+ uint32_t old=r.serial;feg_ack(g,r.serial+1,1,NULL);assert(!p.calls);
+ feg_ack(g,r.serial,1,NULL);assert(p.calls==1&&feg_busy(g));
+ assert(feg_take(g,&r)&&r.action==GAR_RESTORE&&!r.config.car.body_kit);
+ feg_ack(g,r.serial,0,"synthetic GPU failure");assert(strstr(feg_status(g),"restore failed"));
+ feg_input(g,FES_IN_BACK);assert(feg_take(g,&r)&&r.action==GAR_RESTORE);
+ feg_ack(g,r.serial,1,NULL);assert(feg_advance(g,0)&&feg_page(g)==FEG_SLOTS&&!feg_busy(g));
+ assert(strstr(feg_status(g),"Save failed"));
+ /* A reset/new edit must not reuse a serial that can write another Keep. */
+ assert(feg_use_catalog(g,cat,&cfg));p.result=0;
+ assert(feg_input(g,FES_IN_ACCEPT)==1&&feg_input(g,FES_IN_ACCEPT)==1);
+ feg_input(g,FES_IN_RIGHT);feg_input(g,FES_IN_ACCEPT);assert(feg_take(g,&r)&&r.serial!=old);
+ feg_ack(g,old,1,NULL);assert(p.calls==1&&feg_busy(g));
+ feg_ack(g,r.serial,1,NULL);assert(p.calls==2&&feg_advance(g,0)&&!feg_busy(g));
+ feg_destroy(g);free(cat);
+}
 int main(void){
+ test_save_recovery();
+ test_rename_carry();
  test_rims();
  test_parts_binding();
  GarageCatalog *cat=calloc(1,sizeof *cat);assert(cat);strcpy(cat->car,"SYNTH");
