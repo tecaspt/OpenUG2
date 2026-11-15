@@ -18,6 +18,16 @@ wrapper limitation persists after priority 1. No production services were change
 with -Werror. Clock, collision, AI-drive, resident and direct race-AI checks pass after the change;
 the complete route drive audit remains byte-identical. Main integration is not performed.
 
+[observed] Delivery: all six worker units are implemented on parity/m7-race-rules, one commit per
+priority. Ten synthetic test programs pass in desktop and N2_GLES configurations; retail results
+capture checks pass in both backends. Every post-priority full drive matches the pre-edit reference.
+No new warnings originate in worker changes; existing untouched loader/fixture/backend warnings remain.
+[inferred] Exact host/FE/HUD/build wiring is supplied in M7-RACE-RULES-INTEGRATION.md, anchored to
+ea2c9c4. The orchestrator owns applying those patches and full game-after-adapter/end-to-end checks.
+Shift boost magnitude/NOS extensions, drift edge bonuses and true URL grouping/reward tables remain
+undecoded. Named tuning/scoring/traffic/URL/reward defaults are provisional; retail captures would
+help replace them. No retail-fidelity or production-host-integration PASS is claimed.
+
 ## Priority 1: drag longitudinal path
 
 [observed] main.c:8023 excludes Drag/Drift from Stage 1–5; ordinary free roam uses that solver.
@@ -152,7 +162,7 @@ root. These use a synthetic result payload, not an observed retail race score.
 [observed] Post-priority clock/collision/AI-drive/resident/direct race-AI checks and postrace-test
 (9 checks) pass; check-gl is OK. The full drive trace is identical (p3/drive.txt and p3-status.log).
 No warnings originate in changed/new code; the same baseline Xvfb wrapper FAIL remains.
-Main/HUD snapshot/multiplier wiring remains with the orchestrator. Priorities 4–6 remain.
+Main/HUD snapshot/multiplier wiring remains with the orchestrator. Subsequent units are below.
 
 ## Priority 4: Lap Knockout and URL series
 
@@ -211,3 +221,30 @@ Full installed drive is byte-identical (p5/drive.txt, p5-status.log). Required X
 baselineFAIL1, not PASS.
 No main/FE/Makefile files were edited; exact mapping/initialization/restore/test recipes are in the
 integration document. The front-end rows are not claimed enabled in this branch by a rules API alone.
+
+## Priority 6: per-place reward payload
+
+[inferred] RrRewardTable supplies six per-place cash/reputation entries with UNKNOWN/DATA/INFERRED
+provenance. Unknown tables and invalid successful places yield unavailable; DNF/failure awards zero.
+Calculation is immutable, contains no account/save access and never applies mode/difficulty multipliers.
+The career host owns eligibility and once-only credit. An explicit provisional policy names cash
+1000/500/250/0/0/0 and reputation100/50/25/0/0/0; these numbers are inferred, not decoded retail rewards.
+Caller-supplied verified tables replace that policy without changing the transfer/result interface.
+[data] Cash/reputation captions use installed PRW_CASH_WON75d23e29 and
+PRW_REPUTATION_POINTS_WON40152751. [inferred] Optional PostRaceInfo.reward renders in the existing
+wide Header_Text, preserving URL round text. Missing labels fail closed. The named580 virtual-unit
+width limit reduces only that text's scale when large values would exceed the frame; values are
+never numerically clamped. Failed results display zero even if a host supplies a nonzero reward.
+[inferred] DNF rank labels move left by the named18 virtual units to avoid overlapping player names
+in the authored one-digit rank column; numeric ranks retain their original positions.
+[observed] Final desktop/GLES reward tests and results renders pass with no changed-source warnings.
+Normal, URL, UINT32_MAX and DNF captures were inspected by eye; full values fit, failed awards show0,
+and DNF/player labels remain separate. PNGs under the private report root are
+postrace-desktop/{rewards,url-rewards,url-rewards-max,rewards-dnf}.png and the same names in
+postrace-gles. Resized *-review.png copies aid inspection when similar-image display dedup omits pixels.
+Final all-rules desktop/GLES regression checks pass, including C++ linkage with the reward API.
+The first combined attempt exited143 during compilation and is incomplete; the remaining series/
+options/rewards rerun completed successfully (all-rules-resume.log). Post-unit clock/collision/AI-drive/
+resident/direct race-AI checks pass; postrace9/0 and check-gl OK. Final C++ header/link passes. The full
+installed drive is byte-identical (p6/drive.txt, p6-status.log). Required Xvfb wrapper remains the
+baseline FAIL1 despite direct child PASS. No career payout or end-to-end game claim is made.

@@ -46,6 +46,40 @@ int main(int argc,char **argv) {
         rhi_frame_end();
     }
     assert(!pr_status(post)[0]);
+    info=(PostRaceInfo){.kind=N2_RACE_CIRCUIT,.finish_place=1,.seconds=90,.car="SYNTH",
+        .reward={1000,100,1,1}};
+    pr_open(post,&info);assert(!pr_status(post)[0]);
+    for(int tick=0;tick<45;tick++) {
+        pr_update(post,1/30.f);rhi_frame_begin(NULL);pr_draw(post,w,h);
+        if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/rewards.png",argv[1]);capture(path,w,h);}
+        rhi_frame_end();
+    }
+    info.kind=N2_RACE_URL;info.have_url_standings=1;info.standing_count=3;info.url_round=2;info.url_rounds=3;
+    info.standing[0]=(PostRaceStanding){"Player","SYNTH",14,2};
+    info.standing[1]=(PostRaceStanding){"Leader","SYNTH2",16,1};
+    info.standing[2]=(PostRaceStanding){"Rival","SYNTH3",10,3};
+    pr_open(post,&info);assert(!pr_status(post)[0]);
+    for(int tick=0;tick<45;tick++) {
+        pr_update(post,1/30.f);rhi_frame_begin(NULL);pr_draw(post,w,h);
+        if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/url-rewards.png",argv[1]);capture(path,w,h);}
+        rhi_frame_end();
+    }
+    assert(!pr_status(post)[0]);
+    info.reward.cash=info.reward.reputation=UINT32_MAX;
+    pr_open(post,&info);assert(!pr_status(post)[0]);
+    for(int tick=0;tick<45;tick++) {
+        pr_update(post,1/30.f);rhi_frame_begin(NULL);pr_draw(post,w,h);
+        if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/url-rewards-max.png",argv[1]);capture(path,w,h);}
+        rhi_frame_end();
+    }
+    info.have_url_standings=0;info.kind=N2_RACE_DRAG;info.failed=RR_FAIL_ENGINE;info.finish_place=0;
+    pr_open(post,&info);assert(!pr_status(post)[0]);
+    for(int tick=0;tick<45;tick++) {
+        pr_update(post,1/30.f);rhi_frame_begin(NULL);pr_draw(post,w,h);
+        if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/rewards-dnf.png",argv[1]);capture(path,w,h);}
+        rhi_frame_end();
+    }
+    assert(!pr_status(post)[0]);
     pr_destroy(post);rhi_device_destroy();SDL_DestroyWindow(window);SDL_Quit();
     puts("postrace_rules_check: PASS (retail results/caption binding and offscreen draw)");return 0;
 }

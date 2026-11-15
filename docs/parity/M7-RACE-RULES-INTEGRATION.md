@@ -215,9 +215,11 @@ race-drift-rules-test:
 	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -Isrc tools/race_drift_rules_test.c src/race_rules.c -lm -o build/race_drift_rules_test
 	./build/race_drift_rules_test
 
+M7_SCREENS_TEST_SRC := src/postrace.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+
 postrace-rules-check:
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_rules_check.c $(SCREENS_TEST_SRC) src/race_rules.c -o build/postrace_rules_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_rules_check.c $(M7_SCREENS_TEST_SRC) src/race_rules.c -o build/postrace_rules_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	SDL_VIDEODRIVER=offscreen ./build/postrace_rules_check "$(M7_REPORT_DIR)"
 ```
 
@@ -331,10 +333,11 @@ Keep nai fixed (initial entrants), so stable IDs/results places are not compacte
 main.c:8984 and the collision-block guard at9024 to:
 
 ```c
-race_state == 1 || (url_live && !url_round.ready)
+race_state == 1 || (url_live && race_state == 2 && !url_round.ready)
 ```
 
-[inferred] In the contacts list, include the player only while
+[inferred] In the for-loop retain parentheses around the full condition before `&& k<nai`;
+countdown state0 must never step opponents or the round collector. In the contacts list, include the player only while
 `!follow_roam_ai && !(url_live && url_round.done[0])`; finished players do not block remaining cars.
 After all actor progress updates, once per fixed tick while URL is live and race_state is 1 or 2:
 
@@ -435,7 +438,11 @@ requests/API enum values. Do not advertise a row until these host changes are in
 [data] Genuine labels in the installed language table: QR_OPT_OPPONENTS 3384a679,
 QR_OPT_TRAFFIC_LEVEL eb9dfc09, QR_OPT_CATCH_UP 8b8e913a, TRACK_DIRECTION a88ffeb4,
 TRACK_DIRECTION_FORWARD 9e4c4648, TRACK_DIRECTION_REVERSE 22f254af, QR_OPT_LAP_KO 7fd73849.
-[inferred] Replace the incorrect QR_OPPONENTS/QR_TRAFFIC/QR_CATCH_UP label keys in fe_track.c.
+[data] Value captions are TRAFFIC_NONE896bcb4d, TRAFFIC_LIGHTb6bd9c95,
+TRAFFIC_MEDIUM907c555e, TRAFFIC_HEAVYb672f15a; booleans UI_COMMON_OFF88576cff and
+UI_COMMON_ONbe5039a1. Laps/difficulty captions are QR_OPT_LAPS48494e83 and
+QR_OPT_DIFFICULTY4d156786.
+[inferred] Replace the incorrect QR_LAPS/QR_DIFFICULTY/QR_OPPONENTS/QR_TRAFFIC/QR_CATCH_UP label keys in fe_track.c.
 Use the track-options page for Laps/Direction/Lap KO, mode-options for Difficulty/Opponents/Traffic/
 Catch Up. Keep touch Back and page transition behaviour from the current front end. Rows must use
 real localized values and reject a missing caption rather than silently displaying a guessed label.
@@ -471,12 +478,15 @@ if (frq.kind==FEM_REQ_QUICK_RACE) {
     if (!rr_options_valid(&frq.rules)) {
         fem_show_error(fem,"Invalid race options");
         frq.kind=FEM_REQ_NONE;
-    } else race_options=frq.rules;
+    } else {
+        race_options=frq.rules;
+        race_lap_knockout=race_options.lap_knockout;
+    }
 }
 ```
 Guard the existing launch block with the resulting request kind. At GF_CMD_ARM_EVENT7176 reject
 KO on a non-Circuit event or with requested zero opponents using g_dbg.race_error/fem_show_error;
-set the existing `ko_live` preparation predicate from `race_options.lap_knockout`. Do not infer KO
+use `race_lap_knockout` set above as the existing `knockout_live` preparation predicate. Do not infer KO
 from the Circuit mode alone. URL rounds retain the same rules/entrant IDs as priority4.
 
 [inferred] Replace race_start_request world_race_start at11238 with the directed entrypoint. Preserve
@@ -540,3 +550,50 @@ race-options-test:
 Repeat with CFLAGS+=-DN2_GLES. Header-heavy units use the project's -Wno-unused-function convention.
 All builds/runs still use the owner's memory/lock/nice requirements. End-to-end selected options and
 reverse play remain the orchestrator's gate after these host patches; they are not claimed by unit tests.
+
+## Priority 6: reward payload, no career mutation
+
+[inferred] The rules module transfers per-place rewards without owning accounts, saves or eligibility.
+Use RrRewardTable.provenance=RR_REWARD_DATA only after the caller has decoded/validated a real table;
+UNKNOWN yields available=0. The explicitly selected rr_reward_inferred_default is a provisional QR
+policy, cash1000/500/250/0/0/0 and reputation100/50/25/0/0/0, tagged inferred in every returned payload.
+Do not label those numbers retail-derived. No decoded reward table is claimed by this task.
+
+[inferred] main.c GF_CMD_OPEN_RESULTS7200, after calculating the final place and before pr_open:
+```c
+/* Explicit provisional policy; a validated event table can replace it. */
+RrRewardTable rewards=rr_reward_inferred_default();
+info.reward=rr_reward(&rewards,info.finish_place,info.failed);
+```
+The host may instead leave info.reward zero until real eligibility/table data is available. Successful
+place1..6 reads its table entry; failure/DNF returns zero cash/reputation even when finish_place is0.
+Invalid successful places/unknown provenance remain unavailable. No multiplying by difficulty/mode/
+URL round or changing a balance happens inside rr_reward/pr_open. Restarting/rendering cannot credit
+an account because neither API has any account reference. Career owns eligibility and once-only credit.
+For URL overall reward, call only after the final tournament placement is known and leave intermediate
+round reward unavailable unless the real table explicitly awards each round. Preserve the same result
+payload across Results/Continue; do not treat menu navigation as another payout event.
+
+[data] Optional result title captions come from PRW_CASH_WON75d23e29 and
+PRW_REPUTATION_POINTS_WON40152751; absence fails closed through pr_status. [inferred] The existing
+wide Header_Text displays supplied numbers and retains the URL round prefix. This is a presentation
+adapter, not a recovered retail reward-screen layout. A failed result forces displayed amounts to0.
+[inferred] Large values reduce title scale to the named580 virtual-unit width; values stay exact.
+DNF ranks shift left18 virtual units within the frame to leave space before the player name.
+
+[inferred] New test target (race_rules.c is already in SRC from priority2):
+```make
+race-rewards-test:
+	$(CC) $(CFLAGS) -Isrc tools/race_rewards_test.c src/race_rules.c -o build/race_rewards_test -lm
+	./build/race_rewards_test
+```
+Repeat with CFLAGS+=-DN2_GLES. Optional installed metadata check, no output in the worktree:
+```sh
+cc -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -Isrc tools/race_rules_data_check.c -lm -o "$report/data-check"
+"$report/data-check"
+```
+OPENUG2_DATA must be set; unset is SKIP77. Reports name/class/size candidates and forward/backward
+marker counts only, and explicitly does not interpret candidate reward offsets or infer their absence.
+Use the owner-approved lock/nice/memory envelope for these commands. Renderer test commands are the
+same runtime-only postrace_rules_check recipe documented under priority3; supply its report directory
+argument and OPENUG2_DATA. It emits drift-points, url-standings, rewards, url-rewards, url-rewards-max and rewards-dnf PNGs.

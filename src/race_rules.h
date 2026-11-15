@@ -175,6 +175,20 @@ static inline int rr_direction_index(int index,int count,int circuit,int reverse
     return !reverse?index:circuit?(count-index)%count:count-1-index;
 }
 
+/* [inferred] Data transfer only. Caller chooses eligibility/crediting; no balances. */
+enum { RR_REWARD_UNKNOWN=0,RR_REWARD_DATA=1,RR_REWARD_INFERRED=2 };
+#define RR_REWARD_FIRST_CASH 1000u
+#define RR_REWARD_SECOND_CASH 500u
+#define RR_REWARD_THIRD_CASH 250u
+#define RR_REWARD_FIRST_REPUTATION 100u
+#define RR_REWARD_SECOND_REPUTATION 50u
+#define RR_REWARD_THIRD_REPUTATION 25u
+typedef struct { uint32_t cash[RR_MAX_CARS],reputation[RR_MAX_CARS];int provenance; } RrRewardTable;
+typedef struct { uint32_t cash,reputation;int available,inferred; } RrReward;
+/* [inferred] Explicit opt-in provisional policy, not a recovered retail table. */
+RrRewardTable rr_reward_inferred_default(void);
+RrReward rr_reward(const RrRewardTable *,int place,int failed);
+
 #ifdef __cplusplus
 }
 #endif

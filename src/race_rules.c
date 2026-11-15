@@ -160,3 +160,17 @@ int rr_traffic_target(const RrOptions *r,int host){
     return r->traffic<0?host:targets[r->traffic];
 }
 float rr_catchup_fallback(float gap){return rr_catchup_fallback_value(gap);}
+
+RrRewardTable rr_reward_inferred_default(void) {
+    RrRewardTable r={{RR_REWARD_FIRST_CASH,RR_REWARD_SECOND_CASH,RR_REWARD_THIRD_CASH,0,0,0},
+        {RR_REWARD_FIRST_REPUTATION,RR_REWARD_SECOND_REPUTATION,RR_REWARD_THIRD_REPUTATION,0,0,0},RR_REWARD_INFERRED};
+    return r;
+}
+RrReward rr_reward(const RrRewardTable *r,int place,int failed) {
+    RrReward result={0};
+    if(!r || (r->provenance!=RR_REWARD_DATA && r->provenance!=RR_REWARD_INFERRED) || failed<0 ||
+       (!failed && (place<1 || place>RR_MAX_CARS)))return result;
+    result.available=1;result.inferred=r->provenance==RR_REWARD_INFERRED;
+    if(!failed){result.cash=r->cash[place-1];result.reputation=r->reputation[place-1];}
+    return result;
+}

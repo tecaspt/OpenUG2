@@ -10,16 +10,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+/* [inferred] Keep optional reward text inside the authored results frame. */
+#define PR_REWARD_TITLE_WIDTH 580.0f
+#define PR_DNF_RANK_SHIFT 18.0f
 struct PostRace {
     UgAssets assets;UgSkin skin;UgGL *gl;UgCanvas canvas;UgCtx ui;
     GvScreen result,menu;GvCarousel view;GuiCarousel carousel;GvEntry entries[3];PostRaceInfo info;
     int open,visual,pending,pressed,phase;
-    char status[256],place[16],time[32],title[192];
+    char status[256],place[16],time[32],title[384];
     char row_points[RR_MAX_CARS][32],row_places[RR_MAX_CARS][16];
 };
 static void text(GvScreen *s,const char *name,const char *value) {
     int i=ug_scene_find_name(&s->scene,ug_hash_upper(name));
     if(i>=0)s->scene.nodes[i].text_override=value;
+}
+/* [inferred] The authored rank column fits one digit; DNF needs leftward room. */
+static void rank_label(GvScreen *s,const char *name,const char *value) {
+    int i=ug_scene_find_name(&s->scene,ug_hash_upper(name));
+    if(i<0)return;
+    UgNode *n=&s->scene.nodes[i];n->text_override=value;
+    if(!strcmp(value,"DNF"))ug_scene_app_set_world_pos(&s->scene,i,n->we-PR_DNF_RANK_SHIFT,n->wf);
 }
 PostRace *pr_create(const char *root) {
     PostRace *p=calloc(1,sizeof *p);if(!p)return NULL;
@@ -53,7 +63,7 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
         text(&p->result,"Header_Text_3",title);
     }
     text(&p->result,"player_data_1",gv_text(&p->assets,ug_hash_upper("PLAYER"),"Player"));
-    text(&p->result,"ranking_data_1",info->failed?"DNF":p->place);
+    rank_label(&p->result,"ranking_data_1",info->failed?"DNF":p->place);
     text(&p->result,"car_data_1",p->info.car);
     text(&p->result,"time_data_1",info->failed?"DNF":p->time);
     for(int row=2;row<=6;row++) {
@@ -97,7 +107,30 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
             for(int k=0;k<4;k++) {
                 char name[40];snprintf(name,sizeof name,"%s%d",prefix[k],row+1);
                 int node=ug_scene_find_name(&p->result.scene,ug_hash_upper(name));
-                if(node>=0){p->result.scene.nodes[node].app_hidden=!value[k][0];p->result.scene.nodes[node].text_override=value[k];}
+                if(node>=0){p->result.scene.nodes[node].app_hidden=!value[k][0];
+                    if(k==1)rank_label(&p->result,name,value[k]);else p->result.scene.nodes[node].text_override=value[k];}
+            }
+        }
+    }
+    if(info->reward.available) {
+        const char *cash=gv_text(&p->assets,0x75d23e29u,NULL);
+        const char *rep=gv_text(&p->assets,0x40152751u,NULL);
+        if(!cash || !*cash || !rep || !*rep) {
+            snprintf(p->result.status,sizeof p->result.status,"postrace: reward captions unavailable");goto fail;
+        }
+        char prefix[192];snprintf(prefix,sizeof prefix,"%.180s",p->title);
+        snprintf(p->title,sizeof p->title,"%s%s%s %u   %s %u",prefix,*prefix?" | ":"",cash,
+            info->failed?0:info->reward.cash,rep,info->failed?0:info->reward.reputation);
+        text(&p->result,"Header_Text",p->title);
+        int node=ug_scene_find_name(&p->result.scene,ug_hash_upper("Header_Text"));
+        if(node>=0) {
+            UgNode *n=&p->result.scene.nodes[node];const UgFace *saved=ug_text_face();
+            float width=0,scale=fabsf(n->props.w[UG_P_SIZE]);
+            ug_text_set_face(n->face);ug_text_measure(p->title,scale,0,(float)n->obj->leading,p->ui.glyphs,&width,NULL);
+            ug_text_set_face(saved);
+            if(width>PR_REWARD_TITLE_WIDTH) {
+                float size[2]={scale*PR_REWARD_TITLE_WIDTH/width,scale*PR_REWARD_TITLE_WIDTH/width};
+                ug_scene_app_write(&p->result.scene,node,UG_P_SIZE,2,size);
             }
         }
     }
