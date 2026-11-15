@@ -122,3 +122,45 @@ it does not alter the general texture decoder or other sprite classes.
 [data] CARSELECT_MANUFACTURER_MAZDA hashes to a matching FrontB 128x64 texture, 0xC332AE6D.
 [inferred] Manufacturer/car association is not yet decoded generically, so the separate left
 manufacturer field remains hidden; the model badge uses its directly keyed car-folder association.
+
+## M2 front-end Options and Profile
+
+[data] The installed front-end bundle supplies UI_OptionsMain, UI_Options,
+UI_PC_Customize_Options, UI_ProfileManager and UI_VirtualKeyboard. UI_OptionsMain and
+UI_ProfileManager share the carousel header/caption identities 0x42adb44c/0x5e7b09c9.
+[data] UI_VirtualKeyboard's header is text GUID 0xdec3d/name 0x42adb44c; entered-name text is
+GUID 0x10b1f/name 0x5dfa6642. Its text keys are children of 0x1130e and include characters,
+BACK, SPACE, CAPS, SHIFT and DONE. The binding requires the header, entry and BACK/DONE keys.
+[data] FrontB contains MAIN_ICON_PROFILE_MANAGER (0x6b303856). Language keys include
+CREATE_PROFILE_TITLE (0xf54cc524), SAVELOAD_LOAD_PROFILE (0x6a9b74bd) and
+SAVELOAD_DELETE_PROFILE (0x66516470).
+[inferred] Main's Options entry opens UI_OptionsMain in OM_CTX_FRONTEND. Its Audio, Display,
+Gameplay and Player entries open the corresponding lists in UI_Options; Customize uses the
+existing PC package. Back from a leaf returns to the hub and Back from the hub returns to Main.
+Existing pause callers with no profile retain their previous pages, rows and persistence policy.
+[inferred] Audio exposes the seven typed volume fields (0–100 in steps of five), plus mono/stereo.
+Player exposes seven display/selection booleans, transmission, stability control and camera.
+Gameplay exposes rearview mirror, units, race/explore map modes and jump camera. Field encodings
+reuse the settings contract; row order, limits and selection behavior need owner retail captures.
+[inferred] Display saves through the existing graphics backend on Back; profile page edits save the
+active container immediately. The FE emits consume-once GRAPHICS, REINIT and PROFILE apply bits.
+Actual audio buses, renderer reset, HUD/camera and drivetrain application remain host responsibilities.
+[inferred] ProfileManager displays the current name and offers Create, Rename, Load and Delete.
+The action arrangement and rename caption are application policy, not a decoded retail flow.
+UI_VirtualKeyboard edits names by tap, pad or desktop text input. Native touch Back cancels name
+entry; manager Back returns to Main. Delete requires two Done activations and refuses the active
+profile. Load/delete names are typed rather than selected from a decoded retail profile list.
+[inferred] Names use the existing filename validation (1–15 bytes). New profiles use existing defaults;
+rename preserves typed fields and opaque payload. ActiveProfile is an additive machine-store string;
+absence retains the existing OPENUG2 carrier fallback. No container/settings format changes are made.
+On entry from Main the machine store and saved profile are reloaded so intervening pause Controls
+keys and payload changes are retained. Store-reload failure disables editing before any stale write.
+[inferred] Collision, corrupt-file and write/activation errors are reported through fem_status and the
+retail heading. Failed load retains the active snapshot. New/rename activation failure attempts
+rollback. The existing backend writes are non-atomic; crash-safe multi-file transactions are not claimed.
+[inferred] Missing new-screen art/bindings disable editing and leave only Back available. Native Back is
+rendered after authored modal content so it remains visible on the touch keyboard and defaults dialog.
+[observed] Desktop and N2_GLES runtime checks rendered the Options hub, Audio, Display, Gameplay,
+Player, ProfileManager and VirtualKeyboard and exercised touch letters/Done, create, rename, load,
+confirmed delete and audio persistence. These are installed-asset/controller checks, not retail-PC
+behavioral captures or evidence that the main.c host has applied every field.

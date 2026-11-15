@@ -19,7 +19,7 @@ struct GameCatalog;                /* game_catalog.h */
 
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING } FemScreen;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -49,7 +49,18 @@ const char *fem_status(const FeMenu *m);
 
 /* Shared Phase-2 model and renderer adapters (no host/world ownership). */
 #include "game_catalog.h"
+#include "fe_profile.h"
 #include "gui_view.h"
+enum { FEM_APPLY_GRAPHICS=1, FEM_APPLY_REINIT=2, FEM_APPLY_PROFILE=4 };
+/* Optional storage/caps overrides before opening Options/Profile. No writes on creation. */
+int fem_set_storage(FeMenu *,const char *settings_path,const char *profile_root);
+void fem_set_caps(FeMenu *,const StGfxCaps *);
+void fem_set_graphics(FeMenu *,const StGraphics *);
+unsigned fem_take_apply(FeMenu *);
+const StGraphics *fem_graphics(const FeMenu *);
+const StProfile *fem_current_profile(const FeMenu *);
+int fem_options_page(const FeMenu *);
+
 typedef struct FeChoice {
     const GameCatalog *cat;
     int kind, event_index, car_index, laps, difficulty, option, options_page;
