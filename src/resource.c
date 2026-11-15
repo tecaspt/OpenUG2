@@ -100,7 +100,7 @@ int res_list_cars(const char *dataroot, char (*list)[64], int max,
         for (unsigned p = 0; p < sizeof parts/sizeof parts[0]; p++)
             if (!strcmp(de->d_name, parts[p])) isp = 1;
         if (isp) continue;
-        char gp[1200]; snprintf(gp, sizeof gp, "%s/%s/GEOMETRY.BIN", croot, de->d_name);
+        char gp[1300]; snprintf(gp, sizeof gp, "%s/%s/GEOMETRY.BIN", croot, de->d_name);   /* croot<=1023 + d_name<=255 + the literal = 1293 */
         FILE *f = fopen(gp, "rb"); if (!f) continue; fclose(f);
         int L = (int)strlen(de->d_name); if (L > 63) L = 63;
         memcpy(list[n], de->d_name, L); list[n][L] = 0;
@@ -124,7 +124,7 @@ int res_list_circuits(const char *troot, const char *trackname,
     DIR *rd = opendir(rdir); struct dirent *re;
     while (rd && n < max && (re = readdir(rd))) {
         if (strncmp(re->d_name, "Paths", 5)) continue;
-        char rel[256]; snprintf(rel, sizeof rel, "%s/%s", dname, re->d_name);
+        char rel[256]; int rl = snprintf(rel, sizeof rel, "%s/%s", dname, re->d_name); if (rl < 0 || (size_t)rl >= sizeof rel) continue;   /* a cut name would also overrun list[n][256] below */
         int dup=0; for (int i=0;i<n;i++) if(!strcmp(list[i],rel)) dup=1;
         if (dup) continue;
         char pp[1500]; snprintf(pp, sizeof pp, "%s/%s", troot, rel);
