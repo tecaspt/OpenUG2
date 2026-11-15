@@ -1688,11 +1688,12 @@ int world_set_mode(World *w, int mode, int evidx) {
    +12 u32 slot, +16/+20/+24 f32 XYZ, +32 u16 heading, +36 u32 track id.
    Events can ship a grid per direction of travel, named Forward/Backward
    StartingPosition (8 slots) and StartLine (not a parking slot). The race runs its own
-   gate order, so only the forward grid belongs to it: on a divided road the
-   backward grid sits across the median. Unnamed grids keep every slot. */
+   gate order uses the matching directional grid: on a divided road the
+   backward grid sits across the median. Legacy unnamed forward grids keep every slot. */
+#define GRID_BACKWARD_POSITION 0x8f90f7bfu /* "BackwardStartingPosition" */
 #define GRID_FORWARD_POSITION 0x8e55c895u  /* "ForwardStartingPosition" */
 static int race_load_grid_named(const World *w, const char *troot, int evid,
-                                float (*out)[3], int cap, int forward_only,float *heading);
+                                float (*out)[3], int cap, int direction,float *heading);
 static int race_load_grid(const World *w, const char *troot, int evid,
                           WRace *race) {
     int n = race_load_grid_named(w,troot,evid,race->grid,WORLD_MAXGRID,1,&race->grid_heading);
@@ -1700,7 +1701,7 @@ static int race_load_grid(const World *w, const char *troot, int evid,
     return n ? n : race_load_grid_named(w,troot,evid,race->grid,WORLD_MAXGRID,0,&race->grid_heading);
 }
 static int race_load_grid_named(const World *w, const char *troot, int evid,
-                                float (*out)[3], int cap, int forward_only,float *heading) {
+                                float (*out)[3], int cap, int direction,float *heading) {
     int n = 0;unsigned slots[WORLD_MAXGRID];
     for (int r = 0; r < w->neighborhood.nreg && n < cap; r++) {
         const char *rn = w->neighborhood.rgn[r].name;
@@ -1722,12 +1723,12 @@ static int race_load_grid_named(const World *w, const char *troot, int evid,
                 /* Forward/BackwardStartLine are never parking slots, including
                    the legacy fallback when numbered positions are absent. */
                 if(name==0x6a56b90au || name==0xeec70374u)continue;
-                if (forward_only && name != GRID_FORWARD_POSITION) continue;
+                if (direction && name != (direction>0?GRID_FORWARD_POSITION:GRID_BACKWARD_POSITION)) continue;
                 float pos[3];memcpy(pos,d+off+16,sizeof pos);
                 if(!isfinite(pos[0]) || !isfinite(pos[1]) || !isfinite(pos[2]))continue;
                 unsigned slot;memcpy(&slot,d+off+12,4);
                 int at=n;
-                if(forward_only) {
+                if(direction) {
                     if(slot>=(unsigned)cap)continue;
                     for(at=0;at<n && slots[at]<slot;at++);
                     if(at<n && slots[at]==slot)continue;
@@ -1757,9 +1758,15 @@ int world_race_grid_ground(const N2Scene *scene,const WEvent *event,const float 
     return wg_unique_road(scene,grid[0],grid[1],z);
 }
 
-int world_race_start(World *w, const char *troot, int evidx, int maxlaps) {
+int world_race_start_direction(World *w,const char *troot,int evidx,int maxlaps,int reverse,char *error,size_t cap) {
+    if(error && cap)error[0]=0;
+    if(!w)return 0;
     WRace *R = &w->city.race;
     memset(R, 0, sizeof *R);
+    if(!troot || (reverse!=0 && reverse!=1)) {
+        if(error && cap)snprintf(error,cap,"Invalid race direction/data root");
+        return 0;
+    }
     if (evidx < 0 || evidx >= w->city.nev) return 0;
     world_set_mode(w, MODE_RACE_EVENT, evidx);
     const WEvent *e = &w->city.ev[evidx];
@@ -1792,13 +1799,27 @@ int world_race_start(World *w, const char *troot, int evidx, int maxlaps) {
         g->dx = dx/d; g->dy = dy/d; g->half = GATE_HALF;
         R->ngate++;
     }
-    R->ngrid = race_load_grid(w, troot, e->id, R);
+    if(reverse) {
+        if(R->ngate<2){if(error && cap)snprintf(error,cap,"Reverse checkpoints unavailable");memset(R,0,sizeof *R);return 0;}
+        WGate old[WORLD_MAXGATE];memcpy(old,R->gate,sizeof old);
+        for(int k=0;k<R->ngate;k++) {
+            R->gate[k]=old[rr_direction_index(k,R->ngate,e->circuit,1)];
+            R->gate[k].dx=-R->gate[k].dx;R->gate[k].dy=-R->gate[k].dy;
+        }
+        R->ngrid=race_load_grid_named(w,troot,e->id,R->grid,WORLD_MAXGRID,-1,&R->grid_heading);
+        R->grid_named=R->ngrid>0;
+        if(!R->grid_named){if(error && cap)snprintf(error,cap,"Backward starting grid unavailable");memset(R,0,sizeof *R);return 0;}
+    } else R->ngrid = race_load_grid(w, troot, e->id, R);
     R->active = R->ngate > 0;
     R->next = 0; R->lap = 0; R->cleared = 0; R->havep = 0;
     printf("race armed: event %d (%s), %d gates from the 0x3414c outline, "
            "%d start-grid slots (0x34146), %d lap(s)\n",
            e->id, n2_race_name(e->info.kind), R->ngate, R->ngrid, R->maxlaps);
     return R->ngate;
+}
+
+int world_race_start(World *w,const char *root,int index,int laps) {
+    return world_race_start_direction(w,root,index,laps,0,NULL,0);
 }
 
 /* The outline is a coarse map line, not a decoded retail checkpoint table.
