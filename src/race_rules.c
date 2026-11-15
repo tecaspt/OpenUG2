@@ -17,3 +17,8 @@ uint32_t rr_drag_grade_label(int grade) {
     default:return 0;
     }
 }
+int rr_points_place(const float *points,int count,int player) {
+    if(!points || count<1 || count>RR_MAX_CARS || player<0 || player>=count)return 0;
+    for(int k=0;k<count;k++)if(!isfinite(points[k]) || points[k]<0)return 0;
+    int place=1;for(int k=0;k<count;k++)if(points[k]>points[player])place++;return place;
+}

@@ -120,3 +120,36 @@ Post-priority clock/collision/AI-drive/resident/direct race-AI tests pass and th
 trace is byte-identical (p2/drive.txt; P2_DRIVE_IDENTICAL in p2-status.log). No new warnings in
 changed sources. The required Xvfb wrapper remains the same documented environment FAIL.
 Main/HUD feedback wiring is not performed here. Priorities 3–6 remain to be completed.
+
+## Priority 3: drift chains and points results
+
+[data] English loading/tip text says drift points depend on speed/angle, marked edge bonus zones
+exist, and walls lose drift points. It does not establish numeric scoring/multiplier thresholds.
+[inferred] The canonical pure kernel takes SI velocity, measured travel distance and seconds. The
+legacy race.h API converts m/tick at the existing 60 Hz boundary. A qualifying grounded forward
+slide above 35 km/h, between 10 and 80 degrees, adds metres × sin(angle) × 100 raw points.
+[inferred] Every 1,000 raw chain points increases the multiplier, capped at ×5. Piecewise integration
+splits threshold crossings, so changing tick partition does not multiply the entire earlier chain
+retroactively. One second without a qualifying slide banks the pending chain; any collision first
+cancels all pending points and resets its multiplier, preserving previously banked points. Finish
+banks once. Inputs/score caps and coefficients are named in race_rules.h; the numeric formula is
+inferred, not a decoded retail equation. Edge bonus-zone identification remains undecoded.
+[inferred] Competition rank uses banked points, with equal points sharing a rank; road position has
+no input to rr_points_place. Host snapshotting finalizes rival chains at player finish. A malformed
+points array returns rank 0, which the host treats as an invalid-rule failure, never a win.
+[observed] Existing main/AI score calls already supply final poses after contacts and measured travel.
+world_race_progress_update already banks drift at finish. Their APIs remain intact through wrappers.
+[inferred] PostRaceInfo appends optional drift_points/have_drift_points. When provided for Drift, the
+authored results time column displays the supplied integer score under PRR_POINTS_TITLE (0x70802830).
+Legacy callers with the flag unset retain their existing result presentation. No opponent score is
+invented; this unit renders only supplied player data.
+[observed] Desktop/GLES synthetic checks pass with -Werror: cadence partition, multiplier cap,
+bank-on-end, collision reset preserving bank, airborne/invalid inputs, saturation and points ranks.
+The installed results screen was inspected by eye in both backends: Points/12345 is visible under
+the genuine header; unknown opponent rows remain hidden and touch Back remains visible. Final
+PNGs are postrace-desktop/drift-points.png and postrace-gles/drift-points.png under the private report
+root. These use a synthetic result payload, not an observed retail race score.
+[observed] Post-priority clock/collision/AI-drive/resident/direct race-AI checks and postrace-test
+(9 checks) pass; check-gl is OK. The full drive trace is identical (p3/drive.txt and p3-status.log).
+No warnings originate in changed/new code; the same baseline Xvfb wrapper FAIL remains.
+Main/HUD snapshot/multiplier wiring remains with the orchestrator. Priorities 4–6 remain.

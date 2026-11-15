@@ -1,5 +1,7 @@
 /* [inferred] Results actions follow the M1 contract, not executable-derived behavior. */
 #include "postrace.h"
+#include "race_rules.h"
+#include "race.h"
 #include "gui_view.h"
 #include "fe_binding.h"
 #include "pause_menu_layout.h"
@@ -41,6 +43,13 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
     if(seconds>359999)seconds=359999;
     unsigned centis=(unsigned)(seconds*100);
     snprintf(p->time,sizeof p->time,"%u:%02u.%02u",centis/6000,centis/100%60,centis%100);
+    if(info->kind==N2_RACE_DRIFT && info->have_drift_points) {
+        uint32_t points=info->drift_points>(uint32_t)RR_SCORE_LIMIT?(uint32_t)RR_SCORE_LIMIT:info->drift_points;
+        const char *title=gv_text(&p->assets,0x70802830u,NULL); /* PRR_POINTS_TITLE */
+        if(!title || !*title){snprintf(p->result.status,sizeof p->result.status,"postrace: points caption unavailable");goto fail;}
+        snprintf(p->time,sizeof p->time,"%u",points);
+        text(&p->result,"Header_Text_3",title);
+    }
     text(&p->result,"player_data_1",gv_text(&p->assets,ug_hash_upper("PLAYER"),"Player"));
     text(&p->result,"ranking_data_1",info->failed?"DNF":p->place);
     text(&p->result,"car_data_1",p->info.car);

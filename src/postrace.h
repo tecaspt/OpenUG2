@@ -1,11 +1,13 @@
 #ifndef OPENUG2_POSTRACE_H
 #define OPENUG2_POSTRACE_H
 #include <SDL.h>
+#include <stdint.h>
 typedef struct PostRace PostRace;
 typedef struct PostRaceInfo {
     int event_id, kind, finish_place, failed;
     double seconds;
     char car[32];
+    uint32_t drift_points;int have_drift_points;
 } PostRaceInfo;
 enum { PR_ACT_NONE=0, PR_ACT_RESTART, PR_ACT_CONTINUE, PR_ACT_QUIT_MAIN };
 PostRace *pr_create(const char *dataroot);
