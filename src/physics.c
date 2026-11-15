@@ -335,15 +335,25 @@ float phys_manual_step(PhysManual *s,const N2PhysicsAttr *a,int power,int transm
     if(box->gear_count<1 || box->gear_count>6 || a->limiter_rpm<=a->idle_rpm ||
        box->final_drive<=0 || box->forward[0]<=0)return 0;
     if(s->gear<1){ s->gear=1; }if(s->gear>box->gear_count)s->gear=box->gear_count;
+    s->feedback_seconds=fmaxf(0,s->feedback_seconds-dt);
+    if(s->feedback_seconds<=0)s->shift_quality=RR_SHIFT_NONE;
     if(shift && s->shift<=0 && !s->failed) {
         int gear=s->gear+(shift>0?1:-1);
-        if(gear>=1 && gear<=box->gear_count){s->gear=gear;s->shift=.15f;}
+        if(gear>=1 && gear<=box->gear_count) {
+            float before=fmaxf(a->idle_rpm,fabsf(speed)*PHYS_TICKRATE*60/
+                (6.283185307f*radius)*box->forward[s->gear-1]*box->final_drive);
+            float center=s->shift_point_rpm>a->idle_rpm && s->shift_point_rpm<a->limiter_rpm?
+                s->shift_point_rpm:a->redline_rpm;
+            s->shift_quality=rr_drag_grade_value(before,center,a->limiter_rpm,s->gear,gear);
+            s->feedback_seconds=s->shift_quality?RR_SHIFT_FEEDBACK_SECONDS:0;
+            s->gear=gear;s->shift=.15f;
+        }
     }
     s->shift=fmaxf(0,s->shift-dt);
     float ratio=box->forward[s->gear-1];if(!isfinite(ratio) || ratio<=0)return 0;
     s->rpm=fmaxf(a->idle_rpm,fabsf(speed)*PHYS_TICKRATE*60/(6.283185307f*radius)*ratio*box->final_drive);
     int over=s->rpm>=a->limiter_rpm;
-    s->heat=pv_clamp(s->heat+(over && throttle>0 ? dt/1.5f : -dt*.5f),0,1);
+    s->heat=rr_drag_heat_value(s->heat,s->rpm,a->limiter_rpm,throttle,dt);
     if(s->heat>=1)s->failed=1;
     if(over || s->shift>0 || s->failed)return 0;
     float sample=pv_clamp((s->rpm-a->idle_rpm)/(a->limiter_rpm-a->idle_rpm)*8,0,8);

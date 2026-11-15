@@ -97,3 +97,26 @@ an over-specific invented-speed assertion were corrected and are not counted as 
 [inferred] No default physics/AI drive differences are expected because the new adapter is opt-in.
 [observed] There are no reference-trace differences. A full game-after-fix run is NOT RUN: main.c
 still selects the legacy adapter until the orchestrator applies the documented hook.
+
+## Priority 2: drag grading and engine failure
+
+[data] Fresh Labels/English parsing finds HUD_SHIFT_PERFECT (0x0598b065), HUD_SHIFT_GOOD
+(0x27d2dd45), HUD_SHIFT_SHORT (0x2303d76c), HUD_SHIFT_OVER (0x27d75cd8). The drag tip describes
+per-car/per-gear optimal shift points and an additional speed boost for perfect shifts.
+[inferred] Accepted upward shifts expose Perfect/Good/Early/Late feedback; Early maps to the retail
+Short Shift caption and Late to Over Rev. The center is caller-supplied shift_point_rpm, falling
+back to the decoded redline. Named windows are ±150 RPM for Perfect, −600/+350 for Good, with
+Early/Late outside those windows. These numeric grading windows are not decoded retail values.
+[inferred] PhysManual appends shift_quality and feedback_seconds, lasting one simulated second.
+Rejected/out-of-range shifts do not generate feedback; downshifts clear grading. Feedback has no
+thrust bonus or shift-duration effect. The tip's bonus magnitude/application is still undecoded.
+[inferred] Positive throttle at/above the decoded limiter heats by dt/1.5; other conditions cool at
+.5 per second, clamped to 0–1. Heat reaching 1 latches failed until the host resets PhysManual.
+Existing .15-second shift cuts and crash thresholds (wall impulse >8 or any positive vehicle
+contact) remain unchanged, with heat/crash policy constants centralized in race_rules.h.
+[observed] New synthetic tests pass in desktop/GLES with -Werror: grading boundaries, genuine label
+keys, invalid/downshift cases, supplied-center feedback/expiry, limiter/cooling and latched failure.
+Post-priority clock/collision/AI-drive/resident/direct race-AI tests pass and the complete drive
+trace is byte-identical (p2/drive.txt; P2_DRIVE_IDENTICAL in p2-status.log). No new warnings in
+changed sources. The required Xvfb wrapper remains the same documented environment FAIL.
+Main/HUD feedback wiring is not performed here. Priorities 3–6 remain to be completed.

@@ -5,6 +5,7 @@
 #define OPENUG2_PHYSICS_H
 
 #include "nfsu2.h"
+#include "race_rules.h"
 typedef struct AiCar AiCar;
 
 /* driving constants — car length axis = local X; world +Z up.
@@ -69,7 +70,13 @@ typedef struct {
     float roll_load;  /* lateral load transfer      (height / track)         */
 } PhysVehicle;
 
-typedef struct { int gear,failed; float rpm,heat,shift; } PhysManual;
+typedef struct {
+    int gear,failed;float rpm,heat,shift;
+    /* [inferred] Optional caller-supplied per-gear shift center; zero uses redline.
+     * Feedback is presentation only and does not change thrust/shift timing. */
+    float shift_point_rpm,feedback_seconds;
+    int shift_quality; /* RR_SHIFT_* */
+} PhysManual;
 /* Manual drag drivetrain, using the active car's decoded gearbox and curve.
    Returns a thrust multiplier; zero while shifting/on the limiter/failed.
    Heat timing and thrust calibration are provisional, not retail recovery. */

@@ -101,3 +101,57 @@ drag-speed-check:
 runtime (exit 77 if unset); it compares adapters on a synthetic level ground query, with full configured ordinary dynamics,
 not world collision or a complete race replay. Run from an external report directory and store output there.
 All builds/runs require the owner's memory check, heavy lock and nice priority 10.
+
+## Priority 2 — shift feedback and over-rev
+
+[inferred] Add src/race_rules.c to Makefile SRC. Existing isolated physics/AI test recipes continue
+to link without it because canonical grade/heat primitives are inline; new external API tests and
+host label lookup link race_rules.c. No SDL/GL or mutable globals are in that module.
+
+[inferred] In the new priority-1 drag branch, immediately before phys_drag_step, optionally supply
+stock per-gear centers derived by the existing drivetrain curve solver:
+
+```c
+drag_gear.shift_point_rpm = 0.0f;
+if (g_stage1.ready && g_dbg.perf_power_level == 0 &&
+    g_dbg.perf_transmission_level == 0 && drag_gear.gear >= 1 &&
+    drag_gear.gear <= g_stage1.drivetrain.car.gear_count)
+    drag_gear.shift_point_rpm = g_stage1.drivetrain.car.up_rpm[drag_gear.gear + 1];
+```
+
+[inferred] If the hint is missing/invalid, grading uses g_vehicle_source.redline_rpm. Refresh the
+hint before each tick, so it belongs to the pre-shift gear. It does not request an automatic shift.
+
+[inferred] Add these presentation fields to HudState near its current shift_ready/engine_failed:
+
+```c
+int shift_quality;                 /* RR_SHIFT_* */
+uint32_t shift_quality_key;         /* installed language key, 0 means hide */
+float shift_quality_seconds;       /* remaining simulation-time feedback */
+```
+
+[inferred] In the existing drag HUD feed at main.c:11388–11391 append:
+
+```c
+hs.shift_quality = drag_gear.shift_quality;
+hs.shift_quality_seconds = drag_gear.feedback_seconds;
+hs.shift_quality_key = drag_gear.feedback_seconds > 0
+    ? rr_drag_grade_label(drag_gear.shift_quality) : 0;
+```
+
+[inferred] The HUD owner binds the nonzero key through the loaded language table and hides feedback
+at zero; do not hardcode English replacement captions. Existing rpm/redline, heat and engine_failed
+feeds stay intact. phys_manual_step owns the heat clock/failure latch, and phys_drag_step calls it
+once per tick; do not integrate heat again in main. Existing GF failure handling already observes
+race_drag_failure(drag_gear.failed, ...). Reset/restart already zero-initializes PhysManual.
+[observed] Baseline HUD only exposes heat/readiness and an engine-blown message. Rendering new
+grading captions requires the HUD owner; no such rendered result is claimed by Task F.
+
+```make
+race-drag-rules-test:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections -Isrc tools/race_drag_rules_test.c src/race_rules.c src/physics.c -Wl,--gc-sections -lm -o build/race_drag_rules_test
+	./build/race_drag_rules_test
+```
+
+[inferred] Repeat the recipe with -DN2_GLES. The new kernel and test are synthetic/data-free.

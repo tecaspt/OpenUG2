@@ -2,6 +2,7 @@
 #define OPENUG2_RACE_H
 #include <stdint.h>
 #include <math.h>
+#include "race_rules.h"
 enum { N2_RACE_UNKNOWN, N2_RACE_CIRCUIT, N2_RACE_SPRINT, N2_RACE_DRAG,
        N2_RACE_DRIFT, N2_RACE_STREETX, N2_RACE_URL };
 typedef struct { char name[64]; uint32_t flags; int length, kind, downhill; } N2EventInfo;
@@ -14,7 +15,7 @@ static int race_has_traffic(int kind,int downhill) {
            (kind==N2_RACE_DRIFT && downhill);
 }
 static int race_drag_failure(int blown,float wall,float vehicle) {
-    return blown?1:wall>8 || vehicle>0?2:0;
+    return rr_drag_failure_value(blown,wall,vehicle);
 }
 typedef struct { float bank,chain,quiet,angle; } RaceDrift;
 /* Measured slip and travelled distance, not steering animation. The scoring
