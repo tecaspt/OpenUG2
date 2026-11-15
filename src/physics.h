@@ -77,6 +77,23 @@ float phys_manual_step(PhysManual *state,const N2PhysicsAttr *source,int power_l
                        int transmission_level,float radius,float speed,float throttle,
                        int shift_delta,float dt);
 
+/* [inferred] Dedicated drag longitudinal adapter. Unlike an arcade thrust
+ * multiplier, torque/radius/mass and quadratic resistance have SI dimensions.
+ * Source records supply mass, curves, gearbox, wheel radius and air coefficient.
+ * Rolling loss and dry launch grip remain explicit provisional policies. */
+#define PHYS_DRAG_ROLLING_FRACTION .015f
+#define PHYS_DRAG_LAUNCH_GRIP 1.0f
+#define PHYS_DRAG_GRAVITY 9.81f
+typedef struct {
+    const N2PhysicsAttr *source; /* borrowed, must outlive this configuration */
+    float wheel_radius,air_drag;
+    int power_level,transmission_level;
+} PhysDragConfig;
+int phys_drag_config_valid(const PhysDragConfig *);
+/* No IO: read the existing car row in the caller's retail buffer. */
+int phys_drag_config_read(PhysDragConfig *,const N2PhysicsAttr *,
+        const unsigned char *global,long length,const char *car,int power,int transmission);
+
 /* Fleet medians measured over all 44 drivable cars (--fleet-census, M121).
  * They are the normalisation basis, not per-car values. */
 #define PHYS_FLEET_VOLUME   13.6194f   /* m^3, body AABB L*W*H */
@@ -237,6 +254,10 @@ float phys_stage1_chassis_step(float pos[3],float vel[2],float *heading,float *s
     float steer,int handbrake,const PhysSurface *surface,const PhysVehicle *vehicle);
 /* Refresh after world-wall resolution, not car/car impulses. Returns removed
    inward speed in m/s; zero clears last frame's wall contact. */
+float phys_drag_step(PhysManual *,const PhysDragConfig *,float pos[3],float vel[2],
+        float *heading,float *speed,float throttle,float steer,int handbrake,int shift_delta,
+        const PhysSurface *,const PhysVehicle *,const PhysRideState *);
+
 float phys_ride_wall_contact(PhysRideState *ride,const float before[2],const float after[2]);
 /* Airborne impacts rebound; gentle grounded contact keeps its tangent. */
 float phys_ride_wall_response(PhysRideState *ride,const float before[2],float after[2]);

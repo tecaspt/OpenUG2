@@ -354,6 +354,71 @@ float phys_manual_step(PhysManual *s,const N2PhysicsAttr *a,int power,int transm
     return peak>0 ? pv_clamp((lo+(hi-lo)*t)/peak*ratio/box->forward[0],0,1.5f) : 0;
 }
 
+/* [inferred] Keep the legacy entry points unchanged. The host opts into
+ * dimensional wheel thrust and air loss through phys_drag_step only. */
+int phys_drag_config_valid(const PhysDragConfig *c) {
+    if(!c || !c->source || c->power_level<0 || c->power_level>3 ||
+       c->transmission_level<0 || c->transmission_level>3 ||
+       !isfinite(c->wheel_radius) || c->wheel_radius<.05f ||
+       !isfinite(c->air_drag) || c->air_drag<0)return 0;
+    const N2PhysicsAttr *a=c->source;const N2GearboxAttr *b=a->gearbox+c->transmission_level;
+    if(!isfinite(a->mass_tonnes) || a->mass_tonnes<=0 ||
+       !isfinite(a->idle_rpm) || a->idle_rpm<=0 ||
+       !isfinite(a->redline_rpm) || a->redline_rpm<=a->idle_rpm ||
+       !isfinite(a->limiter_rpm) || a->limiter_rpm<=a->redline_rpm ||
+       b->gear_count<1 || b->gear_count>6 || !isfinite(b->final_drive) || b->final_drive<=0)return 0;
+    for(int k=0;k<b->gear_count;k++)if(!isfinite(b->forward[k]) || b->forward[k]<=0)return 0;
+    for(int k=0;k<9;k++)if(!isfinite(a->torque[k]) || a->torque[k]<0 ||
+       !isfinite(a->torque_gain[c->power_level][k]) || a->torque_gain[c->power_level][k]<0)return 0;
+    return 1;
+}
+int phys_drag_config_read(PhysDragConfig *out,const N2PhysicsAttr *a,
+        const unsigned char *data,long len,const char *name,int power,int transmission) {
+    if(!out || !a || !data || !name || !isfinite(a->rear_drive) || a->rear_drive<0 || a->rear_drive>1)return 0;
+    long row=n2_global_car_record(data,len,name);
+    if(row<0 || row>len-0x890)return 0;
+    float front,rear,drag;
+    memcpy(&front,data+row+0x130,4);memcpy(&rear,data+row+0x190,4);memcpy(&drag,data+row+0x370,4);
+    if(!isfinite(front) || front<.05f || !isfinite(rear) || rear<.05f)return 0;
+    PhysDragConfig next={a,front*(1-a->rear_drive)+rear*a->rear_drive,drag,power,transmission};
+    if(!phys_drag_config_valid(&next))return 0;
+    *out=next;return 1;
+}
+float phys_drag_step(PhysManual *manual,const PhysDragConfig *c,float pos[3],float vel[2],
+        float *heading,float *speed,float pedal,float steer,int handbrake,int shift,
+        const PhysSurface *surface,const PhysVehicle *vehicle,const PhysRideState *ride) {
+    if(!manual || !phys_drag_config_valid(c) || !pos || !vel || !heading || !speed ||
+       !isfinite(*heading) || !isfinite(*speed) || !isfinite(vel[0]) || !isfinite(vel[1]) ||
+       !isfinite(pedal) || !isfinite(steer))return 0;
+    const N2PhysicsAttr *a=c->source;const N2GearboxAttr *box=a->gearbox+c->transmission_level;
+    if(!surface)surface=&PHYS_SURF_ROAD;
+    pedal=handbrake?0:pv_clamp(pedal,-1,1);
+    float enabled=phys_manual_step(manual,a,c->power_level,c->transmission_level,
+        c->wheel_radius,*speed,pedal,shift,1/PHYS_TICKRATE);
+    if(ride && !ride->contact_mask)
+        return phys_drive_step(pos,vel,heading,speed,pedal,steer,handbrake,surface,vehicle,ride);
+    float x=cosf(*heading),y=sinf(*heading);
+    float forward=(vel[0]*x+vel[1]*y)*PHYS_TICKRATE,force=0;
+    if(pedal>0 && enabled>0) {
+        float sample=pv_clamp((manual->rpm-a->idle_rpm)/(a->limiter_rpm-a->idle_rpm)*8,0,8);
+        int i=(int)sample,j=i<8?i+1:i;float t=sample-i;
+        float lo=a->torque[i]+(c->power_level?a->torque_gain[c->power_level][i]:0);
+        float hi=a->torque[j]+(c->power_level?a->torque_gain[c->power_level][j]:0);
+        force=(lo+(hi-lo)*t)*box->forward[manual->gear-1]*box->final_drive/c->wheel_radius;
+        force*=pedal*surface->accel*g_phys_tune.accel;
+        force=fminf(force,a->mass_tonnes*PHYS_DRAG_GRAVITY*PHYS_DRAG_LAUNCH_GRIP);
+    } else if(pedal<0 && forward>0) {
+        force=pedal*a->mass_tonnes*PHYS_ACCEL*PHYS_TICKRATE*PHYS_TICKRATE*BRAKE_ACCEL*
+            g_phys_tune.brake*(vehicle && vehicle->brake>0?vehicle->brake:1);
+    }
+    float rolling=copysignf(a->mass_tonnes*PHYS_DRAG_GRAVITY*PHYS_DRAG_ROLLING_FRACTION,forward);
+    float next=forward+(force-c->air_drag*forward*fabsf(forward)-rolling)/a->mass_tonnes/PHYS_TICKRATE;
+    if(forward>=0 && next<0)next=0;
+    float change=(next-forward)/PHYS_TICKRATE;
+    vel[0]+=x*change;vel[1]+=y*change;
+    return phys_stage1_chassis_step(pos,vel,heading,speed,steer,handbrake,surface,vehicle);
+}
+
 static float chassis_step(float pos[3], float vel[2], float *heading, float *speed,
                     float throttle, float steer, int handbrake,
                     const PhysSurface *sf, const PhysVehicle *vh,int stage1) {
