@@ -5,6 +5,8 @@
 #include "options_menu.h"
 
 #include <string.h>
+#include <math.h>
+#include <stdio.h>
 
 #include "gui_timing.h"
 
@@ -66,15 +68,15 @@ static const OmHubEntry k_hub_controls = { 0xA04A7B26u, 0x04DC6DB5u, NULL, OM_HU
 
 const char *om_package_name(OmContext ctx, OmScreen screen) {
     if (screen == OM_SCREEN_CUSTOMIZE) return "UI_PC_Customize_Options.fng";
-    if (screen == OM_SCREEN_DISPLAY || screen == OM_SCREEN_GAMEPLAY) return ctx == OM_CTX_INGAME ? "UI_PauseOptions.fng" : "UI_Options.fng";
-    if (screen == OM_SCREEN_HUB && ctx == OM_CTX_INGAME) return "UI_PauseOptionsMain.fng";
+    if (screen == OM_SCREEN_DISPLAY || screen == OM_SCREEN_GAMEPLAY || screen==OM_SCREEN_AUDIO || screen==OM_SCREEN_PLAYER) return ctx == OM_CTX_INGAME ? "UI_PauseOptions.fng" : "UI_Options.fng";
+    if (screen == OM_SCREEN_HUB) return om_hub_package_name(ctx);
     if (screen == OM_SCREEN_CONTROLS) return "UI_Options_PC_Controller.fng";
     return NULL;
 }
 uint32_t om_package_key(OmContext ctx, OmScreen screen) {
     if (screen == OM_SCREEN_CUSTOMIZE) return 0xC4ACC9A5u;
-    if (screen == OM_SCREEN_DISPLAY || screen == OM_SCREEN_GAMEPLAY) return ctx == OM_CTX_INGAME ? 0xAEA9078Fu : 0x551CA351u;
-    if (screen == OM_SCREEN_HUB && ctx == OM_CTX_INGAME) return 0x73F51C74u;
+    if (screen == OM_SCREEN_DISPLAY || screen == OM_SCREEN_GAMEPLAY || screen==OM_SCREEN_AUDIO || screen==OM_SCREEN_PLAYER) return ctx == OM_CTX_INGAME ? 0xAEA9078Fu : 0x551CA351u;
+    if (screen == OM_SCREEN_HUB) return ctx==OM_CTX_INGAME?0x73F51C74u:0x1e74c936u;
     if (screen == OM_SCREEN_CONTROLS) return 0xE0EE65E6u;
     return 0;
 }
@@ -207,11 +209,54 @@ static void build_hub(OptionsMenu *m) {
     m->hub_count = OM_HUB_ENTRIES + (m->controls_ok && m->bindings ? 1 : 0);
     int first = m->hub_remembered >= 1 && m->hub_remembered <= m->hub_count ? m->hub_remembered - 1 : 0;
     gc_init(&m->hub, GC_RAIL_HUB);
-    gc_set_entries(&m->hub, m->hub_count, NULL);
+    int disabled[OM_HUB_MAX]={0};
+    if(m->cfg.ctx==OM_CTX_FRONTEND && !m->cfg.profile)disabled[0]=disabled[2]=disabled[3]=1;
+    gc_set_entries(&m->hub, m->hub_count, disabled);
+    if(disabled[first])first=HUB_PAGE_DISPLAY;
     gc_snap_to(&m->hub, first);                             /* first build snaps (3.2) */
     m->hub_ptr.armed = 0;
 }
 
+/* [inferred] FE profile pages use typed settings fields; the existing pause path is unchanged. */
+static float *audio_field(StProfile *p,int i) {
+    float *fields[]={&p->audio.master,&p->audio.speech_movie,&p->audio.menu_music,&p->audio.game_music,&p->audio.sfx,&p->audio.engine,&p->audio.tire};
+    return i>=0 && i<7?fields[i]:NULL;
+}
+static int profile_value(const OptionsMenu *m,int i) {
+    StProfile *p=m->cfg.profile;if(!p)return 0;
+    if(m->screen==OM_SCREEN_AUDIO)return i<7?(int)lroundf((isfinite(*audio_field(p,i))?fminf(1,fmaxf(0,*audio_field(p,i))):0)*100):p->audio.mode!=0;
+    if(m->screen==OM_SCREEN_PLAYER) {
+        StPlayer *v=&p->player[0];uint8_t *fields[]={&v->gauges,&v->race_position,&v->lap_info,&v->score,&v->feedback,&v->leaderboard,&v->ask_transmission,&v->transmission,&v->stability_control};
+        return i<9?*fields[i]:(int)v->camera;
+    }
+    StGameplay *v=&p->gameplay;
+    switch(i){case 0:return v->rearview_mirror;case 1:return v->speedo_units;case 2:return v->race_map_mode;case 3:return v->explore_map_mode;default:return v->jump_camera!=0;}
+}
+static void profile_set(OptionsMenu *m,int i,int value) {
+    StProfile *p=m->cfg.profile;if(!p)return;
+    if(m->screen==OM_SCREEN_AUDIO){if(i<7)*audio_field(p,i)=value/100.f;else p->audio.mode=(uint32_t)value;}
+    else if(m->screen==OM_SCREEN_PLAYER) {
+        StPlayer *v=&p->player[0];uint8_t *fields[]={&v->gauges,&v->race_position,&v->lap_info,&v->score,&v->feedback,&v->leaderboard,&v->ask_transmission,&v->transmission,&v->stability_control};
+        if(i<9)*fields[i]=(uint8_t)value;else v->camera=(uint32_t)value;
+    } else {StGameplay *v=&p->gameplay;switch(i){case 0:v->rearview_mirror=(uint8_t)value;break;case 1:v->speedo_units=(uint8_t)value;break;case 2:v->race_map_mode=(uint8_t)value;break;case 3:v->explore_map_mode=(uint8_t)value;break;default:v->jump_camera=value?127.f:0;break;}}
+    m->profile_requested=1;
+}
+static void build_profile_page(OptionsMenu *m) {
+    static const uint32_t audio_keys[]={0x26782c3e,0x9e5fb82a,0x418e681d,0xdf21eac2,0xfd487543,0xa2b1f888,0x69b745c6,0x2881ab87};
+    static const char *audio[]={"Master Volume","Speech & Movie Volume","Menu Music Volume","Game Music Volume","Sound Effects Volume","Engine Volume","Tire Volume","Audio Mode"};
+    static const uint32_t player_keys[]={0xac148579,0x82cd8f92,0x969f96a5,0xc03f9f19,0x6353f07e,0xc93fbfb5,0xbfb34120,0xd31407e7,0xdf06ed22,0xf6ccdc5f};
+    static const char *player[]={"Gauges","Race Position","Lap Info","Score","Feedback","Leaderboard","Ask for Transmission","Transmission","Stability Control","Camera"};
+    static const uint32_t gameplay_keys[]={0x85a6ce05,0xf86a6272,0x9fa5ec9e,0xc6269082,0xf26a5cbf};
+    static const char *gameplay[]={"Rearview Mirror","Speedometer Units","Race Map Mode","Explore Map Mode","Jump Camera"};
+    int n=m->screen==OM_SCREEN_AUDIO?8:m->screen==OM_SCREEN_PLAYER?10:5;
+    for(int i=0;i<n;i++) {
+        int audio_page=m->screen==OM_SCREEN_AUDIO,player_page=m->screen==OM_SCREEN_PLAYER;
+        OmRow *r=add_row(m,audio_page && i<7?OM_ROW_SLIDER:OM_ROW_CHOICE,OM_ID_PROFILE,
+            audio_page?audio_keys[i]:player_page?player_keys[i]:gameplay_keys[i],audio_page?audio[i]:player_page?player[i]:gameplay[i]);
+        r->gfx=i;r->min=0;r->max=audio_page?(i<7?100:1):player_page?(i==9?4:1):((i==2 || i==3)?2:1);
+        r->vt=OM_VT_ONOFF;
+    }
+}
 static void enter_screen(OptionsMenu *m, OmScreen screen) {
     m->screen = screen;
     m->nrows = 0;
@@ -219,6 +264,7 @@ static void enter_screen(OptionsMenu *m, OmScreen screen) {
     m->exiting = 0;
     m->exit_kind = OM_EXIT_NONE;
     if (screen == OM_SCREEN_DISPLAY) build_display(m);
+    else if((screen==OM_SCREEN_AUDIO || screen==OM_SCREEN_PLAYER || screen==OM_SCREEN_GAMEPLAY) && m->cfg.profile)build_profile_page(m);
     else if(screen == OM_SCREEN_GAMEPLAY){
         OmRow *r=add_row(m,OM_ROW_CHOICE,OM_ID_MOUSE_LOOK,0,"Right mouse look");
         r->vt=OM_VT_ONOFF;
@@ -269,7 +315,7 @@ void om_open(OptionsMenu *m, const OmConfig *cfg, StGraphics *gfx, const StGfxCa
 void om_open_hub(OptionsMenu *m, const OmConfig *cfg, StGraphics *gfx, const StGfxCaps *caps,
                  StRegStore *store) {
     begin(m, cfg, gfx, caps, store);
-    m->cfg.ctx = OM_CTX_INGAME;
+    /* preserve the caller context; pause callers already pass OM_CTX_INGAME */
     enter_screen(m, OM_SCREEN_HUB);
 }
 void om_set_controls(OptionsMenu *m, CbBindings *b, const CmPlatform *plat, int available) {
@@ -326,6 +372,7 @@ int om_row_visible(const OptionsMenu *m, int i) {
 }
 int om_row_value(const OptionsMenu *m, int i) {
     const OmRow *r = om_row(m, i);
+    if(r && r->id==OM_ID_PROFILE)return profile_value(m,r->gfx);
     if(r && r->id==OM_ID_MOUSE_LOOK)return m->cfg.mouse_look && *m->cfg.mouse_look!=0;
     if (!r || r->gfx < 0) return 0;
     int v = m->gfx->v[r->gfx];
@@ -349,6 +396,15 @@ const char *om_row_value_text(const OptionsMenu *m, int i, uint32_t *key) {
         default: break;
         }
     }
+    if(r && r->id==OM_ID_PROFILE) {
+        int v=om_row_value(m,i);k=0;
+        if(m->screen==OM_SCREEN_AUDIO && r->gfx==7){t=v?"Stereo":"Mono";k=v?0x55da8bf8:0xc50fa35f;}
+        else if(m->screen==OM_SCREEN_PLAYER && r->gfx==9){static const char *c[]={"Bumper","Hood","Close","Far","Super Far"};int index=v>=0 && v<5?v:0;static const uint32_t keys[]={0xc3e9ae58,0x414f19d7,0x5ae3441f,0x1ea4cec2,0x916039b4};t=c[index];k=keys[index];}
+        else if(m->screen==OM_SCREEN_PLAYER && r->gfx==7){t=v?"Manual":"Automatic";k=v?0x1b3a2485:0x61cb0720;}
+        else if(m->screen==OM_SCREEN_PLAYER && r->gfx==8){t=v?"Off":"On";k=v?OM_KEY_OFF:OM_KEY_ON;}
+        else if(m->screen==OM_SCREEN_GAMEPLAY && r->gfx==1){t=v?"KM/H":"MPH";k=v?0x8569a25f:0x8569ab44;}
+        else if(m->screen==OM_SCREEN_GAMEPLAY && (r->gfx==2 || r->gfx==3)){static const char *c[]={"Off","Static","Rotate"};int index=v>=0 && v<3?v:0;static const uint32_t keys[]={OM_KEY_OFF,0xf75595f2,0xf4b00e99};t=c[index];k=keys[index];}
+    }
     if (key) *key = k;
     return t;
 }
@@ -360,10 +416,11 @@ const char *om_header(const OmContext ctx, OmScreen screen, int which, uint32_t 
     uint32_t k = 0;
     const char *t = NULL;
     if (screen == OM_SCREEN_CUSTOMIZE && which == 0) { k = OM_KEY_TITLE_CUSTOMIZE; t = "Customize Display Settings"; }
-    else if (screen == OM_SCREEN_HUB && which == 0) { k = OM_KEY_TITLE_PAUSE; t = "PAUSE OPTIONS"; }
+    else if (screen == OM_SCREEN_HUB && which == 0) { k = ctx==OM_CTX_INGAME?OM_KEY_TITLE_PAUSE:0xc7ca52ed; t = ctx==OM_CTX_INGAME?"PAUSE OPTIONS":"Options"; }
+    else if ((screen==OM_SCREEN_AUDIO || screen==OM_SCREEN_PLAYER) && which==0){k=screen==OM_SCREEN_AUDIO?0xe76cd783:0xf760eabe;t=screen==OM_SCREEN_AUDIO?"Audio":"Player";}
     else if (screen == OM_SCREEN_CONTROLS && which == 0) k = CM_KEY_HEADER;        /* text: language file only */
     else if(screen == OM_SCREEN_GAMEPLAY){
-        if(which==0){k=OM_KEY_TITLE_PAUSE;t="PAUSE OPTIONS";}
+        if(which==0){k=ctx==OM_CTX_INGAME?OM_KEY_TITLE_PAUSE:0xd0cf6ee1;t=ctx==OM_CTX_INGAME?"PAUSE OPTIONS":"Gameplay";}
         else if(which==1){k=0xD0CF6EE1u;t="Gameplay";}
     }
     else if (screen == OM_SCREEN_DISPLAY) {
@@ -421,6 +478,8 @@ static void finish_exit(OptionsMenu *m) {
     case OM_EXIT_TO_DISPLAY: enter_screen(m, OM_SCREEN_DISPLAY); break;     /* fresh build, focus on row 1 */
     case OM_EXIT_TO_CUSTOMIZE: enter_screen(m, OM_SCREEN_CUSTOMIZE); break;
     case OM_EXIT_TO_CONTROLS: enter_screen(m, OM_SCREEN_CONTROLS); break;
+    case OM_EXIT_TO_AUDIO: enter_screen(m,OM_SCREEN_AUDIO);break;
+    case OM_EXIT_TO_PLAYER: enter_screen(m,OM_SCREEN_PLAYER);break;
     case OM_EXIT_TO_GAMEPLAY: enter_screen(m, OM_SCREEN_GAMEPLAY); break;
     case OM_EXIT_LEAVE_GAMEPLAY: enter_screen(m, OM_SCREEN_HUB); break;
     case OM_EXIT_LEAVE_DISPLAY:                              /* SPEC_GUI 5.1: write, then the hub */
@@ -447,6 +506,13 @@ static void row_adjust(OptionsMenu *m, int dir) {
     const OmRow *r = &m->rows[m->list.focus];
     StGraphics *g = m->gfx;
     if (r->kind == OM_ROW_CHOICE || r->kind == OM_ROW_SLIDER) blink(m, dir);   /* the arrow blinks on any press */
+    if(r->id==OM_ID_PROFILE) {
+        int value=profile_value(m,r->gfx),step=r->kind==OM_ROW_SLIDER?5:1;
+        value+=dir*step;
+        if(r->kind==OM_ROW_CHOICE){if(value<r->min)value=r->max;if(value>r->max)value=r->min;}
+        else {if(value<r->min)value=r->min;if(value>r->max)value=r->max;}
+        profile_set(m,r->gfx,value);return;
+    }
     if(r->id==OM_ID_MOUSE_LOOK){
         if(m->cfg.mouse_look)*m->cfg.mouse_look=!*m->cfg.mouse_look;
     }else if (r->kind == OM_ROW_CHOICE && r->id == OM_ID_RESOLUTION) {
@@ -473,7 +539,7 @@ static void open_defaults_dialog(OptionsMenu *m) {
 
 static void row_accept(OptionsMenu *m) {
     const OmRow *r = &m->rows[m->list.focus];
-    if(r->id==OM_ID_MOUSE_LOOK)row_adjust(m,1);
+    if(r->id==OM_ID_MOUSE_LOOK || r->id==OM_ID_PROFILE)row_adjust(m,1);
     else if (r->kind == OM_ROW_CHOICE && r->id == OM_ID_OPTION) {
         m->gfx->v[r->gfx] = m->gfx->v[r->gfx] ? 0 : 1;
         changed(m, r);
@@ -510,9 +576,11 @@ static void hub_activate(OptionsMenu *m) {
     int page = e ? e->page : -1;
     m->page = page;
     if (page == HUB_PAGE_DISPLAY) begin_exit(m, OM_EXIT_TO_DISPLAY);
-    else if(page==2 && m->cfg.mouse_look)begin_exit(m,OM_EXIT_TO_GAMEPLAY);
+    else if(page==0 && m->cfg.profile)begin_exit(m,OM_EXIT_TO_AUDIO);
+    else if(page==3 && m->cfg.profile)begin_exit(m,OM_EXIT_TO_PLAYER);
+    else if(page==2 && (m->cfg.mouse_look || m->cfg.profile))begin_exit(m,OM_EXIT_TO_GAMEPLAY);
     else if (page == OM_HUB_PAGE_CONTROLS) begin_exit(m, OM_EXIT_TO_CONTROLS);
-    /* Audio and Player pages are not implemented. */
+    /* Optional profile pages are unavailable to legacy callers without a profile. */
 }
 
 static void hub_input(OptionsMenu *m, OmInput in) {
@@ -591,7 +659,7 @@ void om_input(OptionsMenu *m, OmInput in) {
     case OM_IN_RIGHT: row_adjust(m, 1); break;
     case OM_IN_ACCEPT: row_accept(m); break;
     case OM_IN_BACK:
-        begin_exit(m,m->screen==OM_SCREEN_GAMEPLAY?OM_EXIT_LEAVE_GAMEPLAY:
+        begin_exit(m,(m->screen==OM_SCREEN_GAMEPLAY || m->screen==OM_SCREEN_AUDIO || m->screen==OM_SCREEN_PLAYER)?OM_EXIT_LEAVE_GAMEPLAY:
                      m->screen == OM_SCREEN_DISPLAY ? OM_EXIT_LEAVE_DISPLAY : OM_EXIT_TO_DISPLAY);
         break;
     case OM_IN_START:                                       /* SPEC_GUI 5.2: in-game Display only, no write */
@@ -654,3 +722,5 @@ void om_update(OptionsMenu *m, float seconds) {
     m->exit_left_ms -= seconds > 0 ? seconds * 1000.0f : 0.0f;
     if (m->exit_left_ms <= 0) finish_exit(m);
 }
+
+int om_take_profile_request(OptionsMenu *m){int changed=m->profile_requested;m->profile_requested=0;return changed;}
