@@ -58,8 +58,18 @@ typedef struct FeChoice {
     float preview_wait;
     char preview[32], label[96], laps_text[16], distance[32];
     GvList list;
+    uint32_t track_name_keys[GC_MAX_EVENTS];
+    int track_map_ids[GC_MAX_EVENTS], map_textures[GC_MAX_EVENTS];
+    UgBuf map_buffers[GC_MAX_EVENTS]; int nmap_buffers;
+    int resolved_kind;
+    char track_status[160],car_status[160];
+
 } FeChoice;
-int fet_open(FeChoice *, GvScreen *, const UgAssets *, int options);
+int fet_open(FeChoice *, GvScreen *, UgAssets *, int options);
+void fet_free(FeChoice *);
+int fet_name_is_real(const char *);
+int fet_map_opaque(uint8_t *,size_t pixels);
+int fet_same_layout(const void *,size_t,const void *,size_t);
 void fet_sync(FeChoice *, GvScreen *, float ms, int options);
 void fet_move(FeChoice *, int direction, int vertical, int options);
 int fec_open(FeChoice *, GvScreen *, const UgAssets *);

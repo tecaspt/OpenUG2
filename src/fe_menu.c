@@ -219,6 +219,7 @@ void fem_destroy(FeMenu *m) {
     ug_gl_destroy(m->gl);
     ug_cv_free(&m->canvas);
     ug_assets_close(&m->assets);
+    fet_free(&m->choice);
     free(m);
 }
 
@@ -268,7 +269,13 @@ void fem_show_error(FeMenu *m, const char *message) {
 
 const char *fem_preview_car(const FeMenu *m) { return m && m->screen==FEM_SCR_QR_CAR ? m->choice.preview : ""; }
 int fem_visual_available(const FeMenu *m) { return m && m->open && m->visual && m->compatible && m->gl; }
-const char *fem_status(const FeMenu *m) { return m ? m->status : "front-end menu allocation unavailable"; }
+const char *fem_status(const FeMenu *m) {
+    if(!m)return "front-end menu allocation unavailable";
+    if(m->status[0])return m->status;
+    if(m->screen==FEM_SCR_QR_TRACK)return m->choice.track_status;
+    if(m->screen==FEM_SCR_QR_CAR)return m->choice.car_status;
+    return m->status;
+}
 
 /* ---- input ------------------------------------------------------------------------------------- */
 

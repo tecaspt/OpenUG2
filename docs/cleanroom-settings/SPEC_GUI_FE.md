@@ -96,3 +96,29 @@ navigate/accept choices and select options rows. These zones are platform adapta
 that the request carries the selected event/car/options and that preview and post-race restart work.
 [inferred] Exact retail flow, carousel content, unlock/filter rules and map-thumbnail assignments still
 benefit from the owner's PC retail captures; no such captures were available in this task.
+
+## M2 priority 1 — names and map/model art
+
+[data] TRACK_NAME_4202 exists in Labels/English; its English value is literally "4202". The key hash
+used by the catalogue is correct. TRACK_NAME_4201 is "Bayview Bridge". These statements supersede any
+assumption that a numeric caption necessarily means a language lookup miss.
+[data] Complete path-node records for 4201, 4202 and 4203 match in the same region.
+[inferred] Resolve unnamed/numeric layouts only against named catalogue layouts of the same region
+and race kind with exactly matching complete path records. All matching names must agree. Preserve
+the requested event id; never infer names from number ranges or substitute a region label.
+[inferred] On missing/conflicting evidence the caption is empty and fem_status reports why.
+[data] The separately loaded TRACKS/TRACKMAP4201.BIN contains decodable texture TRACKMAP4201, not
+TRACK4201_MAP. Its buffer must outlive borrowed texture pixels. FrontB only supplies the generic city map.
+[inferred] Use the resolved layout's texture for the large map and one selected authored thumbnail;
+this does not establish the original game's complete thumbnail scrolling behavior.
+[data] FrontB contains decodable SECONDARY_LOGO_MIATA (256x64); the model-image placeholder is 256x64.
+[inferred] The model badge SECONDARY_LOGO_<car> binds that image field. Missing badges are omitted,
+never replaced with white placeholder images. Manufacturer badges/stat values remain outside this change.
+[data] Independent pixel inspection of TRACKMAP4201 and TRACKMAP4001 found populated RGB but an entirely
+zero alpha plane in DXT3. A successful decoder return alone therefore does not imply visible map art.
+[inferred] The FE importer treats an entirely zero-alpha TRACKMAP DXT3 surface as opaque RGB, preserving
+RGB exactly and leaving mixed/nonzero alpha untouched. This interpretation is specific to map surfaces;
+it does not alter the general texture decoder or other sprite classes.
+[data] CARSELECT_MANUFACTURER_MAZDA hashes to a matching FrontB 128x64 texture, 0xC332AE6D.
+[inferred] Manufacturer/car association is not yet decoded generically, so the separate left
+manufacturer field remains hidden; the model badge uses its directly keyed car-folder association.
