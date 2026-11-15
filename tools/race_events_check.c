@@ -7,7 +7,26 @@
 #include "contact_audit.h"
 
 /* --contact-audit: attribute every returned world contact (read-only). */
-static int contact_audit,free_roam_collision;
+static int contact_audit,free_roam_collision,escape_audit;
+/* --escape-audit: report the first point where a racer leaves the course (owner report: a car went through a
+   barrier at speed and fell under the map). Off by default so reference outputs stay unchanged. */
+#ifndef ESC_LATERAL_M
+#define ESC_LATERAL_M 25.0f
+#endif   /* farther than this from the course line = out of the corridor */
+#define ESC_NOGROUND_T 60     /* ticks with no ROAD/TERRAIN under the car = fell / airborne off the map */
+typedef struct { int reported, noground; float maxlat; } EscState;
+static void esc_check(EscState *st, int id, int car, const AiCar *c, const N2Path *course, const N2Scene *scene, int frame) {
+    if (!escape_audit || st->reported || course->n < 2) return;
+    float lat = fabsf(ai_course_lateral(course, c->pos));
+    if (lat > st->maxlat) st->maxlat = lat;
+    WGroundHit h; int cat = world_ground_hit(scene, c->pos[0], c->pos[1], c->pos[2], &h);
+    st->noground = (cat == WSURF_ROAD || cat == WSURF_TERRAIN) ? 0 : st->noground + 1;
+    const char *why = lat > ESC_LATERAL_M ? "off-course" : st->noground > ESC_NOGROUND_T ? "no-ground" : NULL;
+    if (!why) return;
+    st->reported = 1;
+    printf("EVENT-ESCAPE %d car=%d %s at (%.1f %.1f %.1f) lateral=%.1f m speed=%.0f km/h frame=%d\n",
+           id, car, why, c->pos[0], c->pos[1], c->pos[2], lat, PHYS_KMH(fabsf(c->spd)), frame);
+}
 
 static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
         const RaceAiSource *source,int difficulty,float pace,int laps) {
@@ -72,6 +91,7 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
         }
         if(driven==wanted) {
             int invalid=0;
+            EscState esc[N_RACE_AI+1]; memset(esc,0,sizeof esc);
             for(int frame=0;frame<90000;frame++) {
                 AiCar *contacts[N_RACE_AI+1];int done=0,failed=0;
                 g_ca.frame=frame;
@@ -93,6 +113,8 @@ static int drive(const char *root,const WEvent *e,int *spawned,int *finished,
                 }
                 ai_car_contacts(contacts,driven+(reference>=0),&world,NULL);
                 world_props_step(1/PHYS_TICKRATE);
+                for(int k=0;k<driven+(reference>=0) && k<N_RACE_AI+1;k++)
+                    if(!drivers[k].progress.finished)esc_check(esc+k,e->id,k,cars+k,&course,&nb.scene,frame);
                 *finished=done;
                 invalid|=failed;
                 if(done==driven || failed)break;
@@ -147,6 +169,7 @@ int main(int argc,char **argv) {
                 if(!g_ca.log){fprintf(stderr,"cannot write %s\n",argv[j]);return 2;}
             }
         }else if(!strcmp(argv[j],"--free-roam-collision"))free_roam_collision=1;
+        else if(!strcmp(argv[j],"--escape-audit"))escape_audit=1;
         else {fprintf(stderr,"Usage: race_events_check TRACKS [--drive [event] [--source-ai] [--difficulty 0..2] [--pace km/h] [--laps 1..99] [--contact-audit [TSV]] [--free-roam-collision]]\n");return 2;}
     }
     RaceAiSource *source=NULL;
