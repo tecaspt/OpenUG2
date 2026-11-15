@@ -1,6 +1,6 @@
 # Task E — priority 1: Quick Race names and art
 
-Status: priority 1 implemented; desktop verification passed, GLES regression completion pending. Options/Profile (priorities 2/3) have not
+Status: priority 1 finished and verified in desktop/GLES. Stopping after this priority as requested. Options/Profile (priorities 2/3) have not
 been changed. Stop after completing and reporting this priority, per the task brief.
 
 [data] Labels.bin and English.bin contain TRACK_NAME_4202, but its text is the placeholder "4202".
@@ -29,10 +29,11 @@ or art are reported through fem_status; no guessed city name, numeric caption or
 [observed] New synthetic matching/name/alpha tests: 16/0 in desktop and N2_GLES. Modified sources and
 runtime-check source compile with -Werror in both configurations. Runtime fe_polish_check passes in
 both configurations: drag variant name association, retained map/thumbnail, model badge, preview.
-[observed] Desktop required suite passes: ugui 10034/0; pause vectors/authored/options/binding/behavior
+[observed] Required suite passes in desktop and in a forced N2_GLES rebuild: ugui 10034/0; pause vectors/authored/options/binding/behavior
 PASS; controls 1929/0 and SDL 107/0; fe-track 11/0; postrace 9/0; fe-binding 8/0; check-gl OK;
 options-menu 1448/0; settings 2304/0; settings-boundary PASS. Existing backend and fixture warnings
-remain; none are in modified/new Task E source files. Tests use -O0 to reduce shared-machine build load.
+remain; none are in modified/new Task E source files. Tests use -O0 to reduce shared-machine build load. The full GLES run forced recompilation of all
+prerequisite binaries; an earlier cached-binary run was not used as proof of a GLES rebuild.
 [observed] Current-settings-copy check: SKIP because no current file exists at the default configured
 location and no XDG_CONFIG_HOME override is set. Settings code/format is unchanged; synthetic legacy
 load/round-trip and boundary tests pass. No original user settings were modified.
