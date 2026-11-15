@@ -19,7 +19,7 @@ struct GameCatalog;                /* game_catalog.h */
 
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER } FemScreen;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -50,6 +50,7 @@ const char *fem_status(const FeMenu *m);
 /* Shared Phase-2 model and renderer adapters (no host/world ownership). */
 #include "game_catalog.h"
 #include "fe_profile.h"
+#include "garage.h"
 #include "gui_view.h"
 enum { FEM_APPLY_GRAPHICS=1, FEM_APPLY_REINIT=2, FEM_APPLY_PROFILE=4 };
 /* Optional storage/caps overrides before opening Options/Profile. No writes on creation. */
@@ -67,6 +68,14 @@ void fem_set_career(FeMenu *, int available, int has_save);
 const char *fem_profile_root(const FeMenu *);
 /* Writes the current profile if it only exists in memory (a career save needs its folder). ST_OK or ST_E_*. */
 int fem_persist_profile(FeMenu *);
+/* Current host config is copied outside Garage; preview requests require a host acknowledgement. */
+/* ST_E_NOTFOUND: use stock for this profile/car; other errors refuse launch. */
+int fem_garage_saved(const FeMenu *,const char *car,GarageConfig *out);
+int fem_garage_current(FeMenu *,const char *car,const GarageConfig *);
+int fem_garage_take(FeMenu *,GarageRequest *);
+void fem_garage_ack(FeMenu *,uint32_t serial,int success,const char *error);
+int fem_garage_page(const FeMenu *);
+
 
 typedef struct FeChoice {
     const GameCatalog *cat;

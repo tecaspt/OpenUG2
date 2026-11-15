@@ -248,6 +248,40 @@ int gv_carousel_bind(GvCarousel *v, GvScreen *s, GuiCarousel *car) {
     return 1;
 }
 
+int gv_carousel_bind_parts(GvCarousel *v,GvScreen *s,GuiCarousel *car) {
+    memset(v,0,sizeof *v);v->scr=s;if(!s->loaded)return 0;
+    int bad=0;
+    v->master=find(s,0xef8bb088u,&bad);v->title=find(s,0x6c9e933eu,&bad);
+    v->header=find(s,H_HEADER,&bad);v->back_button=v->select_button=-1;
+    v->rail=find(s,hn("ScrollBar_Backing"),&bad);v->tab=find(s,hn("ScrollBar_Handle"),&bad);
+    v->arrow_l=find(s,hn("ScrollBar_Arrow_1"),&bad);v->arrow_r=find(s,hn("ScrollBar_Arrow_2"),&bad);
+    const uint32_t ids[GC_MAX]={0xe2a4f,0xe534f,0xe534a,0xe5345,0xe5340,0xe533b,0xe5336,0xe5331,0xe532c,0xe5327};
+    for(int k=0;k<GC_MAX;k++) {
+        int at=-1;
+        for(int n=0;n<s->scene.n;n++)if(s->scene.nodes[n].obj->guid==ids[k]) {
+            const UgFngObject *o=s->scene.nodes[n].obj;
+            if(at>=0||o->name_hash!=0x87257585u||o->type!=UG_OBJ_IMAGE||o->parent_guid||o->res_index!=0)bad=1;
+            at=n;
+        }
+        if(at<0)bad=1;else v->slot[v->nslots++]=at;
+    }
+    if(bad||v->master<0||v->title<0||v->header<0||v->rail<0||v->tab<0||v->arrow_l<0||v->arrow_r<0||v->nslots!=GC_MAX) {
+        snprintf(s->status,sizeof s->status,"%s: parts identity mismatch",s->name);return 0;
+    }
+    const UgFngObject *master=s->scene.nodes[v->master].obj;
+    if(master->guid!=0xe2958||master->type!=UG_OBJ_IMAGE||master->parent_guid||master->res_index!=0) {
+        snprintf(s->status,sizeof s->status,"%s: parts master mismatch",s->name);return 0;
+    }
+    gc_set_master(car,master->pos[0],master->pos[1]);
+    for(int n=0;n<s->scene.n;n++) {
+        const UgFngObject *o=s->scene.nodes[n].obj;
+        if(o->name_hash==0x87257585u||o->name_hash==0x0937e8f1u||o->guid==0xe2958||
+           o->guid==0xe26b6||o->guid==0xe51ce)hide(&s->scene,n,1);
+    }
+    for(int n=0;n<GC_MAX;n++)v->last_alpha[n]=-1;
+    v->bound=1;return 1;
+}
+
 static void set_color(UgScene *sc, int node, int alpha) {
     float c[4] = { 255, 255, 255, (float)alpha };
     ug_scene_app_write(sc, node, UG_P_COLOR, 4, c);          /* base colour: authored fades scale from it (1.2) */

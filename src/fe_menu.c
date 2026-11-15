@@ -10,6 +10,7 @@
 
 #include "fe_entries.h"
 #include "fe_screen.h"
+#include "fe_garage.h"
 #include "game_catalog.h"
 #include "gui_timing.h"
 #include "gui_view.h"
@@ -22,7 +23,7 @@
 #include "ugui/ugui_ui.h"
 
 #define FE_EXIT_TIMEOUT_MS 700.0f     /* safety: a package whose exit script never reports completion */
-#define FE_M1_MAIN_ENABLED ((1u << FE_MAIN_QUICK_RACE)|(1u << FE_MAIN_OPTIONS)|(1u << FE_MAIN_PROFILE))   /* Options joins in M2 */
+#define FE_M1_MAIN_ENABLED ((1u << FE_MAIN_CUSTOMIZE)|(1u << FE_MAIN_QUICK_RACE)|(1u << FE_MAIN_OPTIONS)|(1u << FE_MAIN_PROFILE))   /* Options joins in M2 */
 
 typedef struct FeHook { const char *name; } FeHook;
 static const FeHook k_hooks[] = {
@@ -60,6 +61,7 @@ struct FeMenu {
     int main_focus, mode_focus;  /* last focused entry ids, restored when a screen is re-entered */
     char cur_car[32], cur_track[16];
     FeChoice choice;
+    FeGarage *garage;
     int pending_input, pressed;
     int loading_event;
     OptionsMenu options;
@@ -89,12 +91,14 @@ static const char *screen_name(FemScreen s) {
     case FEM_SCR_OPTIONS:return "OPTIONS";
     case FEM_SCR_PROFILE:return "PROFILE";
     case FEM_SCR_CAREER: return "CAREER";
+    case FEM_SCR_GARAGE:return "GARAGE";
     case FEM_SCR_LOADING: return "LOADING";
     default: return "NONE";
     }
 }
 static const char *package_of(FemScreen s) {
     switch (s) {
+    case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
     case FEM_SCR_OPTIONS:return "UI_OptionsMain.fng";
     case FEM_SCR_PROFILE:return "UI_ProfileManager.fng";
     case FEM_SCR_MAIN: return "UI_Main.fng";
@@ -153,6 +157,11 @@ static void build_screen(FeMenu *m) {
     if (!pkg) {set_status(m,"%s: unknown screen",screen_name(m->screen));return;}
     if (!m->assets_open || !m->compatible || !m->gl) {
         snprintf(m->status, sizeof m->status, "%s: front-end resources unavailable (%.180s)", screen_name(m->screen), m->res_status);
+        return;
+    }
+    if(m->screen==FEM_SCR_GARAGE) {
+        m->visual=feg_open(m->garage,&m->scr,&m->assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
         return;
     }
     if(m->screen==FEM_SCR_OPTIONS) {
@@ -227,6 +236,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
+    else if(m->screen==FEM_SCR_GARAGE)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -245,6 +255,7 @@ static void entries_to_view(FeMenu *m, GvEntry out[GC_MAX]) {
 static void views_update(FeMenu *m, float ms) {
     if (!m->visual || !m->scr.loaded) return;
     gv_screen_update(&m->scr, ms);
+    if(m->screen==FEM_SCR_GARAGE && !feg_sync(m->garage,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",feg_status(m->garage));return;}
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
     else if(m->screen==FEM_SCR_QR_TRACK || m->screen==FEM_SCR_QR_OPTIONS)
         fet_sync(&m->choice,&m->scr,ms,m->screen==FEM_SCR_QR_OPTIONS);
@@ -285,6 +296,13 @@ static void views_update(FeMenu *m, float ms) {
     }
 }
 
+static int save_garage(void *user,const char *car,const GarageConfig *cfg) {
+ FeMenu *m=user;
+ if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
+ int rc=fem_persist_profile(m);
+ return rc==ST_OK?garage_save(m->profile->root,m->profile->value.name,car,cfg):rc;
+}
+
 /* ---- creation --------------------------------------------------------------------------------- */
 
 FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allow_quit) {
@@ -292,6 +310,8 @@ FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allo
     if (!m) return NULL;
     snprintf(m->dataroot, sizeof m->dataroot, "%s", dataroot ? dataroot : "");
     m->cat = cat;
+    m->garage=feg_create(dataroot);
+    feg_set_save(m->garage,save_garage,m);
     m->choice.cat=cat;m->choice.laps=2;m->choice.kind=1;
     m->allow_quit = allow_quit;
     m->main_enabled = FE_M1_MAIN_ENABLED;
@@ -329,18 +349,20 @@ void fem_destroy(FeMenu *m) {
     ug_cv_free(&m->canvas);
     ug_assets_close(&m->assets);
     fet_free(&m->choice);
+    feg_destroy(m->garage);
     fep_destroy(m->profile);if(m->store_open)st_reg_close(&m->store);
     if(m->editing)SDL_StopTextInput();
     free(m);
 }
 
 void fem_open(FeMenu *m, FemScreen screen) {
+    if(m&&screen!=FEM_SCR_GARAGE&&feg_busy(m->garage))return;
     if (!m) return;
     if (screen == FEM_SCR_NONE) { fem_close(m); return; }
     m->pending_input=0;m->pressed=0;
     if(m->editing && screen!=FEM_SCR_PROFILE){m->editing=0;SDL_StopTextInput();}
     /* Pause uses a separate store handle; reload its keys before any FE write. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE) && m->screen==FEM_SCR_MAIN) {
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN) {
         StRegStore fresh={0};
         int rc=m->config_path[0]?st_reg_open_ini(&fresh,m->config_path):st_reg_open_default(&fresh);
         if(rc==ST_OK) {
@@ -354,7 +376,7 @@ void fem_open(FeMenu *m, FemScreen screen) {
         }
     }
     /* Pause Controls may have updated the existing OPENUG2 container since last visit. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE) && m->screen==FEM_SCR_MAIN &&
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN &&
        m->profile && m->profile->persisted)fep_load(m->profile,m->profile->value.name);
     if(screen==FEM_SCR_OPTIONS && (!om_is_open(&m->options) || m->screen!=FEM_SCR_OPTIONS)) {
         OmConfig cfg;om_config_default(&cfg,OM_CTX_FRONTEND);
@@ -371,9 +393,10 @@ void fem_open(FeMenu *m, FemScreen screen) {
 }
 
 void fem_close(FeMenu *m) {
-    if (!m || !m->open) return;
+    if (!m || !m->open || feg_busy(m->garage)) return;
     if(m->editing){m->editing=0;SDL_StopTextInput();}
     om_close(&m->options);
+    if(m->screen==FEM_SCR_GARAGE)feg_input(m->garage,FES_IN_BACK);
     m->open = 0;
     m->screen = FEM_SCR_NONE;
     drop_view(m);
@@ -410,6 +433,7 @@ const char *fem_status(const FeMenu *m) {
     if(m->status[0])return m->status;
     if(m->screen==FEM_SCR_OPTIONS && m->options.last_write_status!=ST_OK)return "options: graphics settings could not be persisted";
     if((m->screen==FEM_SCR_PROFILE || m->screen==FEM_SCR_OPTIONS) && m->profile && m->profile->status[0])return m->profile->status;
+    if(m->screen==FEM_SCR_GARAGE)return feg_status(m->garage);
     if(m->screen==FEM_SCR_QR_TRACK)return m->choice.track_status;
     if(m->screen==FEM_SCR_QR_CAR)return m->choice.car_status;
     return m->status;
@@ -616,6 +640,12 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         if(m->screen==FEM_SCR_OPTIONS && m->opt_shown!=om_screen(&m->options))build_screen(m);
     }
     int in=m->pending_input;m->pending_input=0;
+    if(m->screen==FEM_SCR_GARAGE) {
+        int event=in&&(m->visual||in==FES_IN_BACK)?feg_input(m->garage,in):0;
+        if(event==2)fem_open(m,FEM_SCR_MAIN);
+        else if(event==1||feg_advance(m->garage,seconds))build_screen(m);
+    }
+
     if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR && in) {
         if(in==FES_IN_BACK) {
             if(m->screen==FEM_SCR_QR_OPTIONS && m->choice.options_page){m->choice.options_page=0;fem_open(m,FEM_SCR_QR_OPTIONS);}
@@ -648,6 +678,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
                     m->career_confirm = 0; m->career_focus = m->career_save ? FE_CAREER_RESUME : FE_CAREER_NEW;
                     fem_open(m, FEM_SCR_CAREER);
                 } else if (id == FE_MAIN_QUICK_RACE) fem_open(m, FEM_SCR_QR_MODE);
+                else if(id==FE_MAIN_CUSTOMIZE)fem_open(m,FEM_SCR_GARAGE);
                 else if(id==FE_MAIN_OPTIONS)fem_open(m,FEM_SCR_OPTIONS);
                 else if(id==FE_MAIN_PROFILE)fem_open(m,FEM_SCR_PROFILE);
                 else fem_open(m,FEM_SCR_MAIN);
@@ -685,7 +716,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
 
 void fem_draw(FeMenu *m, int w, int h) {
     if (!fem_is_open(m) || w <= 0 || h <= 0) return;
-    if (m->screen != FEM_SCR_QR_CAR) {
+    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE) {
         static const float black[4] = { 0, 0, 0, 1 };
         rhi_cmd_clear_main(black, 1.0f);
     }
@@ -714,7 +745,7 @@ void fem_draw(FeMenu *m, int w, int h) {
 }
 
 int fem_set_storage(FeMenu *m,const char *config,const char *root) {
-    if(!m || m->screen==FEM_SCR_OPTIONS || m->screen==FEM_SCR_PROFILE)return ST_E_ARG;
+    if(!m || m->screen==FEM_SCR_OPTIONS || m->screen==FEM_SCR_PROFILE || m->screen==FEM_SCR_GARAGE || feg_busy(m->garage))return ST_E_ARG;
     if(config && strlen(config)>=sizeof m->config_path)return ST_E_ARG;
     StRegStore next={0};int rc=config?st_reg_open_ini(&next,config):st_reg_open_default(&next);
     if(rc!=ST_OK)return rc;
@@ -741,4 +772,16 @@ void fem_set_career(FeMenu *m, int available, int has_save)
     if (m->screen == FEM_SCR_MAIN) build_screen(m);
 }
 const char *fem_profile_root(const FeMenu *m){return m && m->profile?m->profile->root:NULL;}
-int fem_persist_profile(FeMenu *m){if(!m || !m->profile || !m->profile->valid)return ST_E_ARG;return m->profile->persisted?ST_OK:fep_save(m->profile);}
+int fem_persist_profile(FeMenu *m){if(!m || !m->profile || !m->profile->valid)return ST_E_ARG;return fep_persist(m->profile);}
+
+int fem_garage_current(FeMenu *m,const char *car,const GarageConfig *cfg) {
+    return m && m->screen!=FEM_SCR_GARAGE && feg_current(m->garage,car,cfg);
+}
+int fem_garage_take(FeMenu *m,GarageRequest *r){return m&&feg_take(m->garage,r);}
+void fem_garage_ack(FeMenu *m,uint32_t serial,int ok,const char *error){if(m)feg_ack(m->garage,serial,ok,error);}
+int fem_garage_page(const FeMenu *m){return m?feg_page(m->garage):-1;}
+
+int fem_garage_saved(const FeMenu *m,const char *car,GarageConfig *out) {
+ if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
+ return garage_load(m->profile->root,m->profile->value.name,car,out);
+}
