@@ -585,8 +585,8 @@ static int world_neighborhood_load_facade(World *w, const char *troot,
         float x0=1e30f, y0=1e30f, x1=-1e30f, y1=-1e30f;
         for (int v = 0; v < m->nverts; v++) {
             float *p = m->verts + v*5;
-            if (p[0]<x0)x0=p[0]; if (p[0]>x1)x1=p[0];
-            if (p[1]<y0)y0=p[1]; if (p[1]>y1)y1=p[1];
+            if (p[0]<x0){ x0=p[0]; } if (p[0]>x1)x1=p[0];
+            if (p[1]<y0){ y0=p[1]; } if (p[1]>y1)y1=p[1];
         }
         for (int v=0;m->wall_policy==2 && v<m->wall_nverts;v++) {
             const float *p=m->wall_verts+v*5;
@@ -1139,8 +1139,8 @@ int world_ground_grid_build(WGroundGrid *grid, const N2Scene *scene,
     for (int i = 0; i < scene->count; i++) {
         if (scene->meshes[i].cat != N2_ROAD &&
             scene->meshes[i].cat != N2_TERRAIN) continue;
-        if (mbb[i][0]<x0)x0=mbb[i][0]; if (mbb[i][1]<y0)y0=mbb[i][1];
-        if (mbb[i][2]>x1)x1=mbb[i][2]; if (mbb[i][3]>y1)y1=mbb[i][3];
+        if (mbb[i][0]<x0){ x0=mbb[i][0]; } if (mbb[i][1]<y0)y0=mbb[i][1];
+        if (mbb[i][2]>x1){ x1=mbb[i][2]; } if (mbb[i][3]>y1)y1=mbb[i][3];
     }
     if (x0 > x1 || y0 > y1 || !isfinite(x0) || !isfinite(y0) ||
         !isfinite(x1) || !isfinite(y1)) return 0;
@@ -1158,8 +1158,8 @@ int world_ground_grid_build(WGroundGrid *grid, const N2Scene *scene,
             scene->meshes[i].cat != N2_TERRAIN) continue;
         int cx0=(int)((mbb[i][0]-x0)/GCELL), cy0=(int)((mbb[i][1]-y0)/GCELL);
         int cx1=(int)((mbb[i][2]-x0)/GCELL), cy1=(int)((mbb[i][3]-y0)/GCELL);
-        if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0;
-        if (cx1 >= gw) cx1 = gw-1; if (cy1 >= gh) cy1 = gh-1;
+        if (cx0 < 0) { cx0 = 0; } if (cy0 < 0) cy0 = 0;
+        if (cx1 >= gw) { cx1 = gw-1; } if (cy1 >= gh) cy1 = gh-1;
         for (int cy = cy0; cy <= cy1; cy++)
             for (int cx = cx0; cx <= cx1; cx++) start[(size_t)cy*gw+cx+1]++;
     }
@@ -1177,8 +1177,8 @@ int world_ground_grid_build(WGroundGrid *grid, const N2Scene *scene,
             scene->meshes[i].cat != N2_TERRAIN) continue;
         int cx0=(int)((mbb[i][0]-x0)/GCELL), cy0=(int)((mbb[i][1]-y0)/GCELL);
         int cx1=(int)((mbb[i][2]-x0)/GCELL), cy1=(int)((mbb[i][3]-y0)/GCELL);
-        if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0;
-        if (cx1 >= gw) cx1 = gw-1; if (cy1 >= gh) cy1 = gh-1;
+        if (cx0 < 0) { cx0 = 0; } if (cy0 < 0) cy0 = 0;
+        if (cx1 >= gw) { cx1 = gw-1; } if (cy1 >= gh) cy1 = gh-1;
         for (int cy = cy0; cy <= cy1; cy++)
             for (int cx = cx0; cx <= cx1; cx++) {
                 size_t c = (size_t)cy*gw+cx;
@@ -1225,7 +1225,7 @@ static void grid_build(World *w) {
             for (int v = 0; v < m->nverts; v++)
                 for (int c = 0; c < 3; c++) {
                     float q = m->verts[v*5+c];
-                    if (q < mn[c]) mn[c] = q; if (q > mx[c]) mx[c] = q;
+                    if (q < mn[c]) { mn[c] = q; } if (q > mx[c]) mx[c] = q;
                 }
         }
         if (getenv("OPENUG2_VISTA_ALPHA")) {
@@ -1246,7 +1246,7 @@ static void grid_build(World *w) {
                     if (w->neighborhood.vista.meshes[q].texkey == tk && w->neighborhood.vista.meshes[q].vcol)
                         for (int v = 0; v < w->neighborhood.vista.meshes[q].nverts; v++) {
                             int a = w->neighborhood.vista.meshes[q].vcol[v*4+3];
-                            if (a < vamin) vamin = a; if (a > vamax) vamax = a;
+                            if (a < vamin) { vamin = a; } if (a > vamax) vamax = a;
                         }
                 N2Tex tt = {0};
                 int ok = 0;
@@ -1262,7 +1262,7 @@ static void grid_build(World *w) {
                 if (tt.alpha) {
                     for (long q = 0; q < n; q++) {
                         int a = tt.alpha[q];
-                        if (a < amin) amin = a; if (a > amax) amax = a;
+                        if (a < amin) { amin = a; } if (a > amax) amax = a;
                         if (a == 0) z++; else if (a == 255) full++; else part++;
                     }
                 } else { amin = amax = 255; full = n; }
@@ -1282,7 +1282,7 @@ static void grid_build(World *w) {
                 for (int v = 0; v < m->nverts; v++)
                     for (int c = 0; c < 3; c++) {
                         float q=m->verts[v*5+c];
-                        if (q<a[c]) a[c]=q; if (q>b[c]) b[c]=q;
+                        if (q<a[c]) { a[c]=q; } if (q>b[c]) b[c]=q;
                     }
                 printf("VISTA %-28s tris %5d  x[%8.0f %8.0f] y[%8.0f %8.0f] z[%8.0f %8.0f]\n",
                        m->sname[0]?m->sname:"?", m->nidx/3,
@@ -2239,7 +2239,7 @@ static int wg_unique_road(const N2Scene *scene,float x,float y,float *z) {
         low=fminf(low,bottom);high=fmaxf(high,top);
         if(high-low>.25f)return 0;
     }
-    if(!isfinite(high))return 0;*z=high;return 1;
+    if(!isfinite(high)){ return 0; }*z=high;return 1;
 }
 
 static int wg_at(const N2Scene *s, float x, float y, float fallback,
@@ -2495,8 +2495,8 @@ float world_ground_sweep(const N2Scene *s, const float from[3],
         int x1=(int)floorf((fmaxf(from[0],to[0])-g_grid.x0)/GCELL);
         int y0=(int)floorf((fminf(from[1],to[1])-g_grid.y0)/GCELL);
         int y1=(int)floorf((fmaxf(from[1],to[1])-g_grid.y0)/GCELL);
-        if(x0<0)x0=0;if(y0<0)y0=0;
-        if(x1>=g_grid.gw)x1=g_grid.gw-1;if(y1>=g_grid.gh)y1=g_grid.gh-1;
+        if(x0<0){ x0=0; }if(y0<0)y0=0;
+        if(x1>=g_grid.gw){ x1=g_grid.gw-1; }if(y1>=g_grid.gh)y1=g_grid.gh-1;
         /* Traverse all source indices, without a capped scratch scene. */
         for(int y=y0;y<=y1;y++)for(int x=x0;x<=x1;x++) {
             int cell=y*g_grid.gw+x;
@@ -2726,9 +2726,9 @@ long world_rc_cand[2][8];      /* [0]=ROAD [1]=TERRAIN, by Z-span bucket */
 long world_rc_push[2][8];      /* same, restricted to triangles that pushed */
 float world_rc_min[2] = { 1e30f, 1e30f }, world_rc_max[2] = { -1e30f, -1e30f };
 static int wrc_bucket(float zs) {
-    if (zs < 0.5f) return 0; if (zs < 1.0f) return 1; if (zs < 1.5f) return 2;
-    if (zs < 2.0f) return 3;  if (zs < 3.0f) return 4; if (zs < 5.0f) return 5;
-    if (zs < 10.0f) return 6; return 7;
+    if (zs < 0.5f) { return 0; } if (zs < 1.0f) return 1; if (zs < 1.5f) return 2;
+    if (zs < 2.0f) { return 3; }  if (zs < 3.0f) return 4; if (zs < 5.0f) return 5;
+    if (zs < 10.0f) { return 6; } return 7;
 }
 
 int world_wall_push(const N2Scene *s, float *pos, float r, WRailHit *hit) {
@@ -2746,7 +2746,7 @@ int world_wall_push(const N2Scene *s, float *pos, float r, WRailHit *hit) {
             float L=sqrtf(nx*nx+ny*ny+nz*nz); if (L<1e-6f) continue;
             if (fabsf(nz/L) >= 0.30f) continue;                 /* not a wall face */
             float zlo=a[2],zhi=a[2];                            /* rail height span */
-            if(b[2]<zlo)zlo=b[2]; if(cc[2]<zlo)zlo=cc[2]; if(b[2]>zhi)zhi=b[2]; if(cc[2]>zhi)zhi=cc[2];
+            if(b[2]<zlo){ zlo=b[2]; } if(cc[2]<zlo)zlo=cc[2]; if(b[2]>zhi)zhi=b[2]; if(cc[2]>zhi)zhi=cc[2];
             if (pos[2] < zlo-0.5f || pos[2] > zhi+0.5f) continue;   /* car not at rail height */
             /* A rail is a LOW barrier. |nz| alone also selects hillsides: the
                L4RA route's near-vertical faces are 3.389-44.343 m tall and one

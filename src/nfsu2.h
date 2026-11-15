@@ -581,7 +581,7 @@ static void n2_add_pair(const unsigned char *d, N2Leaf vtx, N2Leaf idx,
             if (corrupt) { vbad[i] = 1; nbad++; continue; }
             for (int c = 0; c < 3; c++) {
                 float v; memcpy(&v, rec + i*stride + c*4, 4);
-                if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v;
+                if (v < mn[c]) { mn[c] = v; } if (v > mx[c]) mx[c] = v;
             }
         }
 #ifdef N2_NO_VERTEX_REPAIR
@@ -1074,9 +1074,9 @@ static void n2_m102_note(int why, const char *anm, int cat, int nslot, int nsub,
         float wx = px*mtx[0]+py*mtx[4]+pz*mtx[8] +mtx[12];
         float wy = px*mtx[1]+py*mtx[5]+pz*mtx[9] +mtx[13];
         float wz = px*mtx[2]+py*mtx[6]+pz*mtx[10]+mtx[14];
-        if (wx<r->bb[0])r->bb[0]=wx; if (wx>r->bb[1])r->bb[1]=wx;
-        if (wy<r->bb[2])r->bb[2]=wy; if (wy>r->bb[3])r->bb[3]=wy;
-        if (wz<r->bb[4])r->bb[4]=wz; if (wz>r->bb[5])r->bb[5]=wz;
+        if (wx<r->bb[0]){ r->bb[0]=wx; } if (wx>r->bb[1])r->bb[1]=wx;
+        if (wy<r->bb[2]){ r->bb[2]=wy; } if (wy>r->bb[3])r->bb[3]=wy;
+        if (wz<r->bb[4]){ r->bb[4]=wz; } if (wz>r->bb[5])r->bb[5]=wz;
     }
 }
 
@@ -1388,7 +1388,7 @@ static void n2_aabb_local(const unsigned char *d, N2Leaf v, float *mn, float *mx
     for (int i = 0; i < n; i++)
         for (int c = 0; c < 3; c++) {
             float f; memcpy(&f, rec + i*24 + c*4, 4);
-            if (f < mn[c]) mn[c] = f; if (f > mx[c]) mx[c] = f;
+            if (f < mn[c]) { mn[c] = f; } if (f > mx[c]) mx[c] = f;
         }
     *nvert = n;
 }
@@ -1443,7 +1443,7 @@ static void n2_audit_meshes(const unsigned char *d, long beg, long end, N2Audit 
             { float dev = 0;
               for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
                   float e = m[r*4+c] - (r == c ? 1.0f : 0.0f);
-                  if (e < 0) e = -e; if (e > dev) dev = e; }
+                  if (e < 0) { e = -e; } if (e > dev) dev = e; }
               float det = m[0]*(m[5]*m[10]-m[6]*m[9]) - m[1]*(m[4]*m[10]-m[6]*m[8])
                         + m[2]*(m[4]*m[9]-m[5]*m[8]);
               if (det > a->maxdet) a->maxdet = det;
@@ -3060,7 +3060,7 @@ static float n2_car_brake_radius(const unsigned char *d, long beg, long end) {
                         float x0=1e30f,x1=-1e30f,z0=1e30f,z1=-1e30f;
                         for (int i = 0; i < n; i++) { float x,z;
                             memcpy(&x, rec+i*36, 4); memcpy(&z, rec+i*36+8, 4);
-                            if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+                            if(x<x0){ x0=x; } if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
                         return 0.25f*((x1-x0)+(z1-z0));
                     }
                 }
@@ -3541,7 +3541,7 @@ static int n2_mipbytes2(int w, int h, int bpb) {
         int bw = w < 4 ? 1 : w/4, bh = h < 4 ? 1 : h/4;
         t += bw*bh*bpb;
         if (w == 1 && h == 1) break;
-        if (w > 1) w /= 2; if (h > 1) h /= 2;
+        if (w > 1) { w /= 2; } if (h > 1) h /= 2;
     }
     return t;
 }
