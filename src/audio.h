@@ -79,6 +79,10 @@ extern EngineSynthState g_engine;
 extern volatile float g_road_vol;   /* tyre/wind noise, scales with speed */
 extern volatile float g_hit;        /* collision thud amplitude (main sets, cb decays) */
 extern volatile float g_skid;       /* tyre-screech volume while drifting */
+struct SfxGame;
+extern struct SfxGame *volatile g_sfx_game;   /* M8 retail effects (sfx_game.h); set after audio_init */
+extern volatile int g_sfx_gear;                /* current gear for shift sounds */
+extern volatile float g_sfx_master;            /* FE master volume for effects */
 extern volatile float g_scrape;     /* quiet, continuous world-wall friction */
 void audio_wall_contact(float inward_mps,float tangent_mps,float dt);
 

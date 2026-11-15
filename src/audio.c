@@ -1,5 +1,6 @@
 /* audio.c — OpenUG2 Audio module implementation. */
 #include "audio.h"
+#include "sfx_game.h"
 #include <assert.h>
 #include <math.h>
 #include <ctype.h>
@@ -24,6 +25,9 @@ volatile float g_road_vol = 0.0f;
 volatile float g_hit = 0.0f;
 volatile float g_skid = 0.0f;
 volatile float g_scrape = 0.0f;
+SfxGame *volatile g_sfx_game = NULL;   /* M8: retail effects; NULL = synthesized effects only */
+volatile int g_sfx_gear = 0;
+volatile float g_sfx_master = 1.0f;
 
 void audio_wall_contact(float inward_mps,float tangent_mps,float dt) {
     static float cooldown=0;
@@ -397,6 +401,15 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     EngineSynthState *e = &g_engine;
     float target = e->target_rpm, load = e->load, master = e->master_volume;
     float road = g_road_vol, skid = g_skid, wall=g_scrape;
+    /* M8: groups the retail banks cover leave the synthesized path; the rest keep it */
+    SfxGame *sg = g_sfx_game; SfgInput sfx_in; memset(&sfx_in, 0, sizeof sfx_in);
+    if (sg) {
+        unsigned gr = sfg_groups(sg);
+        sfx_in.hit = g_hit; sfx_in.skid = skid; sfx_in.road = road; sfx_in.gear = g_sfx_gear; sfx_in.master = g_sfx_master;
+        if (gr & SFG_HAS_IMPACT) { g_hit = 0.0f; } else sfx_in.hit = 0.0f;
+        if (gr & SFG_HAS_SKID) skid = 0.0f;
+        if (gr & SFG_HAS_ROAD) road = 0.0f;
+    }
     if (g_hit > hit) { hit = g_hit; } g_hit = 0.0f;   /* latch a new collision */
     for (int i = 0; i < n; i++) {
         /* engine inertia: revs chase the target (~110ms), load a bit faster */
@@ -564,6 +577,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         if (v > 32767) { v = 32767; } if (v < -32768) v = -32768;
         out[i] = (int16_t)v;
     }
+    if (sg) sfg_render(sg, &sfx_in, out, n);
 }
 
 /* asserts the crossfade math: pure bands at the centers, 50/50 at the

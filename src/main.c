@@ -38,6 +38,7 @@
 #include "tire_marks_drive.h"
 #include "ai.h"
 #include "audio.h"
+#include "sfx_game.h"   /* M8 retail effects */
 #include "resource.h"
 #include "world.h"
 #include "world_resident.h"
@@ -4057,6 +4058,13 @@ int main(int argc, char **argv) {
         if (!nloops && engbank != 0) { engbank = 0; nloops = audio_load_engine_bank(dataroot, 0); }
     }
     SDL_AudioDeviceID adev = audio_init();
+    if (adev) {   /* M8: retail impact / skid / road / shift effects from the SOUND banks */
+        SfxGame *sg = sfg_create(dataroot, 44100);
+        unsigned gr = sfg_groups(sg);
+        printf("sfx: %s%s%s%s%s\n", sg ? "retail" : "synthesized only", gr & SFG_HAS_IMPACT ? " impact" : "",
+               gr & SFG_HAS_SKID ? " skid" : "", gr & SFG_HAS_ROAD ? " road" : "", gr & SFG_HAS_SHIFT ? " shift" : "");
+        SDL_LockAudioDevice(adev); g_sfx_game = sg; SDL_UnlockAudioDevice(adev);
+    }
     printf("engine audio: %s (%s)\n", adev ? "on" : "unavailable",
            nsweep ? "Gnsu20 sweeps" : nloops ? "game sample bank" : "procedural synth");
     if (nsweep) printf("engine sweeps: %d for %s (%.0f-%.0f rpm)\n", nsweep, carname,
@@ -8415,6 +8423,7 @@ int main(int argc, char **argv) {
           } else { eng_gearbox_step(sp, throttle, 1.0f/60.0f, &gear, &shift_t);
               gear_changing = shift_t > 0.0f; }          /* ENG_SHIFT_S clutch window */
           g_engine.master_volume = (race_state==0 ? 0.16f : 0.16f + sp*0.5f) * fe_master_gain * fe_engine_gain;
+          g_sfx_master = fe_master_gain;
           g_road_vol = sp*sp*0.35f * fe_master_gain * fe_tire_gain; }   /* tyre/wind roar rises with speed */
         float fwd[3] = { nf[0], nf[1], 0 };
         /* building collision: push the car out of any wall footprint it entered.*/
@@ -9285,6 +9294,7 @@ int main(int argc, char **argv) {
         }
         /* A reset/car swap may render before another simulation tick. */
         if(stage1_active)stage1_presentation(&g_stage1,&gear,&gear_changing);
+        g_sfx_gear = gear;   /* M8 shift sounds */
         float render_alpha=pause_frame || pose_snap || deterministic_sim || sstatic || capture_policy.freeze_motion
             ?1:(float)(sim_clock.remainder*PHYS_TICKRATE);
         AiCar render_player,render_ais[N_WORLD_AI];
@@ -12545,6 +12555,7 @@ int main(int argc, char **argv) {
     free(ai_drive_path.xy);
     rhi_shader_destroy(dbgshader);
     if (adev) SDL_CloseAudioDevice(adev);
+    { SfxGame *sg = g_sfx_game; g_sfx_game = NULL; sfg_destroy(sg); }
     cx_shutdown(&g_cx);
     if (controller) SDL_GameControllerClose(controller);
     world_texture_cache_clear();
