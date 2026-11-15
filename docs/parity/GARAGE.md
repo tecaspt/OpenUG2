@@ -10,7 +10,7 @@ report a diagnostic. Inputs cannot change an in-flight final Keep/Restore operat
 [inferred] Only fully assembled CPU scenes with finite vertices, valid indices, positive triangles,
 and a matching selected part/kit are exposed. GPU texture/upload proof is separate.
 [observed] Visual parts and rims are implemented and rendered on desktop/GLES. Per-profile saves
-pass synthetic/sanitizer checks and desktop persistence proof; GLES persistence proof is in progress.
+pass synthetic/sanitizer checks and desktop/GLES persistence proof. Priorities1–3 are complete.
 Paint/vinyl and performance research limitations are recorded below.
 
 ## Retail presentation and scope
@@ -86,7 +86,7 @@ restore capture to release memory before the separately gated GLES build; no cle
 is claimed for this run. Final images: `reports/garage/{desktop,gles}/rim-brands.png`,
 `rims-before.png`, `rims-after.png`, `rims-kept.png`, `rims-before-cancel.png`, `rims-restored.png`.
 
-## Priority 3 — per-profile, per-car persistence (in progress)
+## Priority 3 — per-profile, per-car persistence
 
 [inferred] Garage state uses a separate `openug2_garage.bin` within the selected profile directory.
 The existing profile/settings format is unchanged. The file uses the existing20CM container with
@@ -117,9 +117,10 @@ and unknown bytes instead of overwriting it with stale defaults.
 [observed] Pure store/model tests PASS on desktop/GLES and ASan+UBSan. FE save-failure recovery,
 stale-acknowledgement and profile rename/opaque-copy fixtures PASS desktop/GLES and ASan+UBSan.
 All seven required FE regressions and pause-menu tests PASS. LeakSanitizer remains disabled for
-the existing ptrace limitation. Scratch host compilation and rendered persistence checks remain
-pending; they are not counted as PASS. Windows filesystem code cannot be run on this Linux host and is
-NOT RUN. Production host/build files remain the orchestrator's responsibility.
+the existing ptrace limitation. Scratch host builds and all four persistence game runs PASS
+(desktop/GLES first save and cold restart, each exited0). Desktop Quick Race Car Select also
+loaded G35 stock and restored the Golf's saved config on return. Windows filesystem runtime
+checks are NOT RUN. Production host/build files remain the orchestrator's responsibility.
 
 ## Paint and vinyl scope (priority 4)
 
@@ -164,3 +165,43 @@ alone does not establish a record stride.
 The local structural probe was independently rerun after env.sh. Only aggregate facts and field
 layouts are documented here; raw bytes, decoded per-record tables and probe outputs remain local.
 No performance category is enabled and no vehicle physics or career logic changes in this task.
+
+## Final verification and artifacts
+
+[observed] The runtime catalogue sweep passed29player cars /10363visual choices and115rim styles.
+This is CPU geometry/selection proof plus diffuse decoding for rims, with representative GPU
+proof from the reviewed captures; it is not validation of every material or attachment pose.
+The final checker also compiled and returned SKIP77 for an empty/unset data root. SKIP is not
+an installed-data PASS. The normal asset-walk implementation is unchanged from the full sweep.
+
+[observed] Latest source tests PASS desktop, -DN2_GLES, and ASan/UBSan. They cover store round trips,
+unknown TLVs/A extensions/known tails/padding, duplicate/corrupt/newer refusal, atomic writes,
+Keep/restore/save failure, stale acknowledgements, per-car separation, opaque profile rename and
+profiles created by another menu after FE opened. All required fe-screen, fe-binding, fe-profile,
+fe-polish, fe-options, game-flow and postrace tests PASS; pause-menu tests also PASS. Owned code
+has no new warnings under the focused -Werror checks. Untouched baseline warnings remain.
+
+[observed] Persistence screenshots were reviewed under both report backend directories:
+`reports/garage/{desktop,gles}/{save-stock,save-kit-preview,save-kit-kept,save-rim-preview,save-kit-rim-kept,save-cold-reloaded}.png`.
+The desktop additionally has `save-other-car-stock.png` and `save-golf-returned.png`. The first
+save contains GOLF KIT01/NFSU STYLE02; cold startup restored that configuration on both renderers.
+Desktop host logs record GOLF body1/rim2 → G35 body0/rim1 → GOLF body1/rim2 through real Car Select.
+Earlier sections list the category/parts/rim screen images. All captures are640x480 and remain
+local; no retail-derived images or dumps are committed.
+
+[observed] Full-game rendered proof used snapshot bb8af06 with the documented scratch host patch.
+The later b012d27 lazy-profile guard changes no UI/renderer path and was separately compiled/tested
+on desktop/GLES and ASan/UBSan, including the new profile freshness regression. The documented
+main.c diff was git-apply checked on a separate P2 source copy and its result exactly matched
+the compiled scratch main. No production main.c or Makefile was edited. Production integration
+and the orchestrator's end-to-end gates are not claimed as done.
+
+[observed] Unit commits on parity/garage:5774dc0(visual parts),3360159(rims),bb8af06(per-car/profile
+store),b012d27(profile freshness and integration commands), followed by final validation notes
+and the empty-data checker guard. Every unit was pushed only to the private remote.
+
+[inferred] Remaining retail fidelity work: category/brand ordering and shop eligibility/prices,
+original garage environment/camera, animated spinner behavior, paint/material/color mappings and
+vinyl layers, and semantics/effects of the remaining performance tables. Owner retail captures
+would help resolve these policies; no prices, unlocks, paint swatches or performance effects
+are invented by this implementation.

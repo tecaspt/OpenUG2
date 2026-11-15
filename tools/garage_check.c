@@ -4,7 +4,7 @@
 #include "car_mod.h"
 #include <assert.h>
 int main(int argc,char **argv){
- const char *root=argc>1?argv[1]:getenv("OPENUG2_DATA");if(!root){puts("garage_check: SKIP data unset");return 77;}
+ const char *root=argc>1?argv[1]:getenv("OPENUG2_DATA");if(!root||!*root){puts("garage_check: SKIP data unset");return 77;}
  GameCatalog *cat=calloc(1,sizeof *cat);GarageCatalog *parts=calloc(1,sizeof *parts);assert(cat&&parts);
  if(!gcat_build(cat,root))return 1;
  GarageRims *rims=calloc(1,sizeof *rims);assert(rims);

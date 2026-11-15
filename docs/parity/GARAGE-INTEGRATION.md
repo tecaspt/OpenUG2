@@ -145,7 +145,7 @@ if(!error && garage_rim_changed) {
 whole config through the same serial/ack contract. Never acknowledge before both body and rims
 are ready. The host must continue polling while a Restore is pending.
 
-## Saved configurations (priority 3, scratch compile pending)
+## Saved configurations (priority 3)
 
 [inferred] `fem_garage_saved(menu,car,&cfg)` reads the selected profile's Garage document.
 ST_E_NOTFOUND means stock for this profile/car; every other error blocks loading/launch.
@@ -340,8 +340,12 @@ shared car-switch path. The real orchestrator still owns production integration/
          }
 ```
 
-[observed] All patch anchors were checked against a separate copy of the scratch main.
-The resulting C and rendered persistence proof are still pending; the patch is not yet a PASS.
+[observed] All patch anchors and the committed diff were checked against a separate P2 source
+copy; git apply succeeded and its result matched the compiled scratch main exactly. Desktop and
+GLES full builds, Keep and cold-restart persistence runs PASS. Desktop real Car Select switched
+to a stock G35 and restored the saved Golf on return. All four persistence runs exited0.
+The later lazy-profile guard is separately desktop/GLES/ASan regression-tested; it changes no
+UI/renderer code. These results apply to the scratch integration, not production main.c wiring.
 
 ## Exact additional Makefile targets
 
