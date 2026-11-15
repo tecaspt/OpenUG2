@@ -99,5 +99,43 @@ static inline void rr_drift_step(RrDrift *d,const float velocity[2],float headin
 /* [inferred] Competition ranks: equal points share a rank, never use road position. */
 int rr_points_place(const float *points,int count,int player);
 
+#define RR_MAX_URL_RACES 16
+#define RR_DEFAULT_URL_ROUNDS 3
+/* [inferred] Notify once per leader-completed lap. Tie loses greatest entrant ID. */
+typedef struct { int count,remaining,last_lap;uint8_t alive[RR_MAX_CARS];int place[RR_MAX_CARS]; } RrKnockout;
+int rr_knockout_init(RrKnockout *,int count);
+int rr_knockout_lap(RrKnockout *,int completed_lap,const float progress[RR_MAX_CARS]);
+int rr_knockout_winner(const RrKnockout *);
+typedef struct {
+    int count,races,completed;int event_id[RR_MAX_URL_RACES];
+    uint32_t points[RR_MAX_CARS];unsigned wins[RR_MAX_CARS];uint16_t per_place[RR_MAX_CARS];
+    uint16_t awarded[RR_MAX_URL_RACES][RR_MAX_CARS];
+    uint8_t won[RR_MAX_URL_RACES][RR_MAX_CARS],placed[RR_MAX_URL_RACES][RR_MAX_CARS];
+    unsigned finishes[RR_MAX_CARS];
+} RrUrl;
+void rr_url_default_points(uint16_t out[RR_MAX_CARS]);
+/* [inferred] Deterministic QR fallback grouping; explicit sequences replace it when decoded. */
+int rr_url_select_events(const int *available,int count,int first,int rounds,int out[RR_MAX_URL_RACES]);
+int rr_url_init(RrUrl *,int count,const int *events,int races,const uint16_t points[RR_MAX_CARS]);
+/* [inferred] places indexed by persistent entrant ID; zero = DNF. Transactional validation. */
+int rr_url_record(RrUrl *,int event_id,const int places[RR_MAX_CARS]);
+int rr_url_undo_last(RrUrl *);
+int rr_url_place(const RrUrl *,int entrant);
+int rr_url_next_event(const RrUrl *);
+int rr_url_winner(const RrUrl *); /* -1 incomplete or tied; no invented tie-break */
+
+#define RR_URL_FINISH_GRACE_SECONDS 30.0
+#define RR_ROUND_TIME_CAP_SECONDS 86400.0
+/* [inferred] Collect the whole field after the player finishes. Timeout marks
+ * remaining entrants DNF; no fabricated progress-based finish order. */
+typedef struct {
+    int count,ready;double seconds,after_player;
+    uint8_t done[RR_MAX_CARS],failed[RR_MAX_CARS];
+    double finish_time[RR_MAX_CARS];float progress[RR_MAX_CARS];
+} RrRound;
+int rr_round_init(RrRound *,int count);
+/* -1 invalid, 0 collecting, 1 ready. */
+int rr_round_step(RrRound *,const int *finished,const int *failed,const float *progress,double dt);
+int rr_round_places(const RrRound *,int places[RR_MAX_CARS]);
 
 #endif

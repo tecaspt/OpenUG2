@@ -2914,6 +2914,7 @@ int ai_race_prepare(const char *root,const WEvent *event,WRace *race,
     int source_profile=world && world->race_difficulty>=0 && world->race_difficulty<3
         ?race_ai_source_select(world->race_source,event->id,wanted,world->race_source_choice):-1;
     for(int k=0;k<count;k++) {
+        drivers[k].entrant_id=k+1;
         drivers[k].progress=*race;
         if(source_profile>=0){
             const RaceAiSourceDriver *v=world->race_source->event[source_profile].driver+k;
@@ -3039,8 +3040,16 @@ static int race_source_near_course(const AiDrive *d,const float pos[3]){
     }
     return 0;
 }
+void ai_race_eliminate(AiCar *car,AiRace *driver) {
+    if(!car || !driver)return;
+    driver->eliminated=1;
+    car->spd=car->vel[0]=car->vel[1]=car->target_speed=0;
+    car->braking=1;
+}
+
 float ai_race_pace(const AiCar *car,const AiRace *driver,int k,
         const AiTrafficWorld *world,const AiCar *player){
+    if(driver && driver->eliminated)return 0;
     float pace=world && isfinite(world->race_pace) && world->race_pace>0
         ?fmaxf(40,fminf(180,world->race_pace+4*k)):50;
     if(world && isfinite(world->race_pace) && world->race_pace<0 && car)
@@ -3290,6 +3299,7 @@ static int race_drop_clear(const AiTrafficWorld *world,const AiCar *car,
 void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int count,
         int circuit,const AiTrafficWorld *world,const AiCar *player) {
     AiCar *car=&cars[k];AiRace *driver=&drivers[k];
+    if(driver->eliminated){ai_race_eliminate(car,driver);return;}
     if(driver->progress.lap<1)world_race_begin(&driver->progress,car->pos[0],car->pos[1]);
     /* A passing lane need not converge on the centreline after the finish. */
     if(driver->progress.finished && !driver->drive.loop &&
@@ -3348,6 +3358,7 @@ void ai_race_step(AiCar cars[N_RACE_AI],AiRace drivers[N_RACE_AI],int k,int coun
             int rival_distant[total>0?total:1],rival_conflict[total>0?total:1];
             int rivals=0,engaged=0;
             for(int j=0;j<total;j++)if(j!=k) {
+                if(j<count && drivers[j].eliminated)continue;
                 int slot=j-count-(player!=NULL);
                 if(slot>=0 && !world->ambient_routes[slot].present)continue;
                 const AiCar *lead=j<count?&cars[j]:slot>=0?world->ambient+slot:player;

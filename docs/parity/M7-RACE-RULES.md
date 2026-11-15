@@ -153,3 +153,32 @@ root. These use a synthetic result payload, not an observed retail race score.
 (9 checks) pass; check-gl is OK. The full drive trace is identical (p3/drive.txt and p3-status.log).
 No warnings originate in changed/new code; the same baseline Xvfb wrapper FAIL remains.
 Main/HUD snapshot/multiplier wiring remains with the orchestrator. Priorities 4–6 remain.
+
+## Priority 4: Lap Knockout and URL series
+
+[data] The language table includes knocked-out messages and URL/points result captions. The event
+catalog identifies URL courses; this pass has not decoded tournament grouping or numerical points.
+[inferred] Knockout uses persistent entrant IDs (player 0), eliminates the lowest-progress surviving
+car on each newly completed leader lap, and requires count−1 laps. Repeated notifications of the
+same lap do nothing. Exact-progress ties eliminate the greatest ID; one survivor wins. Actor helpers
+freeze/hide eliminated racers; host collision/render/minimap lists must use the supplied predicate.
+[inferred] URL accepts an explicit event sequence and points table. The named QR default is three
+distinct catalog URL events, wrapping from the selected event, with 8/6/4/3/2/1 points per place.
+These values/grouping are provisional, not retail recovery. Entrant IDs stay stable across rounds.
+[inferred] A round collector records actual first finish observations. After the player finishes,
+the field continues for up to the named 30-second grace; unfinished actors become DNF (zero points).
+Finish-time ties use entrant ID. This avoids inventing a finish order from current road position.
+Invalid samples return −1; pending returns 0; ready returns 1. Simulation time stops during pause.
+[inferred] Round awards validate the event/places before mutation. Restart undoes the last round's
+points/wins/finish ledger; duplicate/wrong-event submissions are rejected. Overall rank is by total
+points; equal totals share rank. Unique-winner lookup returns no winner for a tie or zero totals.
+[inferred] PostRaceInfo accepts up to six supplied standings and round metadata. Retail results show
+stable-sorted totals under URL Race/Points. Only supplied names/cars are shown; unknown cars are
+hidden. This does not establish retail opponent identities or tournament grouping.
+[observed] Final synthetic desktop/GLES series/actor/round-collector/finish-ledger tests pass with
+no new warnings. Desktop/GLES URL PNGs were inspected: postrace-desktop/url-standings.png and
+postrace-gles/url-standings.png under the private report root, with Leader16/Player14/Rival10 at2/3.
+Post-unit clock/collision/AI-drive/resident/direct race-AI checks pass, postrace9/0 and check-gl OK.
+Full drive byte comparison is identical (p4/drive.txt, p4-status.log); initial build attempt exited143
+and was rerun completely. Required Xvfb wrapper remains baselineFAIL1 despite direct child PASS.
+Actual main.c coordination/end-to-end URL/KO play is NOT RUN; owner integration remains required.

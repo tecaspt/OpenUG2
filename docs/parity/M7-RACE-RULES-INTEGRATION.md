@@ -223,3 +223,205 @@ postrace-rules-check:
 
 [inferred] OPENUG2_DATA is read at runtime; unset returns 77. M7_REPORT_DIR must exist outside the
 worktree. Repeat synthetic compile with -DN2_GLES; force GL_LIBS=-lGLESv2 for GLES runtime builds.
+
+## Priority 4 — knockout and URL coordination
+
+[inferred] Add these locals beside race_drivers at main.c:5508 (all live for the main-loop lifetime):
+
+```c
+RrKnockout knockout = {0}; int knockout_live = 0, race_lap_knockout = 0;
+RrUrl url_series = {0}; RrRound url_round = {0}; int url_live = 0;
+int url_pending[RR_MAX_URL_RACES], url_pending_count = 0;
+```
+
+[inferred] Priority 5 supplies race_lap_knockout from the FE; default zero keeps old launches intact.
+Add these helpers above main, after the existing catalogue/game-flow declarations:
+
+```c
+static int m7_url_events(const GameCatalog *cat, int first, int out[RR_MAX_URL_RACES]) {
+    int ids[GC_MAX_EVENTS], n = 0;
+    for (int k = 0; k < cat->nev; ++k)
+        if (cat->ev[k].kind == N2_RACE_URL) ids[n++] = cat->ev[k].id;
+    return rr_url_select_events(ids, n, first, RR_DEFAULT_URL_ROUNDS, out);
+}
+static int m7_next_url(GameFlow *flow, const GameCatalog *cat, const RrUrl *series) {
+    int id = rr_url_next_event(series); if (!id) return 0;
+    GfLaunch next = flow->last; next.event_id = id; next.free_run = 0;
+    for (int e = 0; e < cat->nev; ++e) if (cat->ev[e].id == id) {
+        for (int r = 0; r < cat->nregion; ++r)
+            if (!strcmp(cat->ev[e].region, cat->region[r].stem)) {
+                snprintf(next.track, sizeof next.track, "%s", cat->region[r].track);
+                gf_start(flow, &next); return 1;
+            }
+    }
+    return -1;
+}
+```
+
+[inferred] At the fresh FEM_REQ launch branch main.c:7128, before gf_start, clear url_live and
+url_pending_count, then inspect the selected catalog event. For URL call
+`url_pending_count = m7_url_events(&g_catalog, frq.event_id, url_pending);` and reject a zero result
+through fem_show_error. Free Run/non-URL leave count zero. Do not rebuild this sequence on Restart.
+
+[inferred] In the successful prepared-race branch after ai_race_prepare's rejection checks
+(main.c:7923), initialize/reset the per-round state before countdown:
+
+```c
+knockout_live = race_lap_knockout && event->info.kind == N2_RACE_CIRCUIT;
+if (knockout_live) {
+    rr_knockout_init(&knockout, nai + 1);
+    world.city.race.maxlaps = nai > 0 ? nai : 1;
+    for (int k = 0; k < nai; ++k) race_drivers[k].progress.maxlaps = world.city.race.maxlaps;
+}
+if (event->info.kind == N2_RACE_URL) {
+    if (url_pending_count) {
+        url_live = rr_url_init(&url_series, nai + 1, url_pending, url_pending_count, NULL);
+        url_pending_count = 0;
+    }
+    if (url_live && url_series.count != nai + 1) {
+        snprintf(g_dbg.race_error, sizeof g_dbg.race_error, "URL field size changed.");
+        url_live = 0; /* reject through the existing failed-prepare path */
+    }
+    if (url_live) rr_round_init(&url_round, nai + 1);
+} else url_live = 0;
+```
+
+[inferred] A field-size mismatch must abort preparation using the same world_race_stop/free-course/
+reopen-QR error path immediately above; do not start a resized tournament. Entrant0 is the player;
+race_drivers[k] uses ID k+1. The elimination update belongs after all gates/contacts, immediately
+before the finished-race block at main.c:9145:
+
+```c
+if (knockout_live && race_state == 1) {
+    float progress[RR_MAX_CARS] = {0};
+    const WRace *pr = &world.city.race;
+    int lap = pr->finished ? pr->maxlaps : pr->lap > 0 ? pr->lap - 1 : 0;
+    progress[0] = world_race_progress_value(pr, carpos[0], carpos[1]);
+    for (int k = 0; k < nai; ++k) {
+        const WRace *r = &race_drivers[k].progress;
+        progress[k + 1] = world_race_progress_value(r, ais[k].pos[0], ais[k].pos[1]);
+        if (!race_drivers[k].eliminated) {
+            int completed = r->finished ? r->maxlaps : r->lap > 0 ? r->lap - 1 : 0;
+            if (completed > lap) lap = completed;
+        }
+    }
+    int gone = rr_knockout_lap(&knockout, lap, progress);
+    if (gone > 0) ai_race_eliminate(ais + gone - 1, race_drivers + gone - 1);
+    if (!knockout.alive[0] || rr_knockout_winner(&knockout) >= 0) {
+        finish_place = knockout.place[0];
+        world.city.race.failed = knockout.alive[0] ? 0 : RR_FAIL_KNOCKOUT;
+        world.city.race.finished = 1; race_state = 2;
+    }
+}
+```
+
+[inferred] Replace every main.c ai_actor_present call (e.g.7996,8079,9092,9109,9183,9225,9246 and
+minimap/draw feeds) with ai_actor_present_rules using the same four arguments plus race_drivers.
+The old API remains for other callers. In the contacts pointer-list loop at main.c:9032 use:
+
+```c
+if ((ai_race ? !race_drivers[k].eliminated : traffic_routes[k].present))
+    contacts[count++] = &ais[k];
+```
+
+[inferred] This removes eliminated cars from collisions, render/minimap/presentation and AI intent.
+Keep nai fixed (initial entrants), so stable IDs/results places are not compacted or renumbered.
+
+[inferred] For URL, let the field continue after the player finishes. Change the loop condition at
+main.c:8984 and the collision-block guard at9024 to:
+
+```c
+race_state == 1 || (url_live && !url_round.ready)
+```
+
+[inferred] In the contacts list, include the player only while
+`!follow_roam_ai && !(url_live && url_round.done[0])`; finished players do not block remaining cars.
+After all actor progress updates, once per fixed tick while URL is live and race_state is 1 or 2:
+
+```c
+if (url_live && (race_state == 1 || race_state == 2)) {
+    int finished[RR_MAX_CARS] = {0}, failed[RR_MAX_CARS] = {0};
+    float progress[RR_MAX_CARS] = {0};
+    finished[0] = world.city.race.finished; failed[0] = world.city.race.failed != 0;
+    progress[0] = world_race_progress_value(&world.city.race, carpos[0], carpos[1]);
+    for (int k = 0; k < nai; ++k) {
+        finished[k + 1] = race_drivers[k].progress.finished;
+        failed[k + 1] = race_drivers[k].progress.failed ||
+            (race_drivers[k].drive.failed && !finished[k + 1]);
+        progress[k + 1] = world_race_progress_value(&race_drivers[k].progress,
+            ais[k].pos[0], ais[k].pos[1]);
+    }
+    if (rr_round_step(&url_round, finished, failed, progress, 1.0 / PHYS_TICKRATE) < 0) {
+        url_live = 0; world.city.race.failed = RR_FAIL_INVALID_RULES;
+    }
+}
+```
+
+[inferred] At main.c:7150, after filling GfHost, delay the existing results transition while the
+field collector is pending: `if (url_live && race_state == 2 && !url_round.ready) {
+ gh.race_state = 1; gh.race_failed = 0; }`. Pause performs no fixed ticks, so the collector freezes.
+At GF_CMD_OPEN_RESULTS before pr_open, record only the ready round and fill supplied standings:
+
+```c
+if (url_live) {
+    int places[RR_MAX_CARS] = {0};
+    if (!rr_round_places(&url_round, places) ||
+        !rr_url_record(&url_series, info.event_id, places)) {
+        url_live = 0; info.failed = RR_FAIL_INVALID_RULES;
+    } else {
+        info.have_url_standings = 1; info.standing_count = url_series.count;
+        info.url_round = url_series.completed; info.url_rounds = url_series.races;
+        info.finish_place = rr_url_place(&url_series, 0);
+        for (int k = 0; k < url_series.count; ++k) {
+            if (!k) snprintf(info.standing[k].name, sizeof info.standing[k].name, "Player");
+            else snprintf(info.standing[k].name, sizeof info.standing[k].name, "Racer %d", k);
+            if (!k) snprintf(info.standing[k].car, sizeof info.standing[k].car, "%s", carname);
+            info.standing[k].points = url_series.points[k];
+            info.standing[k].place = rr_url_place(&url_series, k);
+        }
+    }
+}
+```
+
+[inferred] Player/Racer captions are generated stable identifiers until real names are supplied;
+use the profile name/localized Player when available. Unknown NPC car names stay empty/hidden.
+At post-result actions main.c:7142–7144:
+
+```c
+case PR_ACT_RESTART:
+    if (url_live) rr_url_undo_last(&url_series);
+    gf_pause_action(&gflow, FE_ACTION_RESTART); break;
+case PR_ACT_QUIT_MAIN:
+    url_live = knockout_live = 0;
+    gf_pause_action(&gflow, FE_ACTION_QUIT); break;
+case PR_ACT_CONTINUE: {
+    int next = url_live ? m7_next_url(&gflow, &g_catalog, &url_series) : 0;
+    if (next <= 0) {
+        url_live = knockout_live = 0;
+        if (next < 0) fem_show_error(fem, "The next URL course is unavailable.");
+        else if (fem) fem_open(fem, FEM_SCR_MAIN);
+    }
+    break;
+}
+```
+
+[inferred] Mid-race pause Restart resets the collector through race preparation without undoing
+already-completed earlier rounds. Only results Restart undoes that finished round. Clear live flags
+on GF_CMD_ERROR/STOP_RACE when abandoning the session, not on the ARM transition between URL rounds.
+HUD needs knockout.remaining/alive and URL round/total/points. The knocked-out language keys are
+HUD_DNF_KNOCKED_OUT0x1b59940c and HUD_LB_KNOCKED_OUT0x5d82dba2. No HUD implementation is claimed.
+
+```make
+race-series-rules-test:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -Isrc tools/race_series_rules_test.c src/race_rules.c -lm -o build/race_series_rules_test
+	./build/race_series_rules_test
+race-series-ai-test:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/race_series_ai_test.c src/ai.c -Wl,--gc-sections -lm -o build/race_series_ai_test
+	./build/race_series_ai_test
+```
+
+[inferred] Repeat synthetic recipes with -DN2_GLES. The existing postrace runtime helper now also
+writes url-standings.png. Default URL grouping, points, grace, and tie policies remain inferred;
+replace the named policies when actual tournament data/retail captures establish them.

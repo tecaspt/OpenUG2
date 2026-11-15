@@ -14,7 +14,8 @@ struct PostRace {
     UgAssets assets;UgSkin skin;UgGL *gl;UgCanvas canvas;UgCtx ui;
     GvScreen result,menu;GvCarousel view;GuiCarousel carousel;GvEntry entries[3];PostRaceInfo info;
     int open,visual,pending,pressed,phase;
-    char status[256],place[16],time[32];
+    char status[256],place[16],time[32],title[192];
+    char row_points[RR_MAX_CARS][32],row_places[RR_MAX_CARS][16];
 };
 static void text(GvScreen *s,const char *name,const char *value) {
     int i=ug_scene_find_name(&s->scene,ug_hash_upper(name));
@@ -32,6 +33,7 @@ PostRace *pr_create(const char *root) {
 void pr_open(PostRace *p,const PostRaceInfo *info) {
     if(!p || !info)return;
     gv_screen_free(&p->result);p->info=*info;p->info.car[31]=0;
+    p->title[0]=0;
     p->phase=0;p->open=1;p->pending=0;p->pressed=0;p->visual=0;
     if(!p->gl){snprintf(p->status,sizeof p->status,"postrace: renderer unavailable");return;}
     if(!gv_screen_load(&p->result,&p->assets,"UI_PostRaceResults.fng"))goto fail;
@@ -58,6 +60,46 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
         const char *prefix[]={"player_data_","ranking_data_","car_data_","time_data_"};
         for(int k=0;k<4;k++){char name[40];snprintf(name,sizeof name,"%s%d",prefix[k],row);
             int i=ug_scene_find_name(&p->result.scene,ug_hash_upper(name));if(i>=0)p->result.scene.nodes[i].app_hidden=1;}
+    }
+    if(info->kind==N2_RACE_URL && info->have_url_standings) {
+        int count=info->standing_count;
+        if(count<1 || count>RR_MAX_CARS || info->url_round<1 || info->url_round>info->url_rounds ||
+           info->url_rounds>RR_MAX_URL_RACES) {
+            snprintf(p->result.status,sizeof p->result.status,"postrace: invalid URL standings");goto fail;
+        }
+        const char *points=gv_text(&p->assets,0x70802830u,NULL),*url=gv_text(&p->assets,0x75f903f4u,NULL);
+        if(!points || !*points || !url || !*url) {
+            snprintf(p->result.status,sizeof p->result.status,"postrace: URL captions unavailable");goto fail;
+        }
+        int order[RR_MAX_CARS];
+        for(int k=0;k<count;k++) {
+            p->info.standing[k].name[31]=p->info.standing[k].car[31]=0;order[k]=k;
+            if(p->info.standing[k].place<0 || p->info.standing[k].place>count) {
+                snprintf(p->result.status,sizeof p->result.status,"postrace: invalid URL place");goto fail;
+            }
+        }
+        for(int k=1;k<count;k++) {
+            int value=order[k],j=k;
+            while(j>0 && p->info.standing[order[j-1]].points<p->info.standing[value].points) {
+                order[j]=order[j-1];j--;
+            }
+            order[j]=value;
+        }
+        snprintf(p->title,sizeof p->title,"%s %d/%d",url,info->url_round,info->url_rounds);
+        text(&p->result,"Header_Text",p->title);text(&p->result,"Header_Text_3",points);
+        const char *prefix[]={"player_data_","ranking_data_","car_data_","time_data_"};
+        for(int row=0;row<count;row++) {
+            const PostRaceStanding *entry=&p->info.standing[order[row]];
+            snprintf(p->row_points[row],sizeof p->row_points[row],"%u",entry->points);
+            if(entry->place)snprintf(p->row_places[row],sizeof p->row_places[row],"%d",entry->place);
+            else snprintf(p->row_places[row],sizeof p->row_places[row],"DNF");
+            const char *value[]={entry->name,p->row_places[row],entry->car,p->row_points[row]};
+            for(int k=0;k<4;k++) {
+                char name[40];snprintf(name,sizeof name,"%s%d",prefix[k],row+1);
+                int node=ug_scene_find_name(&p->result.scene,ug_hash_upper(name));
+                if(node>=0){p->result.scene.nodes[node].app_hidden=!value[k][0];p->result.scene.nodes[node].text_override=value[k];}
+            }
+        }
     }
     for(int i=0;i<p->result.scene.n;i++) {
         UgNode *n=&p->result.scene.nodes[i];

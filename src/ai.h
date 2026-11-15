@@ -218,7 +218,15 @@ typedef struct {
     const RaceAiSource *source;
     float source_scale;
     int source_skill,source_catch_up;
+    int eliminated,entrant_id; /* optional KO state; 0 preserves ordinary field */
 } AiRace;
+/* [inferred] Eliminated racers leave all host actor lists; traffic is unchanged. */
+static inline int ai_actor_present_rules(int k,int racing,int racers,const AiTraffic *routes,const AiRace *drivers) {
+    if(racing && (racers<0 || racers>N_RACE_AI))return 0;
+    if(!ai_actor_present(k,racing,racers,routes))return 0;
+    return !racing || k>=racers || !drivers || !drivers[k].eliminated;
+}
+void ai_race_eliminate(AiCar *car,AiRace *driver);
 /* Nominal intent from source settings; shared turn/body/braking limits still apply. */
 float ai_race_pace(const AiCar *car,const AiRace *driver,int index,
                   const AiTrafficWorld *world,const AiCar *player);

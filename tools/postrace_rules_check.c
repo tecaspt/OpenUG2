@@ -36,6 +36,15 @@ int main(int argc,char **argv) {
         if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/drift-points.png",argv[1]);capture(path,w,h);}
         rhi_frame_end();
     }
+    info=(PostRaceInfo){.kind=N2_RACE_URL,.finish_place=2,.seconds=90,
+        .have_url_standings=1,.standing_count=3,.url_round=2,.url_rounds=3,
+        .standing={{"Player","SYNTH",14,2},{"Leader","SYNTH2",16,1},{"Rival","SYNTH3",10,3}}};
+    pr_open(post,&info);assert(!pr_status(post)[0]);
+    for(int tick=0;tick<45;tick++) {
+        pr_update(post,1/30.f);rhi_frame_begin(NULL);pr_draw(post,w,h);
+        if(tick==44){char path[1024];snprintf(path,sizeof path,"%s/url-standings.png",argv[1]);capture(path,w,h);}
+        rhi_frame_end();
+    }
     assert(!pr_status(post)[0]);
     pr_destroy(post);rhi_device_destroy();SDL_DestroyWindow(window);SDL_Quit();
     puts("postrace_rules_check: PASS (retail results/caption binding and offscreen draw)");return 0;
