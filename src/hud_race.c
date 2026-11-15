@@ -53,7 +53,7 @@ static int package_chunk(const unsigned char *data,uint32_t tag,long beg,long en
     free(wrapped);free(decoded);return 0;
 }
 int hud_race_package_read(const unsigned char *data,size_t len,const char *name,HaPackage *out) {
-    if(!out)return 0;memset(out,0,sizeof *out);
+    if(!out){return 0;}memset(out,0,sizeof *out);
     if(!data||!name||!len||len>LONG_MAX)return 0;
     PackageRead read={.name=name};
     if(!asset_chunks_walk(data,0,(long)len,package_chunk,&read)||read.bad||!read.found){ha_free(&read.package);return 0;}
