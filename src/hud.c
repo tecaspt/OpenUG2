@@ -326,7 +326,7 @@ static void load_race_map(Hud *h, int event, const HudState *s) {
 static int node_named(Hud*h,const char*s){uint32_t key=ha_hash(s);for(size_t i=0;i<h->package.count;i++)if(h->package.nodes[i].valid&&h->package.nodes[i].name==key)return (int)i;return -1;}
 static int node_key(Hud*h,uint32_t key,uint32_t kind){
  int found=-1;for(size_t i=0;i<h->package.count;i++)if(h->package.nodes[i].name==key){
-  if(found>=0)return -1;found=(int)i;}
+  if(found>=0){return -1;}found=(int)i;}
  return found>=0&&h->package.nodes[found].valid&&h->package.nodes[found].kind==kind?found:-1;
 }
 static int descendant(Hud*h,int i,int root){for(unsigned d=0;i>=0&&d<HA_DEPTH;d++,i=h->package.nodes[i].parent)if(i==root)return 1;return 0;}
@@ -481,7 +481,7 @@ static int load_layout(Hud*h,int mode){
  h->package=next;h->textures=textures;
  if(h->package.diagnostics)diagnostic(h,"rejected package objects or references");
  for(size_t i=0;i<h->package.resource_count;i++){HaResource*r=h->package.resources+i;
-  if(r->kind!=1||!r->name)continue;uint32_t key=ha_texture_hash(r->name);
+  if(r->kind!=1||!r->name){continue;}uint32_t key=ha_texture_hash(r->name);
   h->textures[i]=lookup(h,key,pack,pack+1);
   if(!h->textures[i].id.id)h->textures[i]=lookup(h,key,0,7);
   if(!h->textures[i].id.id)h->textures[i]=lookup(h,key,18,19);
@@ -522,7 +522,7 @@ static int load_layout(Hud*h,int mode){
 }
 Hud *hud_init(const char*root){
  Hud*h=calloc(1,sizeof *h);if(!h)return NULL;hud_default_settings(&h->settings);h->layout_mode=-1;
- if(!root)root=".";h->auxiliary=hud_baseline_init(root);
+ if(!root){root=".";}h->auxiliary=hud_baseline_init(root);
  h->data_root=strdup(root);
  const char*paths[]={"GLOBAL/InGameFreeRoam.bun","LANGUAGES/English.bin","LANGUAGES/LanguageTextures.bin","GLOBAL/GLOBALA.BUN","GLOBAL/HUD_CustomTextures_ALL.bin","GLOBAL/GLOBALB.BUN","TRACKS/TRACKMAP4000.BIN"};
  const char*events[]={"GLOBAL/InGameCommon.bun","GLOBAL/InGameRace.bun","GLOBAL/InGameDrag.bun","GLOBAL/InGameDrift.bun"};
@@ -568,13 +568,13 @@ void hud_request_city_map(Hud*h){
 void hud_set_map_sync(Hud*h,int on){if(h)h->map_sync=on;}
 void hud_set_map_cache(Hud*h,int on){if(h)h->cache_off=!on;}
 void hud_free(Hud**hp){
- if(!hp||!*hp)return;Hud*h=*hp;
+ if(!hp||!*hp){return;}Hud*h=*hp;
  h->want_city=0;map_job_drop(&h->pending);map_job_drop(&h->city_pending);
  if(h->job_busy)map_job_finish(h);
  map_bake_layers_free(&h->layers);
  release_layout(h);
  rhi_texture_destroy(h->race_map.id);rhi_texture_destroy(h->city_map.id);free(h->data_root);
- if(h->centre_texture.id.id)rhi_texture_destroy(h->centre_texture.id);hud_baseline_free(&h->auxiliary);
+ if(h->centre_texture.id.id){rhi_texture_destroy(h->centre_texture.id);}hud_baseline_free(&h->auxiliary);
  for(size_t i=0;i<h->font_count;i++){free(h->fonts[i].metrics.glyphs);free(h->fonts[i].cells);if(h->fonts[i].atlas.id.id)rhi_texture_destroy(h->fonts[i].atlas.id);}
  for(int i=0;i<PACK_COUNT;i++){free(h->packs[i].slots);free(h->packs[i].tpk.blk);free(h->packs[i].data);}
  rhi_shader_destroy(h->hud_shader);rhi_buffer_destroy(h->vbo);rhi_buffer_destroy(h->ibo);rhi_buffer_destroy(h->line_ibo);free(h);*hp=NULL;
@@ -584,9 +584,9 @@ int hud_preview(const Hud*h){return h&&h->preview;}
 const char *hud_missing(const Hud*h){return h?h->missing:"HUD allocation failed";}
 static Texture node_texture(Hud*h,int i){Texture t={0};if(i<0)return t;HaNode*n=h->package.nodes+i;if(n->resource<h->package.resource_count)t=h->textures[n->resource];return t;}
 static int skin_resource(const char*r){
- if(!r)return 0;if(!strcmp(r,"Tach_Fill.tga"))return 1;
+ if(!r){return 0;}if(!strcmp(r,"Tach_Fill.tga"))return 1;
  const char*prefix="3rdperson_";if(strncmp(r,prefix,strlen(prefix)))return 0;r+=strlen(prefix);
- if(*r<'0'||*r>'9')return 0;while(*r>='0'&&*r<='9')r++;return !strcmp(r,"lines.tga");
+ if(*r<'0'||*r>'9'){return 0;}while(*r>='0'&&*r<='9')r++;return !strcmp(r,"lines.tga");
 }
 static Texture image_texture(Hud*h,int i,int skin,int scale,int*owned){
  *owned=0;

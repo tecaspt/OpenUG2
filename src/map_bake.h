@@ -386,6 +386,9 @@ static int map_bake_compose(const unsigned char *src, int w, int h, const unsign
                             const unsigned char *second, const unsigned char *drive,
                             const unsigned char *links, int s, int race, unsigned char *out) {
     long n = (long)s * s, np = (long)w * h;
+    /* A map with no texels has nothing to bake, and every plane below would be
+       read by mb_upscale/mb_morph at offsets the fill loop never wrote. */
+    if (np <= 0) return 0;
     /* Smooth planes are filtered at 1024 and enlarged. Radii are in those texels,
        so the look does not change between detail levels. */
     int sm = s > 1024 ? 1024 : s, grid = sm / 1024 > 0 ? sm / 1024 : 1;

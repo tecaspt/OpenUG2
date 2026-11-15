@@ -2408,7 +2408,7 @@ static int n2_car_chunk(const unsigned char *d,uint32_t tag,long ds,long end,voi
            "ensure material classification works without requiring
            nsub > 1", scoped to the case that's actually safe). */
         int trust_cls = nsub == 1 || part_ok;
-        uint32_t subtex[32], submat[32]; int matcls[32];
+        uint32_t subtex[32], submat[32]; int matcls[32] = {0};
         int differ = 0, clsdiffer = 0, matdiffer = 0, big = 0;
         for (int k = 0; k < (trust_cls ? nsub : 0); k++) {
             subtex[k] = sub[k].mat < (uint32_t)nslot
