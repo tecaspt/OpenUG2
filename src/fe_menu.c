@@ -56,6 +56,7 @@ struct FeMenu {
     int back_pressed;
     int locked;                  /* a request was issued: input is ignored until the host reacts */
     unsigned icon_warned;
+    int career_focus, career_confirm;   /* M6 career start screen */
     int main_focus, mode_focus;  /* last focused entry ids, restored when a screen is re-entered */
     char cur_car[32], cur_track[16];
     FeChoice choice;
@@ -87,6 +88,7 @@ static const char *screen_name(FemScreen s) {
     case FEM_SCR_QR_CAR: return "QR_CAR";
     case FEM_SCR_OPTIONS:return "OPTIONS";
     case FEM_SCR_PROFILE:return "PROFILE";
+    case FEM_SCR_CAREER: return "CAREER";
     case FEM_SCR_LOADING: return "LOADING";
     default: return "NONE";
     }
@@ -97,6 +99,7 @@ static const char *package_of(FemScreen s) {
     case FEM_SCR_PROFILE:return "UI_ProfileManager.fng";
     case FEM_SCR_MAIN: return "UI_Main.fng";
     case FEM_SCR_QR_MODE: return "UI_QRModeSelect.fng";
+    case FEM_SCR_CAREER: return "UI_StartCareer.fng";   /* [data] same carousel layout as UI_QRModeSelect */
     case FEM_SCR_LOADING: return "PC_Loading.fng";
     default: return s>=FEM_SCR_QR_TRACK && s<=FEM_SCR_QR_CAR ? k_hooks[s].name : NULL;
     }
@@ -193,8 +196,10 @@ static void build_screen(FeMenu *m) {
         FeEntry e[GC_MAX];
         int n;
         if(m->screen==FEM_SCR_PROFILE)profile_entries(m,e,&n);
+        else if(m->screen==FEM_SCR_CAREER)n=fe_career_entries(e,m->career_save,m->career_confirm);
         else n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, m->main_enabled) : fe_mode_entries(e);
-        fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->mode_focus, rail_width(&m->scr, GC_RAIL_PAUSE));
+        fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->screen == FEM_SCR_CAREER ? m->career_focus : m->mode_focus,
+                 rail_width(&m->scr, GC_RAIL_PAUSE));
         ok = gv_carousel_bind(&m->car_v, &m->scr, &m->fes.car);
         m->has_carousel = ok;
         if (ok) {                                            /* geometry of this package: rail and arrow boxes */
@@ -211,13 +216,15 @@ static void build_screen(FeMenu *m) {
 
 /* Logic-only carousel when the package cannot be bound: state and input still work. */
 static void ensure_logic(FeMenu *m) {
-    if (m->has_carousel || (m->screen != FEM_SCR_MAIN && m->screen != FEM_SCR_QR_MODE)) return;
+    if (m->has_carousel || (m->screen != FEM_SCR_MAIN && m->screen != FEM_SCR_QR_MODE && m->screen != FEM_SCR_CAREER)) return;
     FeEntry e[GC_MAX];
-    int n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, m->main_enabled) : fe_mode_entries(e);
-    fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->mode_focus, GC_RAIL_PAUSE);
+    int n = m->screen == FEM_SCR_MAIN ? fe_main_entries(e, m->main_enabled) :
+            m->screen == FEM_SCR_CAREER ? fe_career_entries(e, m->career_save, m->career_confirm) : fe_mode_entries(e);
+    fes_open(&m->fes, e, n, m->screen == FEM_SCR_MAIN ? m->main_focus : m->screen == FEM_SCR_CAREER ? m->career_focus : m->mode_focus,
+             GC_RAIL_PAUSE);
 }
 
-static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || (m->screen==FEM_SCR_PROFILE && !m->editing); }
+static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
@@ -272,7 +279,9 @@ static void views_update(FeMenu *m, float ms) {
         if (m->fes.exiting && !m->exit_sent) { m->exit_sent = 1; gv_screen_exit(&m->scr); }
         GvEntry e[GC_MAX];
         entries_to_view(m, e);
-        gv_carousel_apply(&m->car_v, &m->fes.car, e, m->fes.n, NULL, 0, 0);
+        /* [data] UI_StartCareer's header object resolves to the Options caption; the application titles it */
+        const char *hdr = m->screen == FEM_SCR_CAREER ? gv_text(&m->assets, ug_hash_upper("UI_MAIN_CAREER"), "Career") : NULL;
+        gv_carousel_apply(&m->car_v, &m->fes.car, e, m->fes.n, hdr, 0, 0);
     }
 }
 
@@ -636,13 +645,20 @@ FemRequest fem_update(FeMenu *m, float seconds) {
             if (m->screen == FEM_SCR_MAIN) {
                 m->main_focus = id;
                 if (id == FE_MAIN_CAREER && (m->main_enabled & (1u << FE_MAIN_CAREER))) {
-                    /* [inferred] no Career sub-screen yet: continue the saved career, else start a new one */
-                    req.kind = FEM_REQ_CAREER; req.event_id = m->career_save ? 0 : 1;
-                    snprintf(req.car, sizeof req.car, "%s", m->cur_car); m->locked = 1;
+                    m->career_confirm = 0; m->career_focus = m->career_save ? FE_CAREER_RESUME : FE_CAREER_NEW;
+                    fem_open(m, FEM_SCR_CAREER);
                 } else if (id == FE_MAIN_QUICK_RACE) fem_open(m, FEM_SCR_QR_MODE);
                 else if(id==FE_MAIN_OPTIONS)fem_open(m,FEM_SCR_OPTIONS);
                 else if(id==FE_MAIN_PROFILE)fem_open(m,FEM_SCR_PROFILE);
                 else fem_open(m,FEM_SCR_MAIN);
+            } else if (m->screen == FEM_SCR_CAREER) {
+                m->career_focus = id;
+                if (id == FE_CAREER_NEW && m->career_save && !m->career_confirm) {
+                    m->career_confirm = 1; fem_open(m, FEM_SCR_CAREER);   /* a second choice confirms the restart */
+                } else {
+                    req.kind = FEM_REQ_CAREER; req.event_id = id == FE_CAREER_NEW;   /* 1 = new, 0 = resume */
+                    snprintf(req.car, sizeof req.car, "%s", m->cur_car); m->locked = 1;
+                }
             } else if(m->screen==FEM_SCR_PROFILE) {
                 m->profile_action=id;m->editing=1;m->delete_confirm=0;
                 snprintf(m->edit_name,sizeof m->edit_name,"%.*s",ST_NAME_MAX,id==1 && m->profile?m->profile->value.name:"");
@@ -656,7 +672,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
                 else {m->choice.kind=fe_mode_race_kind(id);m->choice.selected=0;fem_open(m,FEM_SCR_QR_TRACK);}
             }
         } else if (ev == FES_EV_BACK) {
-            if (m->screen == FEM_SCR_QR_MODE || m->screen==FEM_SCR_PROFILE) fem_open(m, FEM_SCR_MAIN);
+            if (m->screen == FEM_SCR_QR_MODE || m->screen==FEM_SCR_PROFILE || m->screen==FEM_SCR_CAREER) fem_open(m, FEM_SCR_MAIN);
             else if (m->allow_quit) { req.kind = FEM_REQ_QUIT; m->locked = 1; }
             else fem_open(m, FEM_SCR_MAIN);
         }

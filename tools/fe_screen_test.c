@@ -43,6 +43,19 @@ static void test_entries(void) {
     static const char *const micon[] = { "TRACK_ICON_CIRCUIT", "TRACK_ICON_SPRINT", "TRACK_ICON_DRAG", "TRACK_ICON_DRIFT",
                                          "TRACK_ICON_SHORT_TRACK", "TRACK_ICON_U_RACING_LEA", "TRACK_ICON_FREE_RUN" };
     static const char *const mlabel[] = { "QR_CIRCUIT", "QR_SPRINT", "QR_DRAG", "QR_DRIFT", "QR_STREET_CROSS", "QR_URL", "QR_FREE_RUN" };
+    /* M6 career start screen: Resume (needs a save), New; the confirm label replaces New's caption */
+    n = fe_career_entries(e, 0, 0);
+    CHECK(n == 2 && e[0].id == FE_CAREER_RESUME && e[1].id == FE_CAREER_NEW);
+    CHECK(e[0].disabled && !e[1].disabled);
+    CHECK(e[0].icon_key == ug_hash_upper("MAIN_ICON_LOAD_CAREER") && e[1].icon_key == ug_hash_upper("MAIN_ICON_NEW_CAREER"));
+    CHECK(e[0].label_key == ug_hash_upper("RESUME_CAREER") && e[1].label_key == ug_hash_upper("NEW_CAREER"));
+    fe_career_entries(e, 1, 0);
+    CHECK(!e[0].disabled && e[1].label_key == ug_hash_upper("NEW_CAREER"));
+    fe_career_entries(e, 1, 1);
+    CHECK(e[1].label_key == ug_hash_upper("CONFIRM_OVERWRITE_SAVED_GAME"));
+    fe_career_entries(e, 0, 1);   /* no save: nothing to confirm */
+    CHECK(e[1].label_key == ug_hash_upper("NEW_CAREER"));
+    CHECK(fe_career_entries(NULL, 1, 0) == 0);
     n = fe_mode_entries(e);
     CHECK(n == 7);
     for (int i = 0; i < 7; i++) {

@@ -7582,8 +7582,10 @@ int main(int argc, char **argv) {
                     world2_support_ref = next_spawn[2];
                     world2_support_cat = WSURF_ROAD;
                     heading0 = next_heading; heading = next_heading;
-                    if (career_heading_set) {   /* M6 career pose */
-                        heading0 = heading = career_heading;
+                    if (career_heading_set) {   /* M6 career pose: along the road, the direction nearer the saved heading */
+                        float rh = next_heading;
+                        if (cosf(career_heading - rh) < 0.0f) rh += 3.14159265f;
+                        heading0 = heading = atan2f(sinf(rh), cosf(rh));
                         printf("career: placed at (%.1f %.1f %.1f) heading %.2f\n", next_spawn[0], next_spawn[1], next_spawn[2], heading);
                     }
                     vel[0] = vel[1] = 0.0f; speed = 0.0f;
@@ -11675,6 +11677,9 @@ int main(int argc, char **argv) {
                career/free-roam context only; money, messages and the tank stay
                absent unless --hud-preview supplies labelled samples. */
             hud_host_context(&hs);
+            if (g_career.active && !hs.racing) {   /* M6: the career's live bank in the free-roam widget */
+                hs.career_context = 1; hs.have_money = 1; hs.money = (long)g_career.st.bank;
+            }
             if (hud_preview_opt && !hs.racing) {
                 double now = hs.clock_ms;
                 float dt = hud_preview_clock_ms > 0.0 ? (float)((now - hud_preview_clock_ms) * 0.001) : 0.0f;

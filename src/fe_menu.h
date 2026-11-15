@@ -19,7 +19,7 @@ struct GameCatalog;                /* game_catalog.h */
 
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE } FemScreen;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).

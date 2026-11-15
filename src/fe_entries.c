@@ -26,6 +26,11 @@ static const Proto k_mode[] = {
     { FE_MODE_FREE_RUN, "TRACK_ICON_FREE_RUN",     "QR_FREE_RUN",     "Free Run" },
 };
 
+static const Proto k_career[] = {
+    { FE_CAREER_RESUME, "MAIN_ICON_LOAD_CAREER", "RESUME_CAREER", "Resume Career" },
+    { FE_CAREER_NEW,    "MAIN_ICON_NEW_CAREER",  "NEW_CAREER",    "Start New Career" },
+};
+
 static void fill(FeEntry *e, const Proto *p, int disabled) {
     e->id = p->id;
     e->icon_key = ug_hash_upper(p->icon);
@@ -43,6 +48,17 @@ int fe_main_entries(FeEntry out[GC_MAX], unsigned enabled_mask) {
         fill(&out[i], &k_main[i], !on);
     }
     return n;
+}
+
+int fe_career_entries(FeEntry out[GC_MAX], int has_save, int confirm_new) {
+    if (!out) return 0;
+    fill(&out[0], &k_career[0], !has_save);
+    fill(&out[1], &k_career[1], 0);
+    if (confirm_new && has_save) {   /* [data] key CONFIRM_OVERWRITE_SAVED_GAME (CONFIRM_CAREER_RESTART is a race prompt); [inferred] shown as the label */
+        out[1].label_key = ug_hash_upper("CONFIRM_OVERWRITE_SAVED_GAME");
+        out[1].label = "Overwrite the saved career? Choose again to confirm";
+    }
+    return 2;
 }
 
 int fe_mode_entries(FeEntry out[GC_MAX]) {
