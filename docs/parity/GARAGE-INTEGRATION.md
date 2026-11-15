@@ -56,19 +56,19 @@ car while Garage is editing. The existing frozen-world FE path and menu camera a
 [inferred] Synthetic model command, repeat with -DN2_GLES and with
 -fsanitize=address,undefined -fno-omit-frame-pointer:
 ```sh
-cc -g -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Isrc tools/garage_test.c src/garage.c -lm -o "$report/garage-test"
+cc -g -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -Isrc tools/garage_test.c src/garage.c src/settings.c -lm -o "$report/garage-test"
 "$report/garage-test"
 ```
 [observed] This environment prevents LeakSanitizer under ptrace. ASan/UBSan checks use
 ASAN_OPTIONS=detect_leaks=0; leak scanning is NOT RUN, not PASS.
 [inferred] FE flow check:
 ```sh
-cc -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections $(sdl2-config --cflags) -Isrc tools/fe_garage_test.c src/fe_garage.c src/garage.c src/gui_view.c src/gui_carousel.c src/ugui/ugui_scene.c src/ugui/ugui_util.c -Wl,--gc-sections -lm -o "$report/fe-garage-test"
+cc -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections $(sdl2-config --cflags) -Isrc tools/fe_garage_test.c src/fe_garage.c src/garage.c src/fe_profile.c src/settings.c src/gui_view.c src/gui_carousel.c src/ugui/ugui_scene.c src/ugui/ugui_util.c -Wl,--gc-sections -lm -o "$report/fe-garage-test"
 "$report/fe-garage-test"
 ```
 [inferred] CPU installed-data check, no output artifacts in the worktree:
 ```sh
-cc -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(sdl2-config --cflags) -Isrc tools/garage_check.c src/game_catalog.c src/world.c src/resource.c src/ugui/ugui_util.c -Wl,--gc-sections $(sdl2-config --libs) -lm -o "$report/garage-check"
+cc -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(sdl2-config --cflags) -Isrc tools/garage_check.c src/game_catalog.c src/world.c src/resource.c src/ugui/ugui_util.c -Wl,--gc-sections $(sdl2-config --libs) -lGL -lz -lm -o "$report/garage-check"
 "$report/garage-check" "$OPENUG2_DATA"
 ```
 [inferred] All compile/run commands require the owner's memory check, flock and nice envelope. Tests
@@ -342,3 +342,34 @@ shared car-switch path. The real orchestrator still owns production integration/
 
 [observed] All patch anchors were checked against a separate copy of the scratch main.
 The resulting C and rendered persistence proof are still pending; the patch is not yet a PASS.
+
+## Exact additional Makefile targets
+
+[inferred] Append these targets after adding garage.c/fe_garage.c to SRC and SCREENS_TEST_SRC.
+The recipes match the standalone commands used by the worker. Run make through the existing
+memory/flock/nice envelope; repeat synthetic targets with -DN2_GLES and sanitizer flags.
+
+```make
+.PHONY: garage-test fe-garage-test garage-check
+garage-test:
+	@mkdir -p build
+	$(CC) -g -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function $(GARAGE_TEST_FLAGS) -Isrc tools/garage_test.c src/garage.c src/settings.c $(SETTINGS_LIBS) -lm -o build/garage_test
+	./build/garage_test
+
+fe-garage-test:
+	@mkdir -p build
+	$(CC) -g -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections $(GARAGE_TEST_FLAGS) $(SDL_CFLAGS) -Isrc tools/fe_garage_test.c src/fe_garage.c src/garage.c src/fe_profile.c src/settings.c src/gui_view.c src/gui_carousel.c src/ugui/ugui_scene.c src/ugui/ugui_util.c -Wl,--gc-sections $(SETTINGS_LIBS) -lm -o build/fe_garage_test
+	./build/fe_garage_test
+
+garage-check:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/garage_check.c src/game_catalog.c src/world.c src/resource.c src/ugui/ugui_util.c -Wl,--gc-sections $(SDL_LIBS) -lGL -lz -lm -o build/garage_check
+	./build/garage_check "$(OPENUG2_DATA)"
+```
+
+[inferred] Use `GARAGE_TEST_FLAGS=-DN2_GLES` for the GLES synthetic configuration and
+`GARAGE_TEST_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'` for sanitizers.
+Set ASAN_OPTIONS=detect_leaks=0 only for this ptrace environment; this does not claim leak checking.
+The byte-preserving store links settings.c. fe_profile.c adds no Garage implementation dependency
+to its existing standalone test. `fep_persist` reloads a profile created since FE opened instead of
+overwriting it with stale defaults; the host's existing fem_persist_profile call keeps its API.

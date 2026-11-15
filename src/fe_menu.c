@@ -772,7 +772,7 @@ void fem_set_career(FeMenu *m, int available, int has_save)
     if (m->screen == FEM_SCR_MAIN) build_screen(m);
 }
 const char *fem_profile_root(const FeMenu *m){return m && m->profile?m->profile->root:NULL;}
-int fem_persist_profile(FeMenu *m){if(!m || !m->profile || !m->profile->valid)return ST_E_ARG;return m->profile->persisted?ST_OK:fep_save(m->profile);}
+int fem_persist_profile(FeMenu *m){if(!m || !m->profile || !m->profile->valid)return ST_E_ARG;return fep_persist(m->profile);}
 
 int fem_garage_current(FeMenu *m,const char *car,const GarageConfig *cfg) {
     return m && m->screen!=FEM_SCR_GARAGE && feg_current(m->garage,car,cfg);

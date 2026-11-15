@@ -58,6 +58,12 @@ static size_t read_fixture(const char *path,unsigned char *bytes,size_t cap) {
 static void test_rename_carry(void) {
  char root[]="/tmp/openug2-garage-profile-XXXXXX";assert(mkdtemp(root));
  StRegStore reg;assert(st_reg_open_memory(&reg)==ST_OK);FeProfile *p=fep_create(root,&reg);assert(p);
+ /* Another menu can create this profile after FE opened: retain its opaque bytes/bindings. */
+ StProfile *external=malloc(sizeof *external);assert(external);st_profile_defaults(external,0);
+ snprintf(external->name,sizeof external->name,"%s",p->value.name);external->raw[40000]=0x71;external->audio.master=.42f;
+ assert(!p->persisted&&st_profile_save(root,external)==ST_OK&&fep_persist(p)==ST_OK);
+ assert(p->persisted&&p->value.raw[40000]==0x71&&p->value.audio.master==.42f);
+ assert(st_profile_delete(root,p->value.name)==ST_OK);free(external);
  assert(fep_new(p,"Original")==ST_OK);GarageConfig cfg={0},out={0};cfg.car.body_kit=1;
  strcpy(cfg.rim_brand,"NFSU");cfg.rim_style=2;
  assert(garage_save(root,"Original","SYNTH",&cfg)==ST_OK);

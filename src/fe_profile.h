@@ -17,4 +17,6 @@ int fep_rename(FeProfile *,const char *);
 int fep_load(FeProfile *,const char *);
 int fep_delete(FeProfile *,const char *);
 int fep_save(FeProfile *);
+/* Lazily create the active profile; reload one created since this object opened. */
+int fep_persist(FeProfile *);
 #endif

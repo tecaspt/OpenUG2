@@ -74,6 +74,14 @@ int fep_save(FeProfile *p) {
     int rc=st_profile_save(p->root,&p->value);
     if(rc==ST_OK){p->persisted=1;rc=active(p);}return result(p,rc);
 }
+int fep_persist(FeProfile *p) {
+    if(!p||!p->valid)return ST_E_ARG;
+    if(p->persisted)return ST_OK;
+    int rc=st_profile_status(p->root,p->value.name);
+    if(rc==ST_OK)return fep_load(p,p->value.name);
+    if(rc!=ST_E_NOTFOUND)return result(p,rc);
+    return fep_save(p);
+}
 /* [inferred] Profile rename carries career and Garage bytes opaquely before removing the
  * old directory. This also preserves unknown/newer saves. Only ENOENT means absent. */
 static int carry_aux(const char *root,const char *from,const char *to,const char *file) {

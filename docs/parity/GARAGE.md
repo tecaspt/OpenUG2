@@ -9,8 +9,9 @@ report a diagnostic. Inputs cannot change an in-flight final Keep/Restore operat
 [data] Local KIT/STYLE mesh variants and supported shared library sockets supply options.
 [inferred] Only fully assembled CPU scenes with finite vertices, valid indices, positive triangles,
 and a matching selected part/kit are exposed. GPU texture/upload proof is separate.
-[observed] Priority1 is complete: Main Customize opens the category package; visual categories and
-part options use the current car catalogue and host-acknowledged scene changes. Priorities2–5 remain.
+[observed] Visual parts and rims are implemented and rendered on desktop/GLES. Per-profile saves
+pass synthetic/sanitizer checks and desktop persistence proof; GLES persistence proof is in progress.
+Paint/vinyl and performance research limitations are recorded below.
 
 ## Retail presentation and scope
 
@@ -36,7 +37,7 @@ entries remain disabled; renderable engine/audio parts are available within Visu
 [observed] garage_test passes desktop, N2_GLES and ASan/UBSan: option bounds, debounce, stale serials,
 coalescing, failed loads, final-operation input lock, Keep and restoration. LeakSanitizer is NOT RUN
 under this ptrace environment; the initial sanitizer attempt failed there and was rerun with leak
-scanning disabled while address/undefined instrumentation remained enabled. Save/rename cases await3.
+scanning disabled while address/undefined instrumentation remained enabled. Save/rename coverage is recorded under priority3 below.
 [observed] fe_garage_test passes desktop/GLES: navigation,20-option catalogue, restore handshake,
 invalid catalogues and synthetic parts-binding identity rejection. Existing fe-screen, fe-binding,
 fe-profile, fe-polish, fe-options, game-flow, postrace(9) and pause-menu vectors pass. No new warnings
@@ -54,7 +55,7 @@ reports/garage/desktop/{hub,slots,parts-before,parts-after,kept,before-cancel,re
 same names under reports/garage/gles. Desktop/GLES contact sheets and the kept-frame review confirm
 visible stock→KIT01→KIT02→KIT01 geometry and tap-reachable Back without gameplay gauges.
 [observed] The production host is not wired by this worker; GARAGE-INTEGRATION.md supplies exact
-source/build changes. Persistence, rims, paint/vinyl and performance research are not yet delivered.
+source/build changes; later sections record the completed units and remaining limitations.
 
 ## Priority 2 — rims
 
@@ -107,7 +108,11 @@ rebuilds so stale acknowledgements cannot confirm a later Keep. Saves reload the
 write an exclusive temporary file beside it and replace it atomically. Only an actual missing file
 or profile means absent; unreadable, linked or special files are refused. Simultaneous writers are
 not supported. Profile rename carries Garage and career bytes opaquely before deleting the old
-profile, including unknown, corrupt and newer Garage documents.
+profile, including unknown, corrupt and newer Garage documents. Other regular auxiliary files
+are copied opaquely too; directories, special files and destination-name collisions are refused
+before mutation. If old-folder cleanup fails after deletion begins, the complete new copy is kept.
+A lazy first save reloads a profile created by another menu after FE opened, preserving its bindings
+and unknown bytes instead of overwriting it with stale defaults.
 
 [observed] Pure store/model tests PASS on desktop/GLES and ASan+UBSan. FE save-failure recovery,
 stale-acknowledgement and profile rename/opaque-copy fixtures PASS desktop/GLES and ASan+UBSan.
