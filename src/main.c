@@ -6803,6 +6803,10 @@ int main(int argc, char **argv) {
     RaceLog race_log={0};g_dbg.race_log=&race_log;
     unsigned log_serial=0;int log_event=-1;
     PauseMenu *pause_menu = NULL;
+    /* The pause menu (and the in-game UgAssets it owns) is built on first use: Escape, a career question,
+       or a retail caption lookup. */
+    int pause_menu_tried = 0;   /* a failed build is not retried every frame (Escape still retries) */
+#define PAUSE_MENU_READY (pause_menu ? pause_menu : pause_menu_tried ? NULL : (pause_menu_tried = 1, pause_menu = pause_menu_build(dataroot, &opt_gfx, &opt_caps, &opt_store, &opt_store_open)))
     int pause_cursor = SDL_ENABLE;
     /* Graphics options (SPEC_GUI): the pause menu edits these in place and writes them on Back from
      * Display. The renderer does not read them yet: see the re-init hook after pause_menu_update. */
@@ -7334,7 +7338,7 @@ int main(int argc, char **argv) {
             static float ask_x, ask_y, ask_kmh; static int ask_live;
             if (career_enter && career_dev != 1) {   /* --career-dev 2 also asks (checks) */
                 career_enter = 0;   /* never engage unasked, also while a question is up */
-                if (!ask_live && pause_menu_confirm(pause_menu, GD_ENGAGE_RACE)) {
+                if (!ask_live && pause_menu_confirm(PAUSE_MENU_READY, GD_ENGAGE_RACE)) {
                     ask_live = 1; ask_x = ce_x; ask_y = ce_y; ask_kmh = ce_kmh;
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                     printf("career: asking to race (%.1f %.1f)\n", ce_x, ce_y);
@@ -9622,11 +9626,11 @@ int main(int argc, char **argv) {
             int gone = rr_knockout_lap(&knockout, lap, progress);
             if (gone > 0) {
                 ai_race_eliminate(ais + gone - 1, race_drivers + gone - 1);
-                outrun_notice = pause_menu_text(pause_menu, 0x5d82dba2u, "Knocked Out");   /* M9: retail banner caption */
+                outrun_notice = pause_menu_text(PAUSE_MENU_READY, 0x5d82dba2u, "Knocked Out");   /* M9: retail banner caption */
                 outrun_notice_until = SDL_GetTicks() + 2000;
             }
             if (!knockout.alive[0]) {
-                outrun_notice = pause_menu_text(pause_menu, 0x1b59940cu, "You were knocked out!");
+                outrun_notice = pause_menu_text(PAUSE_MENU_READY, 0x1b59940cu, "You were knocked out!");
                 outrun_notice_until = SDL_GetTicks() + 3000;
             }
             if (!knockout.alive[0] || rr_knockout_winner(&knockout) >= 0) {
@@ -11906,7 +11910,7 @@ int main(int argc, char **argv) {
                         hs.shift_quality=drag_gear.shift_quality;   /* M7 P2 */
                         hs.shift_quality_seconds=drag_gear.feedback_seconds;
                         hs.shift_quality_key=drag_gear.feedback_seconds>0?rr_drag_grade_label(drag_gear.shift_quality):0;
-                        hs.shift_quality_text=pause_menu_text(pause_menu,hs.shift_quality_key,NULL);   /* M9: retail "Perfect Shift!" etc. */
+                        hs.shift_quality_text=pause_menu_text(PAUSE_MENU_READY,hs.shift_quality_key,NULL);   /* M9: retail "Perfect Shift!" etc. */
                     }
                 }
                 if (event_race) {
@@ -11969,7 +11973,7 @@ int main(int argc, char **argv) {
             static char career_notice[96];
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
                       !hs.racing && career_zone>=0 && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
-                                                                pause_menu_text(pause_menu,0x4a1341b3u,NULL),   /* "Enter Race / Shop" */
+                                                                pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL),   /* "Enter Race / Shop" */
                                                                 career_notice,sizeof career_notice)?career_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
 
