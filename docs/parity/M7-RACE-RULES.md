@@ -182,3 +182,32 @@ Post-unit clock/collision/AI-drive/resident/direct race-AI checks pass, postrace
 Full drive byte comparison is identical (p4/drive.txt, p4-status.log); initial build attempt exited143
 and was rerun completely. Required Xvfb wrapper remains baselineFAIL1 despite direct child PASS.
 Actual main.c coordination/end-to-end URL/KO play is NOT RUN; owner integration remains required.
+
+## Priority 5: race-option policies and directed courses
+
+[data] Language labels identify opponents, traffic, catch-up, track direction and Lap KO; backward
+Routes files and named BackwardStartingPosition markers exist in the installed data.
+[observed] Runtime metadata probe counted8 grid packages,968 forward/792 backward markers; computed
+hashes8e55c895/8f90f7bf match the reader. The185 attribute records yielded no reward-named candidates;
+this is a limited name search, not proof of missing reward data. No numerical density/count/reward
+field decoder has been established in this pass.
+[inferred] RrOptions is opt-in and borrowed by AiTrafficWorld; a NULL pointer preserves old policy.
+Opponents select0–5, subject to actual supported clear grid slots. An insufficient grid rejects the
+selection instead of reducing it silently. Explicit zero uses the existing solo course/driver binder.
+[inferred] Traffic levels use named provisional targets0/4/8/16; existing traffic safety/capacity policy
+still controls actual spawning. Host mode restrictions and free-roam target restoration remain required.
+Catch-up Off suppresses the curve without removing source skill. On uses the decoded curve where
+available; otherwise a named provisional maximum20% adjustment across100metres. No teleport/collision
+bypass or grip change is introduced. Invalid options fail validation.
+[data] Directed world launch binds only genuine backward numbered grid markers. [inferred] It reverses
+checkpoint order/tangents (circuit keeps start/finish0); AI reverses the event outline, requires a valid
+RoutesB leaf and reads B in route helpers. Missing grid/route fails closed. Old world_race_start and
+ai_race_course APIs retain forward defaults. End-to-end reverse launches need owner host patches.
+[observed] Final synthetic desktop/GLES option/catch-up/direction/all-field checks pass, including
+0..5 opponents in F/B and absent/corrupt B rejection. Tests compile with -Werror; the unchanged
+world loader truncation warning is retained as a non-fatal baseline warning. C++ header/C linkage
+check passes. Post-unit clock/collision/AI-drive/resident/direct race-AI, postrace9/0 and check-gl pass.
+Full installed drive is byte-identical (p5/drive.txt, p5-status.log). Required Xvfb wrapper is still
+baselineFAIL1, not PASS.
+No main/FE/Makefile files were edited; exact mapping/initialization/restore/test recipes are in the
+integration document. The front-end rows are not claimed enabled in this branch by a rules API alone.

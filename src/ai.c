@@ -37,6 +37,10 @@ void ai_render_pose(AiCar *out,const AiCar *before,const AiCar *after,float alph
     *out=pose;
 }
 
+static int race_reverse(const AiTrafficWorld *w) {
+    return w && w->race_options && rr_options_valid_value(w->race_options) && w->race_options->reverse;
+}
+static char race_direction(const AiTrafficWorld *w){return race_reverse(w)?'B':'F';}
 static void ai_motion_init(AiCar *car,const AiTrafficWorld *world) {
     car->vel[0]=cosf(car->head)*car->spd;car->vel[1]=sinf(car->head)*car->spd;
     car->steer=0;
@@ -1825,7 +1829,7 @@ static void race_course_round(const AiTrafficWorld *world,const AiCar *body,N2Pa
    source layers and unavailable resident ground leave the old course alone. */
 static void race_street_course(const char *root,const WEvent *event,const AiTrafficWorld *world,
         const AiCar *body,const AiCar *cars,int count,const AiCar *player,N2Path *path,const WRace *race,float widest) {
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long bytes=0;unsigned char *data=n2_read_file(file,&bytes);if(!data)return;
     AiRoadNet lanes={0};float *height=NULL;int capacity=0;
     int ok=ai_roads_read(&lanes,data,bytes,&capacity,NULL,&height,NULL);free(data);
@@ -1890,7 +1894,7 @@ static int race_course_decode(const char *root,const WEvent *event,N2Path *out,i
     if(!root || !event || !out)return 0;
     N2Path raw={0};
     if(race_route_load(root,event,&raw)){*out=raw;return 1;}
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long bytes=0;unsigned char *data=n2_read_file(file,&bytes);if(!data)return 0;
     AiRoadNet lanes={0};float *distance=NULL,*height=NULL;int capacity=0;
     int ok=ai_roads_read(&lanes,data,bytes,&capacity,&distance,&height,widest);free(data);
@@ -2482,10 +2486,10 @@ static int race_route_topology(const char *root,const WEvent *event,N2Path *out)
    through the ordered event outline. Coarse Paths remains the final fallback.
    ponytail: bounded quadratic junction census (4096 points, 16 edges/point);
    use the existing road index if larger event files require it. */
-static int race_lane_topology(const char *root,const WEvent *event,N2Path *out) {
+static int race_lane_topology(const char *root,const WEvent *event,N2Path *out,const AiTrafficWorld *world) {
     if(!root || !event || !out || event->npoly<2 || event->npoly>WORLD_EVPOLY)return 0;
     for(int k=0;k<event->npoly;k++)if(!isfinite(event->poly[k][0]) || !isfinite(event->poly[k][1]))return 0;
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long bytes=0;unsigned char *data=n2_read_file(file,&bytes);if(!data)return 0;
     AiRoadNet lanes={0};int cap=0,ok=ai_roads_read(&lanes,data,bytes,&cap,NULL,NULL,NULL);free(data);
     int n=lanes.n;ok=ok && n>1 && n<=4096;
@@ -2525,11 +2529,14 @@ static int race_lane_topology(const char *root,const WEvent *event,N2Path *out) 
     if(!ok){free(path.xy);return 0;}*out=path;return 1;
 }
 
-int ai_race_course(const char *root,const WEvent *event,N2Path *out) {
-    if(race_course_read(root,event,out,0,NULL,NULL,NULL))return 1;
-    if(event && !event->circuit && race_course_read(root,event,out,1,NULL,NULL,NULL))return 1;
-    if(event && event->circuit && race_lane_topology(root,event,out))return 1;
+static int race_course_directed(const char *root,const WEvent *event,N2Path *out,const AiTrafficWorld *world) {
+    if(race_course_read(root,event,out,0,world,NULL,NULL))return 1;
+    if(event && !event->circuit && race_course_read(root,event,out,1,world,NULL,NULL))return 1;
+    if(event && event->circuit && race_lane_topology(root,event,out,world))return 1;
     return race_route_topology(root,event,out);
+}
+int ai_race_course(const char *root,const WEvent *event,N2Path *out) {
+    return race_course_directed(root,event,out,NULL);
 }
 
 /* Paths is a coarse event spine. RoutesF contains the curved lane chains;
@@ -2537,7 +2544,7 @@ int ai_race_course(const char *root,const WEvent *event,N2Path *out) {
    ponytail: greedy lane continuity, not an overtaking/global route planner. */
 static void race_route_refine(const char *root,const WEvent *event,
         const AiTrafficWorld *world,const AiCar *car,const AiCar *grid,int count,N2Path *path,float *widest) {
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long bytes=0;unsigned char *data=n2_read_file(file,&bytes);if(!data)return;
     AiRoadNet lanes={0};float *distance=NULL,*height=NULL;int capacity=0;
     int ok=ai_roads_read(&lanes,data,bytes,&capacity,&distance,&height,widest);free(data);
@@ -2622,8 +2629,8 @@ float ai_course_lateral(const N2Path *path,const float pos[3]) {
     return -(pos[0]-x)*sinf(h)+(pos[1]-y)*cosf(h);
 }
 
-static float race_lane_width(const char *root,const WEvent *event) {
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+static float race_lane_width(const char *root,const WEvent *event,const AiTrafficWorld *world) {
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long n=0;unsigned char *data=n2_read_file(file,&n);if(!data)return 0;
     AiRoadNet lanes={0};int capacity=0;float widest=0;
     int ok=ai_roads_read(&lanes,data,n,&capacity,NULL,NULL,&widest);
@@ -2666,7 +2673,7 @@ static int race_grid_try(const WEvent *event,const WRace *race,const AiTrafficWo
     }
     memcpy(cars,field,(count-1)*sizeof *cars);*player=field[count-1];
     printf("race grid: %d rows x %d, player source slot %d at (%.3f %.3f %.3f), heading %.4f\n",
-        count/columns,columns,slots[count-1],player->pos[0],player->pos[1],player->pos[2],player->head);
+        (count+columns-1)/columns,columns,slots[count-1],player->pos[0],player->pos[1],player->pos[2],player->head);
     return 1;
 }
 
@@ -2705,11 +2712,11 @@ static int race_corridor_grid_layer(const AiRoadNet *lanes,const float *height,N
 static int race_corridor_course(const char *root,const WEvent *event,const AiTrafficWorld *world,
         const AiCar *body,const AiCar *cars,int count,const AiCar *player,const WRace *race,N2Path *path,float widest) {
     N2Path progress={0};
-    int decoded=race_course_read(root,event,&progress,0,NULL,NULL,NULL) ||
-        (!event->circuit && race_course_read(root,event,&progress,1,NULL,NULL,NULL));
+    int decoded=race_course_read(root,event,&progress,0,race_reverse(world)?world:NULL,NULL,NULL) ||
+        (!event->circuit && race_course_read(root,event,&progress,1,race_reverse(world)?world:NULL,NULL,NULL));
     free(progress.xy);
     if(decoded)return 0; /* A sound source course rejected by the world is not a progress-map failure. */
-    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dF.bin",root,event->reg,event->id);
+    char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%d%c.bin",root,event->reg,event->id,race_direction(world));
     long bytes=0;unsigned char *data=n2_read_file(file,&bytes);if(!data)return 0;
     AiRoadNet lanes={0};float *height=NULL;int cap=0,ok=ai_roads_read(&lanes,data,bytes,&cap,NULL,&height,NULL);free(data);
     for(int k=-1;ok && k<count;k++){
@@ -2779,16 +2786,35 @@ int ai_race_prepare(const char *root,const WEvent *event,WRace *race,
         AiCar *player) {
     free(path->xy);*path=(N2Path){0};
     memset(drivers,0,N_RACE_AI*sizeof *drivers);
+    WEvent directed;
+    if(world && world->race_options && !rr_options_valid_value(world->race_options))return 0;
+    if(race_reverse(world)) {
+        if(!root || !event || event->npoly<(event->circuit?3:2) || event->npoly>WORLD_EVPOLY)return 0;
+        char file[1024];snprintf(file,sizeof file,"%s/ROUTES%s/Routes%dB.bin",root,event->reg,event->id);
+        long bytes=0;unsigned char *data=n2_read_file(file,&bytes);
+        if(!data)return 0;
+        AiRoadNet lanes={0};int capacity=0;int valid=ai_roads_read(&lanes,data,bytes,&capacity,NULL,NULL,NULL);
+        free(data);ai_roads_free(&lanes);if(!valid)return 0;
+        directed=*event;int n=event->circuit?event->npoly-1:event->npoly;
+        for(int i=0;i<n;i++)memcpy(directed.poly[i],event->poly[rr_direction_index(i,n,event->circuit,1)],sizeof directed.poly[i]);
+        if(event->circuit)memcpy(directed.poly[n],directed.poly[0],sizeof directed.poly[n]);
+        event=&directed;
+    }
     N2Path course={0};
     int rawcourse=event && root && race_route_load(root,event,&course);
     if(!player || !event || !race || !race->active || race->ngate<2 || !world || !world->scene ||
-       (!rawcourse && !ai_race_course(root,event,&course))) {
+       (!rawcourse && !(race_reverse(world)?race_course_directed(root,event,&course,world):ai_race_course(root,event,&course)))) {
         free(course.xy);printf("race opponents: continuous course unavailable; route topology needs decoding\n");return 0;
     }
     int source_supported=rawcourse;
-    float widest=race_lane_width(root,event);
-    int wanted=event->info.kind==N2_RACE_URL ? 5 :
+    float widest=race_lane_width(root,event,world);
+    int wanted=event->info.downhill ? 0 : event->info.kind==N2_RACE_URL ? 5 :
         event->info.kind==N2_RACE_UNKNOWN ? N_AI : 3;
+    if(world->race_options && world->race_options->opponents>=0) {
+        if(event->info.downhill && world->race_options->opponents>0){free(course.xy);return 0;}
+        wanted=rr_opponent_count_value(world->race_options,wanted,race->ngrid);
+        if(wanted<0){free(course.xy);return 0;}
+    }
     if(!rawcourse) {
         AiCar body=*player;
         /* The field leaves along the authored grid heading. */
@@ -2804,7 +2830,7 @@ int ai_race_prepare(const char *root,const WEvent *event,WRace *race,
             free(course.xy);course=supported;source_supported=1;
         }
     }
-    if(event->info.downhill) {
+    if(event->info.downhill || wanted==0) {
         *path=course;
         if(!world_race_bind_course(race,path,fmaxf(22,widest+player->half_width)) ||
            !ai_drive_join(&drivers[0].drive,path,player->pos,ai_course_heading(path,player->pos),widest>0?widest:8)) {
@@ -2822,9 +2848,9 @@ int ai_race_prepare(const char *root,const WEvent *event,WRace *race,
         if(race->grid_named && race->ngrid>0 && race->ngrid<=WORLD_MAXGRID &&
            isfinite(race->grid_heading)) {
             int slots[N_RACE_AI+1],total=wanted+1;
-            if((total==4 && race_grid_search(event,race,world,&course,widest>0?widest:8,
+            if((total<=4 && race_grid_search(event,race,world,&course,widest>0?widest:8,
                     cars,player,slots,total,4,0,0)) ||
-               ((total==4 || total==6) && race_grid_search(event,race,world,&course,widest>0?widest:8,
+               (total<=6 && race_grid_search(event,race,world,&course,widest>0?widest:8,
                     cars,player,slots,total,2,0,0)))count=wanted;
             for(int k=0;k<count;k++) {
                 cars[k].t=cars[k].lap=cars[k].prevrel=0;cars[k].braking=0;
@@ -3050,6 +3076,21 @@ void ai_race_eliminate(AiCar *car,AiRace *driver) {
 float ai_race_pace(const AiCar *car,const AiRace *driver,int k,
         const AiTrafficWorld *world,const AiCar *player){
     if(driver && driver->eliminated)return 0;
+    if(world && world->race_options && rr_options_valid_value(world->race_options) &&
+       world->race_options->catch_up>=0 && driver) {
+        AiTrafficWorld base=*world;AiRace unboosted=*driver;
+        base.race_options=NULL;unboosted.source_catch_up=0;
+        float pace=ai_race_pace(car,&unboosted,k,&base,player);
+        const WRace *r=world->race_player;
+        if(world->race_options->catch_up && car && player && r && r->active && !r->finished &&
+           r->ev==driver->progress.ev && r->ngate==driver->progress.ngate && r->maxlaps==driver->progress.maxlaps &&
+           race_source_near_course(&driver->drive,player->pos) && race_source_near_course(&driver->drive,car->pos)) {
+            float gap=race_remaining(r,player->pos,driver->drive.loop)-race_remaining(&driver->progress,car->pos,driver->drive.loop);
+            pace*=1+(driver->source && driver->source==world->race_source?
+                race_ai_source_curve(driver->source,gap):rr_catchup_fallback_value(gap));
+        }
+        return pace;
+    }
     float pace=world && isfinite(world->race_pace) && world->race_pace>0
         ?fmaxf(40,fminf(180,world->race_pace+4*k)):50;
     if(world && isfinite(world->race_pace) && world->race_pace<0 && car)

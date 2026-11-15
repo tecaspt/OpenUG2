@@ -5,6 +5,9 @@
 #define OPENUG2_RACE_RULES_H
 #include <math.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define RR_DRAG_BLOW_SECONDS 1.5f
 #define RR_DRAG_COOL_PER_SECOND .5f
 #define RR_DRAG_PERFECT_RPM 150.0f
@@ -137,5 +140,43 @@ int rr_round_init(RrRound *,int count);
 /* -1 invalid, 0 collecting, 1 ready. */
 int rr_round_step(RrRound *,const int *finished,const int *failed,const float *progress,double dt);
 int rr_round_places(const RrRound *,int places[RR_MAX_CARS]);
+
+/* [inferred] Explicit selections; -1 preserves authored/host defaults. */
+typedef struct { int opponents,traffic,catch_up,reverse,lap_knockout; } RrOptions;
+#define RR_TRAFFIC_OFF 0
+#define RR_TRAFFIC_LOW 4
+#define RR_TRAFFIC_MEDIUM 8
+#define RR_TRAFFIC_HIGH 16
+#define RR_CATCHUP_RANGE_METRES 100.0f
+#define RR_CATCHUP_MAX_ADJUSTMENT .20f
+static inline int rr_options_valid_value(const RrOptions *r) {
+    return r && r->opponents>=-1 && r->opponents<RR_MAX_CARS && r->traffic>=-1 && r->traffic<=3 &&
+        r->catch_up>=-1 && r->catch_up<=1 && r->reverse>=0 && r->reverse<=1 &&
+        r->lap_knockout>=0 && r->lap_knockout<=1;
+}
+static inline int rr_opponent_count_value(const RrOptions *r,int authored,int grid) {
+    if(!rr_options_valid_value(r)||authored<0||grid<1)return -1;
+    int n=r->opponents<0?authored:r->opponents;
+    if(n>grid-1 || n>=RR_MAX_CARS)return -1;
+    return n;
+}
+static inline float rr_catchup_fallback_value(float gap) {
+    if(!isfinite(gap))return 0;
+    return -fmaxf(-1,fminf(1,gap/RR_CATCHUP_RANGE_METRES))*RR_CATCHUP_MAX_ADJUSTMENT;
+}
+RrOptions rr_options_default(void);
+int rr_options_valid(const RrOptions *);
+int rr_opponent_count(const RrOptions *,int authored,int grid);
+int rr_traffic_target(const RrOptions *,int host_default);
+float rr_catchup_fallback(float gap);
+/* [inferred] Reverse index; circuits retain the start/finish at index zero. */
+static inline int rr_direction_index(int index,int count,int circuit,int reverse) {
+    if(index<0||index>=count||count<2||(reverse!=0&&reverse!=1))return -1;
+    return !reverse?index:circuit?(count-index)%count:count-1-index;
+}
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

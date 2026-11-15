@@ -425,3 +425,118 @@ race-series-ai-test:
 [inferred] Repeat synthetic recipes with -DN2_GLES. The existing postrace runtime helper now also
 writes url-standings.png. Default URL grouping, points, grace, and tie policies remain inferred;
 replace the named policies when actual tournament data/retail captures establish them.
+
+## Priority 5: explicit Quick Race options (base ea2c9c4)
+
+[inferred] These are host patches to apply with priorities1–4. The implementation lives in owned
+AI/world/rules files; no front-end/main/Makefile files were edited by this worker. Retain existing
+requests/API enum values. Do not advertise a row until these host changes are installed.
+
+[data] Genuine labels in the installed language table: QR_OPT_OPPONENTS 3384a679,
+QR_OPT_TRAFFIC_LEVEL eb9dfc09, QR_OPT_CATCH_UP 8b8e913a, TRACK_DIRECTION a88ffeb4,
+TRACK_DIRECTION_FORWARD 9e4c4648, TRACK_DIRECTION_REVERSE 22f254af, QR_OPT_LAP_KO 7fd73849.
+[inferred] Replace the incorrect QR_OPPONENTS/QR_TRAFFIC/QR_CATCH_UP label keys in fe_track.c.
+Use the track-options page for Laps/Direction/Lap KO, mode-options for Difficulty/Opponents/Traffic/
+Catch Up. Keep touch Back and page transition behaviour from the current front end. Rows must use
+real localized values and reject a missing caption rather than silently displaying a guessed label.
+[inferred] In fe_menu.h include race_rules.h and append `RrOptions rules;` to FemRequest and FeChoice.
+Initialize `m->choice.rules=rr_options_default()` in fem_create (near192); copy
+`r.rules=m->choice.rules` beside laps/difficulty in fem_update (near370). Free Run ignores this payload.
+Maintain selected values across track/car navigation; new menu creation uses defaults. Value mapping:
+
+| Row | Field / allowed selection | Host effect |
+| --- | --- | --- |
+| Opponents | rules.opponents = 0..5 | wanted opponents, constrained by genuine grid availability |
+| Traffic | rules.traffic = 0..3 | None/low/moderate/high: 0/4/8/16 traffic targets |
+| Catch Up | rules.catch_up = 0 or1 | overrides source per-driver catch-up flag, keeps source skill |
+| Direction | rules.reverse = 0 or1 | named Forward/Backward grid and Routes{id}F/B.bin |
+| Lap KO | rules.lap_knockout = 0 or1 | enable only Circuit, at least one opponent; count−1 race laps |
+
+[inferred] `-1` on the first three fields preserves the previous authored/host default. Numeric traffic
+counts and no-source catch-up curve are provisional named constants. Solo downhill Drift disables opponents; modes without traffic keep the
+traffic row disabled; the host's existing `race_has_traffic(kind)` predicate remains authoritative. The exact
+retail restrictions on opponents/reverse remain unverified. A selected reverse launch fails when its
+backward package/grid cannot be decoded; it must never launch forward with a reverse label.
+
+[inferred] main.c next to race locals5508 (after `traffic_world`5481 is declared):
+```c
+RrOptions race_options=rr_options_default();
+int saved_traffic_target=-1;
+traffic_world.race_options=&race_options;
+```
+[inferred] Before constructing a QR GfLaunch at7129 validate/copy the request, without resetting on
+Restart or a URL next-round launch:
+```c
+if (frq.kind==FEM_REQ_QUICK_RACE) {
+    if (!rr_options_valid(&frq.rules)) {
+        fem_show_error(fem,"Invalid race options");
+        frq.kind=FEM_REQ_NONE;
+    } else race_options=frq.rules;
+}
+```
+Guard the existing launch block with the resulting request kind. At GF_CMD_ARM_EVENT7176 reject
+KO on a non-Circuit event or with requested zero opponents using g_dbg.race_error/fem_show_error;
+set the existing `ko_live` preparation predicate from `race_options.lap_knockout`. Do not infer KO
+from the Circuit mode alone. URL rounds retain the same rules/entrant IDs as priority4.
+
+[inferred] Replace race_start_request world_race_start at11238 with the directed entrypoint. Preserve
+the existing success body and add an explicit failure branch (a failed launch must reach GF_CMD_ERROR):
+```c
+int evi=world.city.active_ev;
+int armed=evi>=0 && world_race_start_direction(&world,troot,evi,
+    g_dbg.race_maxlaps_want,race_options.reverse,
+    g_dbg.race_error,sizeof g_dbg.race_error)>0;
+if (armed) { /* existing race_place_on_grid/race_prepare_pending body */ }
+else {
+    if (!g_dbg.race_error[0]) snprintf(g_dbg.race_error,sizeof g_dbg.race_error,
+                                     "Race direction/grid unavailable");
+    ai_race=0;race_prepare_pending=0;race_state=1;
+}
+```
+Direct CLI/debug launches at4751/7022 keep old forward defaults unless the owner also exposes the
+new options there. A deliberate debug launch should reset race_options to rr_options_default to
+avoid inheriting a prior QR selection. No existing world_race_start caller is forced to change.
+
+[inferred] At prepare7914, replace hardcoded wanted with:
+```c
+int authored=event->info.kind==N2_RACE_URL?5:3;
+int wanted=event->info.downhill?0:
+    rr_opponent_count(&race_options,authored,world.city.race.ngrid);
+```
+Keep `nai!=wanted` and `aipath.n<2` rejection (also reject wanted<0). Zero opponents is supported by
+ai_race_prepare's solo driver/course binding, `ai_race=1` still denotes an active race. Source variant
+lookup receives the effective wanted count. KO initialization uses `nai+1`, requires>=2, and replaces
+maxlaps on the player AND every AiRace progress copy with `nai` (see priority4 hook). If grid fitting
+cannot realize a selected field size the existing launch diagnostic is retained; do not quietly race
+a smaller field. rr_opponent_count rejects an insufficient grid with -1; expose that
+constraint before launch where grid metadata is known.
+
+[inferred] Preserve/restores the free-roam traffic slider independently from a race selection. Before
+first successful preparation7950 save once `if(saved_traffic_target<0)saved_traffic_target=g_dbg.traffic_target;`.
+Immediately after the per-frame traffic_world.traffic_target assignment6757:
+```c
+traffic_world.race_options=&race_options;
+if (saved_traffic_target>=0 && world.city.race.active)
+    traffic_world.traffic_target=rr_traffic_target(&race_options,saved_traffic_target);
+```
+Existing race_has_traffic remains the enable predicate; no-traffic modes do not spawn traffic even
+with a positive target. On final exit/error/stop (not a next URL round) set saved_traffic_target=-1;
+the slider itself was never mutated. Existing live traffic reduction/respawn policy handles targets.
+Catch-up reads the borrowed options pointer each tick; explicit Off suppresses only the catch-up
+curve, while On uses the decoded source curve when supplied or the named bounded fallback otherwise.
+
+[inferred] New test target recipes (no SRC addition beyond race_rules.c from priority2):
+```make
+race-options-test:
+	$(CC) $(CFLAGS) -Isrc tools/race_options_test.c src/race_rules.c -o build/race_options_test -lm
+	./build/race_options_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_options_ai_test.c src/ai.c src/physics.c src/race_rules.c -Wl,--gc-sections -o build/race_options_ai_test -lm
+	./build/race_options_ai_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_direction_test.c src/world.c -Wl,--gc-sections -o build/race_direction_test -lm
+	./build/race_direction_test
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/race_options_field_test.c src/ai.c src/world.c src/physics.c src/race_rules.c -Wl,--gc-sections $(SDL_LIBS) $(GL_LIBS) -o build/race_options_field_test -lm
+	./build/race_options_field_test
+```
+Repeat with CFLAGS+=-DN2_GLES. Header-heavy units use the project's -Wno-unused-function convention.
+All builds/runs still use the owner's memory/lock/nice requirements. End-to-end selected options and
+reverse play remain the orchestrator's gate after these host patches; they are not claimed by unit tests.

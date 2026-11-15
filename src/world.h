@@ -195,6 +195,9 @@ int world_set_mode(World *w, int mode, int evidx);
  * Returns the gate count (gate 0 = start/finish, 1.. = checkpoints). */
 int world_race_grid_ground(const N2Scene *scene,const WEvent *event,const float grid[3],float *z);
 int world_race_start(World *w, const char *troot, int evidx, int maxlaps);
+/* [data] Named backward grid required. [inferred] Reverse checkpoint order.
+ * Zero on missing/invalid data; optional error receives a launch diagnostic. */
+int world_race_start_direction(World *,const char *,int,int,int,char *,size_t);
 
 /* Feed the car's XY once per frame. Only the single armed gate can be cleared,
  * and only by CROSSING it (previous position -> current position segment test),

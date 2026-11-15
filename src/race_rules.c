@@ -150,3 +150,13 @@ int rr_round_places(const RrRound *r,int places[RR_MAX_CARS]) {
     }
     return 1;
 }
+
+RrOptions rr_options_default(void){RrOptions r={-1,-1,-1,0,0};return r;}
+int rr_options_valid(const RrOptions *r){return rr_options_valid_value(r);}
+int rr_opponent_count(const RrOptions *r,int a,int g){return rr_opponent_count_value(r,a,g);}
+int rr_traffic_target(const RrOptions *r,int host){
+    const int targets[4]={RR_TRAFFIC_OFF,RR_TRAFFIC_LOW,RR_TRAFFIC_MEDIUM,RR_TRAFFIC_HIGH};
+    if(!rr_options_valid_value(r)||host<0)return -1;
+    return r->traffic<0?host:targets[r->traffic];
+}
+float rr_catchup_fallback(float gap){return rr_catchup_fallback_value(gap);}

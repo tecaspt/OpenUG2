@@ -103,6 +103,7 @@ typedef struct {
     const AiCar *ambient;
     const AiTraffic *ambient_routes;
     int ambient_count;
+    const RrOptions *race_options; /* borrowed opt-in; NULL preserves legacy policy */
 } AiTrafficWorld;
 static inline int ai_actor_slot(int k,int racing) { return racing?k-N_RACE_AI:k; }
 static inline int ai_actor_present(int k,int racing,int racers,const AiTraffic *routes) {
