@@ -26,6 +26,7 @@ void fec_sync(FeChoice *c,GvScreen *s,float seconds) {
     c->preview_wait+=seconds;
     const char *name=c->cat->car[c->car_index].name;
     if(c->preview_wait>=.3f)snprintf(c->preview,sizeof c->preview,"%s",name);
+    c->car_status[0]=0;
     for(int i=0;i<s->scene.n;i++) {
         UgNode *n=&s->scene.nodes[i];
         /* [inferred] Runtime car name replaces the authored default-string field. */
@@ -33,7 +34,14 @@ void fec_sync(FeChoice *c,GvScreen *s,float seconds) {
         if(n->obj->guid==0xe694b)n->text_override=name;
         /* Unimplemented stats: hide the whole group rather than show authored example values. */
         if(n->obj->guid==0xe12b4)n->app_hidden=1;
-        if(n->obj->guid==0xdcac4 || n->obj->guid==0xdcac7 || n->obj->guid==0xe1f56)n->app_hidden=1;
+        if(n->obj->guid==0xdcac4 || n->obj->guid==0xe1f56)n->app_hidden=1;
+        if(n->obj->guid==0xdcac7) {
+            char key[80];snprintf(key,sizeof key,"SECONDARY_LOGO_%s",name);
+            int tex=gv_texture(s->assets,ug_hash_upper(key));
+            n->tex_override=tex;n->app_hidden=!tex;
+            if(!tex)snprintf(c->car_status,sizeof c->car_status,"car model logo unavailable: %.31s",name);
+            if(tex){float white[4]={255,255,255,255};ug_scene_app_write(&s->scene,i,UG_P_COLOR,4,white);}
+        }
         if(n->obj->guid==0xe1e52)n->text_override=gv_text(s->assets,ug_hash_upper("QR_CAR_SELECT_TITLE"),"Quick Race Car Select");
     }
     ug_scene_relayout(&s->scene);

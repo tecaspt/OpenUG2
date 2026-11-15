@@ -6529,6 +6529,7 @@ int main(int argc, char **argv) {
         fem = fem_create(dataroot, &g_catalog, allow_quit);
         if (fem) {
             fem_set_current(fem, carname, trackname);
+            fem_set_graphics(fem, &saved_gfx);   /* M2: FE Display starts from the host's startup selection */
             fem_open(fem, FEM_SCR_MAIN);
             if (!fem_visual_available(fem)) {
                 fprintf(stderr, "front end unavailable (%s); starting free roam\n", fem_status(fem));
@@ -6708,6 +6709,7 @@ int main(int argc, char **argv) {
     int pause_cursor = SDL_ENABLE;
     /* Graphics options (SPEC_GUI): the pause menu edits these in place and writes them on Back from
      * Display. The renderer does not read them yet: see the re-init hook after pause_menu_update. */
+    float fe_master_gain = 1.0f, fe_engine_gain = 1.0f, fe_tire_gain = 1.0f;   /* M2 profile audio */
     StGraphics opt_gfx;StGfxCaps opt_caps;StRegStore opt_store;int opt_store_open=0;
     while (running) { N2_IOS_FRAME_GATE();
         pf_mark(PF_FRAME_TOP);
@@ -7085,11 +7087,13 @@ int main(int argc, char **argv) {
                 om_take_apply_request(om);
                 lighting = lighting_policy(&opt_gfx);
                 apply_detail_policy(detail_policy(&opt_gfx), vehicle_quality_explicit, road_reflections_explicit);
+                if (fem) fem_set_graphics(fem, &opt_gfx);   /* FE Display mirrors pause edits (M2) */
                 fprintf(stderr, "options: display re-init requested (resolution %d, vsync %d, filtering %d); renderer hook not wired\n",
                         opt_gfx.v[ST_GFX_RESOLUTION], opt_gfx.v[ST_GFX_VSYNC], opt_gfx.v[ST_GFX_TEXTURE_FILTERING]);
             } else if (om_take_apply_request(om)) {
                 lighting = lighting_policy(&opt_gfx);
                 apply_detail_policy(detail_policy(&opt_gfx), vehicle_quality_explicit, road_reflections_explicit);
+                if (fem) fem_set_graphics(fem, &opt_gfx);
                 fprintf(stderr, "options: lighting, car reflection/shadow and road reflection updated\n");
             }
         }
@@ -7116,6 +7120,26 @@ int main(int argc, char **argv) {
             /* Front end -> game flow -> engine commands (PLAN-M1 point 17). */
             fem_set_current(fem, carname, trackname);
             FemRequest frq = fem_update(fem, (float)fmin(frame_seconds, .1));
+            /* M2: front-end Options/Profile apply requests (consume-once mask). */
+            unsigned fe_apply = fem_take_apply(fem);
+            if (fe_apply & (FEM_APPLY_GRAPHICS | FEM_APPLY_REINIT)) {
+                const StGraphics *fg = fem_graphics(fem);
+                if (fg) {
+                    opt_gfx = *fg;
+                    lighting = lighting_policy(fg);
+                    apply_detail_policy(detail_policy(fg), vehicle_quality_explicit, road_reflections_explicit);
+                }
+                if (fe_apply & FEM_APPLY_REINIT)
+                    fprintf(stderr, "front end: display re-init requested; renderer reset hook not wired\n");
+            }
+            if (fe_apply & FEM_APPLY_PROFILE) {
+                const StProfile *fp = fem_current_profile(fem);
+                if (fp) {
+                    fe_master_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.master));
+                    fe_engine_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.engine));
+                    fe_tire_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.tire));
+                }
+            }
             /* Car Select preview: a frozen-world car switch, not a launch (fem debounces it). */
             const char *preview = fem_preview_car(fem);
             if (preview && preview[0] && strcmp(preview, carname)) {
@@ -8390,8 +8414,8 @@ int main(int argc, char **argv) {
               gear_changing = drag_gear.shift > 0.0f;   /* drivetrain's 0.15 s shift-cut */
           } else { eng_gearbox_step(sp, throttle, 1.0f/60.0f, &gear, &shift_t);
               gear_changing = shift_t > 0.0f; }          /* ENG_SHIFT_S clutch window */
-          g_engine.master_volume = (race_state==0 ? 0.16f : 0.16f + sp*0.5f);
-          g_road_vol = sp*sp*0.35f; }   /* tyre/wind roar rises with speed */
+          g_engine.master_volume = (race_state==0 ? 0.16f : 0.16f + sp*0.5f) * fe_master_gain * fe_engine_gain;
+          g_road_vol = sp*sp*0.35f * fe_master_gain * fe_tire_gain; }   /* tyre/wind roar rises with speed */
         float fwd[3] = { nf[0], nf[1], 0 };
         /* building collision: push the car out of any wall footprint it entered.*/
         /* Body collision envelope at the exact gameplay contact. The renderer

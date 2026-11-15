@@ -56,7 +56,8 @@ GUI_ART_HDR := $(wildcard src/gui_*.h) src/pause_entries.h src/pause_screen.h sr
 HDRS += src/ug2_track_collision.h src/drivetrain.h src/braking.h src/resistance.h src/lateral.h src/drive_stage1.h src/contact.h src/body_response.h src/tire_marks.h src/tire_marks_drive.h
 HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
-SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c
+SRC += src/sfx_bank.c   # M8: retail .abk reader (task D); the game does not call it yet
+SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
@@ -958,7 +959,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
-SCREENS_TEST_SRC = src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC = src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
 	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_track_test.c src/fe_track.c src/fe_car.c -Wl,--gc-sections -o build/fe_track_test
@@ -996,3 +997,43 @@ touch-controls-test: tools/touch_controls_test.c src/touch_controls.c $(HDRS)
 game-catalog-check: tools/game_catalog_check.c src/game_catalog.c src/ugui/ugui_util.c src/resource.c src/world.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c src/ai.c $(HDRS) src/generated_shaders.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -DWORLD_INSTANCE_TESTING -Isrc tools/game_catalog_check.c src/game_catalog.c src/ugui/ugui_util.c src/ai.c src/world.c src/resource.c src/world_instance.c src/render.c src/render_params.c src/rhi_gl_state.c src/rhi_gl.c src/tex_override.c src/physics.c -o build/game_catalog_check $(SDL_LIBS) $(GL_LIBS) -lz -lm
+
+# M2 (task E): Quick Race polish, front-end Options and Profile. See docs/parity/M2-OPTIONS-INTEGRATION.md.
+fe-polish-test:
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_polish_test.c src/fe_track.c -Wl,--gc-sections -o build/fe_polish_test
+	./build/fe_polish_test
+
+fe-polish-check:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(UGUI_FLAGS) $(SDL_CFLAGS) -Isrc tools/fe_polish_check.c src/fe_track.c src/fe_car.c src/gui_view.c src/options_menu.c src/settings.c $(GUI_ART_SRC) src/controls_store.c src/controls_sdl.c $(UGUI_SRC) -Wl,--gc-sections -o build/fe_polish_check $(SDL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/fe_polish_check
+
+fe-profile-test:
+	@mkdir -p build/profile-fixtures
+	$(CC) $(CFLAGS) -Isrc tools/fe_profile_test.c src/fe_profile.c src/settings.c -o build/fe_profile_test $(SETTINGS_LIBS) -lm
+	./build/fe_profile_test "$$(mktemp -d build/profile-fixtures/run.XXXXXX)"
+
+fe-options-test:
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_options_test.c src/options_menu.c src/settings.c src/gui_timing.c src/gui_carousel.c src/gui_dialog.c src/gui_layout.c src/controls_menu.c src/controls_bind.c src/ugui/ugui_util.c -o build/fe_options_test $(SETTINGS_LIBS) -lm
+	./build/fe_options_test
+
+# Needs retail data; M2_REPORT_DIR must be an existing directory outside the worktree (retail-derived PNGs).
+fe-m2-check:
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_m2_check.c $(SCREENS_TEST_SRC) -o build/fe_m2_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	SDL_VIDEODRIVER=offscreen ./build/fe_m2_check "$(OPENUG2_DATA)" "$(M2_REPORT_DIR)"
+.PHONY: fe-polish-test fe-polish-check fe-profile-test fe-options-test fe-m2-check
+
+# M8 (task D): standalone retail .abk reader. Not linked into the game yet. See docs/parity/M8-SFX-BANKS.md.
+sfx-bank-test: tools/sfx_bank_test.c src/sfx_bank.c src/sfx_bank.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/sfx_bank_test.c src/sfx_bank.c -o build/sfx_bank_test
+	./build/sfx_bank_test
+
+# Census over every *.abk under DATAROOT/SOUND:  make sfx-bank-census && ./build/sfx_bank_census "$(DATA)" [--wav DIR]
+sfx-bank-census: tools/sfx_bank_census.c src/sfx_bank.c src/sfx_bank.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/sfx_bank_census.c src/sfx_bank.c -o build/sfx_bank_census
+.PHONY: sfx-bank-test sfx-bank-census
