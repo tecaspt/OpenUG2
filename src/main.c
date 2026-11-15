@@ -204,7 +204,7 @@ static float light_variant_gain(int value) {
 /* Source fit changes mesh columns only; mounts, springs and physics stay intact. */
 static void wheel_visual_fit(const VehicleWheelConfig *wheel,int k,float m[16]) {
     float r=wheel->visual_radius_scale[k],w=wheel->visual_width_scale[k];
-    if(!isfinite(r)||r<=0)r=1;if(!isfinite(w)||w<=0)w=1;
+    if(!isfinite(r)||r<=0){ r=1; }if(!isfinite(w)||w<=0)w=1;
     for(int i=0;i<3;i++){m[i]*=r;m[4+i]*=w;m[8+i]*=r;}
 }
 
@@ -339,7 +339,7 @@ static int load_rim_style(const unsigned char *wldata, long wllen,
         long np = (long)rt.w * rt.h;
         for (long p = 0; p < np; p++) { int b = rt.rgb[p*3+2];
             ar += rt.rgb[p*3]; ag += rt.rgb[p*3+1]; ab += b;
-            if (b < bmn) bmn = b; if (b > bmx) bmx = b; }
+            if (b < bmn) { bmn = b; } if (b > bmx) bmx = b; }
         if (np) { ar/=np; ag/=np; ab/=np; }
     }
     if (!rimtex.id) goto failed;
@@ -945,7 +945,7 @@ static void car_info_walk(const unsigned char *d, long beg, long end,
                     for (int q = 0; q < nvv; q++) {
                         const unsigned char *vp = d + vtx[k].off + pad + q*36;
                         for (int a = 0; a < 3; a++) { float f; memcpy(&f, vp + a*4, 4);
-                            if (f < b0[a]) b0[a] = f; if (f > b1[a]) b1[a] = f; } } }
+                            if (f < b0[a]) { b0[a] = f; } if (f > b1[a]) b1[a] = f; } } }
                 printf("      bbox centre (%+.3f %+.3f %+.3f)  <- at origin: no axle offset stored\n",
                        0.5f*(b0[0]+b1[0]), 0.5f*(b0[1]+b1[1]), 0.5f*(b0[2]+b1[2]));
             }
@@ -972,7 +972,7 @@ static void car_info_walk(const unsigned char *d, long beg, long end,
                             if (ip + (long)(ii+1)*2 > (long)idx[0].size) break;
                             unsigned vi = ib[ip+ii*2] | (ib[ip+ii*2+1]<<8);
                             for (int a=0;a<3;a++){ float f; memcpy(&f, vb+(size_t)vi*36+a*4, 4);
-                                if(f<b0[a])b0[a]=f; if(f>b1[a])b1[a]=f; } }
+                                if(f<b0[a]){ b0[a]=f; } if(f>b1[a])b1[a]=f; } }
                         printf("      sub%-2d matid %u -> %08x  %5u idx  "
                                "x[%+.2f %+.2f] y[%+.2f %+.2f] z[%+.2f %+.2f]\n",
                                k, sb[k].matid,
@@ -1271,7 +1271,7 @@ static float pt_tri_d2(const float p[3], const float a[3],
       float va = d3*d6 - d5*d4;
       if (va <= 0 && (d4-d3) >= 0 && (d5-d6) >= 0) {
           float w = (d4-d3)/((d4-d3)+(d5-d6));
-          for (int i=0;i<3;i++) q[i]=b[i]+w*(c[i]-b[i]); goto done; }
+          for (int i=0;i<3;i++) { q[i]=b[i]+w*(c[i]-b[i]); } goto done; }
       float den = 1.0f/(va+vb+vc), v = vb*den, w = vc*den;
       for (int i=0;i<3;i++) q[i]=a[i]+ab[i]*v+ac[i]*w; }
 done:
@@ -1443,9 +1443,9 @@ static void m94_wall(int o, int mesh, const N2Scene *s, const float *car,
     memcpy(k.name,m->sname,sizeof k.name);k.cat=m->cat;k.scen=m->scen;
     k.bb[0]=k.bb[1]=k.bb[4]=1e30f; k.bb[2]=k.bb[3]=k.bb[5]=-1e30f;
     for (int v = 0; v < m->nverts; v++) { float *p = m->verts + v*5;
-        if(p[0]<k.bb[0])k.bb[0]=p[0]; if(p[0]>k.bb[2])k.bb[2]=p[0];
-        if(p[1]<k.bb[1])k.bb[1]=p[1]; if(p[1]>k.bb[3])k.bb[3]=p[1];
-        if(p[2]<k.bb[4])k.bb[4]=p[2]; if(p[2]>k.bb[5])k.bb[5]=p[2]; }
+        if(p[0]<k.bb[0]){ k.bb[0]=p[0]; } if(p[0]>k.bb[2])k.bb[2]=p[0];
+        if(p[1]<k.bb[1]){ k.bb[1]=p[1]; } if(p[1]>k.bb[3])k.bb[3]=p[1];
+        if(p[2]<k.bb[4]){ k.bb[4]=p[2]; } if(p[2]>k.bb[5])k.bb[5]=p[2]; }
     k.cx=car[0]; k.cy=car[1]; k.cz=car[2];
     m94_nearest_wp(ap, car[0], car[1], &k.wp, &k.segd);
     m94_add(&k, f);
@@ -1491,7 +1491,7 @@ static float seg_d2_m112(float px,float py,float ax,float ay,float bx,float by,
                          float *ox,float *oy){
     float dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
     float t = L2>1e-9f ? ((px-ax)*dx+(py-ay)*dy)/L2 : 0.0f;
-    if (t<0) t=0; if (t>1) t=1;
+    if (t<0) { t=0; } if (t>1) t=1;
     *ox = ax+dx*t; *oy = ay+dy*t;
     float qx=px-*ox, qy=py-*oy; return qx*qx+qy*qy;
 }
@@ -1738,8 +1738,8 @@ static void bc_bounds(BCBundle *b) {
         float x0=1e30f, y0=1e30f, x1=-1e30f, y1=-1e30f;
         for (int v = 0; v < m->nverts; v++) {
             float *p = m->verts + v*5;
-            if (p[0]<x0)x0=p[0]; if (p[0]>x1)x1=p[0];
-            if (p[1]<y0)y0=p[1]; if (p[1]>y1)y1=p[1];
+            if (p[0]<x0){ x0=p[0]; } if (p[0]>x1)x1=p[0];
+            if (p[1]<y0){ y0=p[1]; } if (p[1]>y1)y1=p[1];
         }
         b->bb[i][0]=x0; b->bb[i][1]=y0; b->bb[i][2]=x1; b->bb[i][3]=y1;
     }
@@ -1830,7 +1830,7 @@ static int gc_cmp_dz(const void *a, const void *b) {   /* descending |dZ| */
 static float gc_pct(const float *v, int n, float p) {  /* nearest-rank */
     if (n <= 0) return 0;
     int i = (int)ceilf(p * (float)n) - 1;
-    if (i < 0) i = 0; if (i >= n) i = n - 1;
+    if (i < 0) { i = 0; } if (i >= n) i = n - 1;
     return v[i];
 }
 
@@ -3991,7 +3991,7 @@ int main(int argc, char **argv) {
     /* scenery semantics from each mesh's own asset name (0x134011) */
     {   int sc[8] = {0}, named = 0;
         for (int i = 0; i < nm; i++) { int c2 = scene.meshes[i].scen;
-            if (c2 < 8) sc[c2]++; if (c2) named++; }
+            if (c2 < 8) { sc[c2]++; } if (c2) named++; }
         printf("scenery: %d/%d named (%.1f%%)", named, nm, nm ? 100.0*named/nm : 0.0);
         for (int c2 = 1; c2 <= N2_SC_OTHER; c2++)
             if (sc[c2]) printf("  %s=%d", n2_scen_name(c2), sc[c2]);
@@ -4028,7 +4028,7 @@ int main(int argc, char **argv) {
             for (int i=0;i<nm;i++) if (scene.meshes[i].cat == N2_OTHER && scene.meshes[i].nverts) {
                 float *p = scene.meshes[i].verts;          /* first vertex ~ mesh location */
                 int gx=(int)((p[0]-mn[0])/gw), gy=(int)((p[1]-mn[1])/gh);
-                if (gx<0)gx=0; if (gx>39)gx=39; if (gy<0)gy=0; if (gy>39)gy=39;
+                if (gx<0){ gx=0; } if (gx>39)gx=39; if (gy<0)gy=0; if (gy>39)gy=39;
                 hist[gx][gy]++;
             }
             int best=0, bx=20, by=20;
@@ -4092,8 +4092,8 @@ int main(int argc, char **argv) {
                 float L=sqrtf(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]); if (L<1e-9f) continue;
                 if (fabsf(n[2]/L) >= 0.30f) continue;
                 float lo=A[2], hi=A[2];
-                if (Bv[2]<lo) lo=Bv[2]; if (C[2]<lo) lo=C[2];
-                if (Bv[2]>hi) hi=Bv[2]; if (C[2]>hi) hi=C[2];
+                if (Bv[2]<lo) { lo=Bv[2]; } if (C[2]<lo) lo=C[2];
+                if (Bv[2]>hi) { hi=Bv[2]; } if (C[2]>hi) hi=C[2];
                 float span = hi-lo; nface++;
                 for (int b = 0; b < 12; b++) if (span < B[b]) { hist[b]++; break; }
             }
@@ -4264,7 +4264,7 @@ int main(int argc, char **argv) {
                            if (off + sz > tt.dxtlen) break;
                            off += sz; level++;
                            if (lw==1 && lh==1) { complete = 1; break; }
-                           if (lw>1) lw/=2; if (lh>1) lh/=2; }
+                           if (lw>1) { lw/=2; } if (lh>1) lh/=2; }
                 printf("  encoded mip levels    %d  chain complete to 1x1: %s\n",
                        level, complete ? "YES" : "NO");
             } else
@@ -4908,7 +4908,7 @@ int main(int argc, char **argv) {
                 zlo[q]=1e30f; zhi[q]=-1e30f;
                 for (int v = 0; v < me->nverts; v++) {
                     float z = me->verts[v*5+2];
-                    if (z<zlo[q]) zlo[q]=z; if (z>zhi[q]) zhi[q]=z;
+                    if (z<zlo[q]) { zlo[q]=z; } if (z>zhi[q]) zhi[q]=z;
                 }
             }
             int off = 0;
@@ -5428,7 +5428,7 @@ int main(int argc, char **argv) {
                     float b0[3]={1e30f,1e30f,1e30f}, b1[3]={-1e30f,-1e30f,-1e30f};
                     for (int v = 0; v < me->nverts; v++)
                         for (int c = 0; c < 3; c++) { float pp = me->verts[v*5+c];
-                            if (pp<b0[c]) b0[c]=pp; if (pp>b1[c]) b1[c]=pp; }
+                            if (pp<b0[c]) { b0[c]=pp; } if (pp>b1[c]) b1[c]=pp; }
                     char nb[32], bb[64];
                     snprintf(nb, sizeof nb, "(%5.2f %5.2f %5.2f)",
                              hit[a].n[0], hit[a].n[1], hit[a].n[2]);
@@ -5640,8 +5640,8 @@ int main(int argc, char **argv) {
                 float L = sqrtf(n3[0]*n3[0]+n3[1]*n3[1]+n3[2]*n3[2]); if (L<1e-9f) continue;
                 if (fabsf(n3[2]/L) >= 0.30f) continue;
                 float zlo=A[2], zhi=A[2];
-                if(B[2]<zlo)zlo=B[2]; if(C[2]<zlo)zlo=C[2];
-                if(B[2]>zhi)zhi=B[2]; if(C[2]>zhi)zhi=C[2];
+                if(B[2]<zlo){ zlo=B[2]; } if(C[2]<zlo)zlo=C[2];
+                if(B[2]>zhi){ zhi=B[2]; } if(C[2]>zhi)zhi=C[2];
                 float zs = zhi - zlo;
                 int b = zs<0.5f?0: zs<1.0f?1: zs<1.5f?2: zs<2.0f?3:
                         zs<3.0f?4: zs<5.0f?5: zs<10.0f?6:7;
@@ -5731,9 +5731,9 @@ int main(int argc, char **argv) {
             if (strcmp(m->sname, wprobe)) continue;
             float bb[6] = {1e30f,-1e30f,1e30f,-1e30f,1e30f,-1e30f};
             for (int q = 0; q < m->nverts; q++) { const float *p2 = m->verts + q*5;
-                if(p2[0]<bb[0])bb[0]=p2[0]; if(p2[0]>bb[1])bb[1]=p2[0];
-                if(p2[1]<bb[2])bb[2]=p2[1]; if(p2[1]>bb[3])bb[3]=p2[1];
-                if(p2[2]<bb[4])bb[4]=p2[2]; if(p2[2]>bb[5])bb[5]=p2[2]; }
+                if(p2[0]<bb[0]){ bb[0]=p2[0]; } if(p2[0]>bb[1])bb[1]=p2[0];
+                if(p2[1]<bb[2]){ bb[2]=p2[1]; } if(p2[1]>bb[3])bb[3]=p2[1];
+                if(p2[2]<bb[4]){ bb[4]=p2[2]; } if(p2[2]>bb[5])bb[5]=p2[2]; }
             printf("  mesh %d  class %s  cat %s  verts %d  tris %d  texkey %08x\n",
                    i, n2_scen_name(m->scen), bc_cat(m->cat), m->nverts, m->nidx/3, m->texkey);
             printf("  AABB XY[%.1f %.1f][%.1f %.1f] Z[%.1f %.1f]  = %.1f x %.1f x %.1f m\n",
@@ -5757,8 +5757,8 @@ int main(int argc, char **argv) {
                 o2 = seg_d2_m112(wpx,wpy,B[0],B[1],C[0],C[1],&ox,&oy); if(o2<d2)d2=o2;
                 o2 = seg_d2_m112(wpx,wpy,C[0],C[1],A[0],A[1],&ox,&oy); if(o2<d2)d2=o2;
                 float zlo=A[2],zhi=A[2];
-                if(B[2]<zlo)zlo=B[2]; if(C[2]<zlo)zlo=C[2];
-                if(B[2]>zhi)zhi=B[2]; if(C[2]>zhi)zhi=C[2];
+                if(B[2]<zlo){ zlo=B[2]; } if(C[2]<zlo)zlo=C[2];
+                if(B[2]>zhi){ zhi=B[2]; } if(C[2]>zhi)zhi=C[2];
                 if (d2 < bnear) { bnear = d2; btri = t/3; bnz = nz; bz0 = zlo; bz1 = zhi; }
                 if (fabsf(nz) < 0.30f && d2 < bnearw) { bnearw = d2; btriw = t/3;
                                                        bwz0 = zlo; bwz1 = zhi; }
@@ -5781,8 +5781,8 @@ int main(int argc, char **argv) {
                     float L = sqrtf(n3[0]*n3[0]+n3[1]*n3[1]+n3[2]*n3[2]); if (L<1e-9f) continue;
                     if (fabsf(n3[2]/L) >= 0.30f) continue;
                     float zlo=A[2], zhi=A[2];
-                    if(B[2]<zlo)zlo=B[2]; if(C[2]<zlo)zlo=C[2];
-                    if(B[2]>zhi)zhi=B[2]; if(C[2]>zhi)zhi=C[2];
+                    if(B[2]<zlo){ zlo=B[2]; } if(C[2]<zlo)zlo=C[2];
+                    if(B[2]>zhi){ zhi=B[2]; } if(C[2]>zhi)zhi=C[2];
                     if (zhi < cz0 || zlo > cz1) continue;
                     float ox, oy, d2 = 1e30f, o2;
                     o2 = seg_d2_m112(wpx,wpy,A[0],A[1],B[0],B[1],&ox,&oy); if(o2<d2)d2=o2;
@@ -5856,9 +5856,9 @@ int main(int argc, char **argv) {
                 float z = u*A[2] + v*B[2] + w*C[2];
                 float bb[6] = {1e30f,-1e30f,1e30f,-1e30f,1e30f,-1e30f};
                 for (int q = 0; q < m->nverts; q++) { const float *pv = m->verts + q*5;
-                    if(pv[0]<bb[0])bb[0]=pv[0]; if(pv[0]>bb[1])bb[1]=pv[0];
-                    if(pv[1]<bb[2])bb[2]=pv[1]; if(pv[1]>bb[3])bb[3]=pv[1];
-                    if(pv[2]<bb[4])bb[4]=pv[2]; if(pv[2]>bb[5])bb[5]=pv[2]; }
+                    if(pv[0]<bb[0]){ bb[0]=pv[0]; } if(pv[0]>bb[1])bb[1]=pv[0];
+                    if(pv[1]<bb[2]){ bb[2]=pv[1]; } if(pv[1]>bb[3])bb[3]=pv[1];
+                    if(pv[2]<bb[4]){ bb[4]=pv[2]; } if(pv[2]>bb[5])bb[5]=pv[2]; }
                 char bs[64]; snprintf(bs, sizeof bs, "[%.0f %.0f][%.0f %.0f][%.1f %.1f]",
                                       bb[0],bb[1], bb[2],bb[3], bb[4],bb[5]);
                 printf("  %-30s %-8s %-8s %10.8x %9.3f %-34s\n",
@@ -8605,7 +8605,7 @@ int main(int argc, char **argv) {
                               aipath.xy[tgt*2]-carpos[0]) - heading;
             while (da> 3.14159f) da-=6.28318f;
             while (da<-3.14159f) da+=6.28318f;
-            if (da> 0.06f) da= 0.06f; if (da<-0.06f) da=-0.06f;
+            if (da> 0.06f) { da= 0.06f; } if (da<-0.06f) da=-0.06f;
             heading += da;
         }
         float ground_old[3]={carpos[0],carpos[1],carpos[2]}, ground_oldh=heading;
@@ -9051,7 +9051,7 @@ int main(int argc, char **argv) {
                 /* M91 wall-rejected waypoints: what actually sits there? */
                 printf("\nM91 wall-rejected waypoints, classified:\n");
                 { float hl = (carbb[3]-carbb[0])*0.5f, hw = (carbb[4]-carbb[1])*0.5f;
-                  if (hl < 0.5f) hl = 2.20f; if (hw < 0.5f) hw = 0.90f; (void)hl; (void)hw;
+                  if (hl < 0.5f) { hl = 2.20f; } if (hw < 0.5f) hw = 0.90f; (void)hl; (void)hw;
                   int nb=0, nr=0, nboth=0, nnone=0;
                   for (int i = 0; i < aipath.n; i++) {
                     float x = aipath.xy[i*2], y = aipath.xy[i*2+1];
@@ -11491,7 +11491,7 @@ int main(int argc, char **argv) {
                 float bx0=0.66f, by0=0.52f, bw=0.30f, bh=0.36f;
                 float px0=1e30f,py0=1e30f,px1=-1e30f,py1=-1e30f;
                 for (int i=0;i<aipath.n;i++){ float x=aipath.xy[i*2],y=aipath.xy[i*2+1];
-                    if(x<px0)px0=x; if(x>px1)px1=x; if(y<py0)py0=y; if(y>py1)py1=y; }
+                    if(x<px0){ px0=x; } if(x>px1)px1=x; if(y<py0)py0=y; if(y>py1)py1=y; }
                 float asp=(float)W/H, span=(px1-px0)>(py1-py0)?(px1-px0):(py1-py0);
                 if (span < 1e-3f) span = 1e-3f;
                 float scy = bh*0.9f/span, scx = scy/asp;   /* uniform on screen */
@@ -12282,7 +12282,7 @@ int main(int argc, char **argv) {
                                     float lo = 1e30f, hi = -1e30f;
                                     for (int v = 0; v < me->nverts; v++) {
                                         float z = me->verts[v*5+2];
-                                        if (z < lo) lo = z; if (z > hi) hi = z;
+                                        if (z < lo) { lo = z; } if (z > hi) hi = z;
                                     }
                                     float px2[5] = {bb[0],bb[2],bb[0],bb[2],(bb[0]+bb[2])*0.5f};
                                     float py2[5] = {bb[1],bb[1],bb[3],bb[3],(bb[1]+bb[3])*0.5f};
@@ -12429,7 +12429,7 @@ int main(int argc, char **argv) {
                     float z0=1e30f, z1=-1e30f;
                     for (int v = 0; v < m->nverts; v++) {
                         float z = m->verts[v*5+2];
-                        if (z < z0) z0 = z; if (z > z1) z1 = z;
+                        if (z < z0) { z0 = z; } if (z > z1) z1 = z;
                     }
                     static const char *modenm[4] = {"OPAQUE","CUTOUT","BLEND","ADD"};
                     unsigned char md = (hr->mesh_modes && mi < hr->mesh_count) ?

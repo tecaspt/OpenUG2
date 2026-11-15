@@ -23,15 +23,15 @@ Legend: DONE · ACTIVE · NEXT · LATER. "Engine today" summarises what exists b
 | # | Milestone | Status | Engine today / scope |
 |---|---|---|---|
 | M0 | Retail language table | DONE (364a0f5) | PC `LANGUAGES/*.bin` (16-byte header) now loads: 3925 English strings. Unlocks every retail caption, `TRACK_NAME_*`, `QR_*`. |
-| M1 | Retail Quick Race loop | ACTIVE | UI_Main → QR mode → track → options → car → loading → race → pause (restart / quit to menu) → post-race results → menu; Free Run; touch overlay for phones/tablets (platform adaptation, not retail). Plan: [M1-PLAN.md](M1-PLAN.md). |
-| M2 | Front-end options, profiles, controls | NEXT | `UI_OptionsMain` in front-end context; Audio and Player pages missing; `UI_ProfileManager` over the existing profile container. |
+| M1 | Retail Quick Race loop | DONE (a6b5c81, f507ba2) | UI_Main → QR mode → track → options → car → loading → race → pause (restart / quit to menu) → post-race results → menu; Free Run; touch overlay. Open: Track Select name fallback for some events, blank car thumbnails. |
+| M2 | Front-end options, profiles, controls | DONE (task E, wired 7b89797) | Front-end Options (display/audio applied), Profile Manager (new/rename/delete/load). |
 | M3 | Boot / attract | LATER | EA/THX logos, intro FMV (needs a VP6 decoder for `MOVIES/*.vp6`), splash, language select, loading tips. |
 | M4 | Front-end 3D scenes | LATER | Showroom platforms (`FRONTEND/PLATFORMS`), car rotate behind Main/Car Select. |
-| M5 | Customise car and performance tuning | LATER | Retail customise screens; engine has kits/rims partially; paint/vinyl/neon debug-only; spinners, hydraulics, ICE, dyno missing; most performance parts undecoded. |
-| M6 | Career core | LATER | New/load career, race entry markers, SMS, money, reputation, stages/unlocks, sponsors, world map, shops/crib/car lot, magazines/DVD, hidden races, career save. Outruns work but give no reward. |
-| M7 | Race-mode parity | LATER | All six race types run; missing URL tournaments/points, final drift scoring, drag shift-quality feedback, Lap KO, opponents/traffic/catch-up options, reverse direction, rewards; laps from data. |
-| M8 | Audio | LATER | Engine audio works; SFX procedural (not retail); music/EA Trax, front-end music and speech missing. |
-| M9 | HUD parity | ACTIVE (branch `parity/m9-hud`) | Speedo/tach, position/laps/time, drag/drift HUDs, race map, GPS arrow work; minimap zoom-with-speed, reputation, cash/SMS icons, NOS gauge (general), loading screens missing or partial. |
+| M5 | Customise car and performance tuning | ACTIVE (task J, Codex, `parity/garage`) | Customize hub + visual parts, rims, per-profile save, paint/vinyl; performance-part data research. Spinners, hydraulics, ICE, dyno later. |
+| M6 | Career core | ACTIVE (S1 + Career screen merged) | Done: career DB reader, Career screen (Resume/New), free roam with event zones + Enter Race, rewards (bank/rep), stage unlocks, save per profile, live bank on HUD. Next: world map, ENGAGE prompt art, Stage 0 intro + car lot, SMS, sponsors, shops, DVD/magazines, hidden races. See [M6-CAREER.md](M6-CAREER.md). |
+| M7 | Race-mode parity | ACTIVE (task F merged f34cd87) | Done: dimensional drag model (drag top speed fixed), drag shift grading/over-rev, drift chains + points ranking, Lap KO and URL tournament rules, race-option host plumbing, career payout on results. Next: FE option rows (task J addendum), HUD captions for shift grade/drift multiplier/KO/URL. |
+| M8 | Audio | ACTIVE | Done: retail .abk reader (task D), mixer (task G), retail impact/skid/road/shift effects in game ([M8-SFX-GAME.md](M8-SFX-GAME.md)). Next: menu sounds (sample meanings unknown), surface-dependent loops, turbo/NOS, music/EA Trax, speech. |
+| M9 | HUD parity | ACTIVE (merged ea2c9c4) | Speedo/tach, position/laps/time, drag/drift HUDs, race map, GPS arrow, event icons, rival arrows, career bank widget work; minimap zoom-with-speed, reputation, SMS icon, NOS gauge, loading screens, M7 captions (shift grade, drift multiplier, KO/URL) missing or partial. |
 | M10 | Replay | LATER | Missing; pause "Replay" entry always disabled. |
 
 Evidence (file:line) for every row is in [M1-PLAN.md](M1-PLAN.md) §(a) and §(b).
@@ -56,6 +56,14 @@ One owner per file; units integrate only through the frozen API in M1-PLAN.md §
 M1 gate (all must pass): full test suite; new unit tests wired into the Makefile; invariance checks above;
 scripted end-to-end scenarios S1–S3 from M1-PLAN.md (menu on bare launch; Quick Race drag 4201 with track and car
 switch, finish, results, restart, pause, quit to menu, Free Run, quit; same flow on the GLES/iOS host build).
+
+## Platform and collision work outside the milestone table
+- iOS/iPadOS (TestFlight) is the owner's main test platform. Build 8 (f34cd87) is the latest; render backing capped at
+  ~2.1 Mpx and every launch writes `Documents/OpenUG2-perf.csv`. Rendering performance (scaled scene target, draw cost):
+  task L, queued for Codex. Frame-time report tool: task K, queued for Qwen.
+- Collisions: highway crash barrels are breakable props; fall-through recovery puts a fallen car back on the road
+  (4231243). A barrier pass-through at speed reported on device is being located with `race_events_check --drive
+  --escape-audit`.
 
 ## Decisions taken (may be revisited by the project owner)
 - Front end must be the retail FNG flow; an invented menu only where the retail path is shown to be blocked.
