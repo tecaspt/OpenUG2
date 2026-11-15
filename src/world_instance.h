@@ -90,4 +90,10 @@ int winst_test_collect_placements(const unsigned char *section_data,
                                   WInstStats *stats);
 #endif
 
+/* Highway crash-cushion barrels (XO_CrashBarrel*): breakable props with the light-debris response, never walls.
+ * [data] name family in the STREAM bundles; [inferred] that retail lets them scatter (owner report: they must collide). */
+static inline int n2_crash_barrel(const char *name) {
+    return name && !strncmp(name, "XO_", 3) && n2_icontains((const unsigned char *)name + 3, (long)strlen(name + 3), "CRASHBARREL");
+}
+
 #endif
