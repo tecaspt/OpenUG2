@@ -172,3 +172,44 @@ Rates actually used: 22050 (default where 0x84 is absent), 16000, 18000, 24000, 
 - Listening exports (WAV, not committed, live outside the worktree in the task's reports
   directory): 1513 files, 58 MB total, one per decoded sample. Peak amplitudes of the first five
   `FE_MB` samples: 29350, 29917, 29443, 28591, 28794 (full scale 32767).
+
+## 8. `SOUND/EVT_SYS/*.csi` — the layer above the banks (read-only notes, no code)
+
+Eight files, 60–280 bytes each, named `*_AEMS.csi` plus `UG2_TURBO.csi`. They are not banks and this
+library does not read them; they were inspected as bytes only. Everything in this section is
+`[inferred]` — the shape is verified, the meaning is not.
+
+| Offset | Observed | Note |
+|---|---|---|
+| +0x00 | `"MOIR"` | magic, 8/8 |
+| +0x04 | 512 (`u32`) | constant in 8/8 |
+| +0x08 | 0, except `0x10000` in `UG2_ENGINES_AEMS2.csi` | 7/8 zero |
+| +0x0c | entry count (`u32`) | matches the parsed entry count in 7/8; `UG2_ENGINES_AEMS2.csi` says 4 and carries 5 |
+| +0x10 | `u32`, every value ≤ 0x7FFF | see below |
+| +0x14…+0x2b | zeros | |
+| +0x2c | entry table | see below |
+
+**Entry table.** Twelve-byte records of `(u32 name offset, u32 id, u32 zero)` starting at +0x2c. The
+*last* record has no trailing zero word, so the table ends exactly where the string block begins,
+and the first record's name offset *is* that boundary. That relation holds in 8/8 files, which is
+what fixes both the table base and the record width. Name offsets are file-relative and increase in
+table order.
+
+**String block.** NUL-terminated ASCII names, packed in table order with no separator or padding,
+running to the end of the file (0–3 trailing bytes). The name offsets land on every string start in
+8/8 files, with no string left unpointed at.
+
+**The ids.** 318 … 31031, with no two entries in one file sharing an id. Two different files assign
+the same id to the same sound name in two cases, so ids look global rather than per-file; those same
+two files give different ids to a skid sound of the same name, so an id is not a hash of the name
+either. In the two single-entry files the +0x10 header field equals that entry's id; in the six
+multi-entry files it equals none of them, and nothing else about it is understood.
+
+**Relation to the banks.** The names line up with the bank directories and file names one level down
+— an `FX_ROADNOISE` entry against `SOUND/IG_GLOBAL/ROADNOISE_00_MB.abk`, `FX_TURBO_01` against
+`SOUND/TURBO/`, `CAR_SWTN` against the `SOUND/ENGINE/SWTN_CAR_*` family. The FE file's entries are
+not sound names at all (`FEDriveOn`, `PlayFrontEndSample`, `PlayCommonSample`,
+`PlayFrontEndSample_loop`), which reads as named event handlers rather than assets. The plausible
+reading is that `.csi` maps event names to ids the sound system resolves, and the `.abk` banks hold
+the samples those events play. Nothing here proves the connection, and no code depends on it.
+`[inferred]`
