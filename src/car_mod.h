@@ -276,4 +276,58 @@ static int n2_mod_assemble(const char *root,const unsigned char *data,long len,
     }
     return 1;
 }
+
+/* [inferred] Garage choices are exposed only after full CPU assembly succeeds. */
+#include "garage.h"
+static int n2_mod_garage_scene(const char *root,const unsigned char *data,long len,
+                              const N2CarConfig *cfg,N2Scene *scene) {
+    if(n2_load_car(data,len,scene,NULL,0,cfg)<=0 || !n2_mod_assemble(root,data,len,cfg,scene))return 0;
+    int triangles=0;
+    for(int i=0;i<scene->count;i++) {
+        N2Mesh *m=scene->meshes+i;triangles+=m->nidx/3;
+        if(m->nverts<1||!m->verts||!m->idx)return 0;
+        for(int v=0;v<m->nverts;v++)for(int a=0;a<3;a++)if(!isfinite(m->verts[v*(m->authored_normals?8:5)+a]))return 0;
+        for(int j=0;j<m->nidx;j++)if(m->idx[j]>=m->nverts)return 0;
+    }
+    if(!triangles)return 0;
+    if(cfg->body_kit) {
+        int found=0;for(int i=0;i<scene->count;i++)if(scene->meshes[i].vkind==1&&scene->meshes[i].vnum==cfg->body_kit)found=1;
+        if(!found)return 0;
+    }
+    for(int slot=0;slot<N2_PART_COUNT;slot++)if(cfg->parts[slot]) {
+        int found=0,value=cfg->parts[slot];
+        for(int i=0;i<scene->count;i++) {
+            N2Mesh *m=scene->meshes+i;
+            if(m->car_part!=slot+1)continue;
+            if(value>=1000 || (m->vkind==(value>=101?2:1) && m->vnum==(value>=101?value-101:value-1)))found=1;
+        }
+        if(!found)return 0;
+    }
+    return 1;
+}
+static int n2_mod_garage_catalog(const char *root,const char *name,GarageCatalog *out) {
+    if(!root||!name||!out||strlen(name)>=sizeof out->car)return 0;
+    for(const char *p=name;*p;p++)if(!((*p>='A'&&*p<='Z')||(*p>='0'&&*p<='9')||*p=='_'))return 0;
+    char path[1024];snprintf(path,sizeof path,"%s/CARS/%s/GEOMETRY.BIN",root,name);
+    long len=0;unsigned char *data=n2_read_file(path,&len);if(!data)return 0;
+    memset(out,0,sizeof *out);snprintf(out->car,sizeof out->car,"%s",name);
+    N2CarConfig cfg={0};N2Scene stock={0};int ok=n2_mod_garage_scene(root,data,len,&cfg,&stock);
+    if(ok) {
+        n2_mod_catalog(root,data,len,&stock,out->menu);
+        int ids[100],n=n2_car_variant_numbers(data,len,1,ids,100);
+        n2_mod_option(&out->menu[GARAGE_KIT],0,"Stock");
+        for(int i=0;i<n;i++){char label[48];snprintf(label,sizeof label,"Kit %02d",ids[i]);n2_mod_option(&out->menu[GARAGE_KIT],ids[i],label);}
+        for(int slot=0;slot<GARAGE_SLOTS;slot++) {
+            N2PartMenu *m=&out->menu[slot];int kept=0;
+            for(int i=0;i<m->count;i++) {
+                cfg=(N2CarConfig){0};int value=m->options[i].value;
+                if(slot==GARAGE_KIT)cfg.body_kit=value;else cfg.parts[slot]=value;
+                N2Scene probe={0};int builds=n2_mod_garage_scene(root,data,len,&cfg,&probe);n2_free_scene(&probe);
+                if(builds)m->options[kept++]=m->options[i];
+            }
+            m->count=kept;
+        }
+    }
+    n2_free_scene(&stock);free(data);return ok;
+}
 #endif

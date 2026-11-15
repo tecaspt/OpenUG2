@@ -106,6 +106,8 @@ typedef struct GvCarousel {
  * was created (AMEND1 A6), never the object's current, script-evaluated position; it is copied into `car`. Returns 0 (and
  * leaves the screen's status) when a required object is missing or ambiguous. */
 int gv_carousel_bind(GvCarousel *v, GvScreen *s, GuiCarousel *car);
+/* [data] GenericParts uses a duplicate-name pool and different master/title hashes. */
+int gv_carousel_bind_parts(GvCarousel *,GvScreen *,GuiCarousel *);
 /* Writes the carousel state into the objects: slot icon, position, size, visibility, edge-fade alpha,
  * caption, header, rail/tab/arrows, focus and the arrow blink for `move_serial`. */
 void gv_carousel_apply(GvCarousel *v, const GuiCarousel *car, const GvEntry *entries, int n,
