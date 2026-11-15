@@ -1,4 +1,5 @@
 /* [inferred] FE lifecycle around the existing, byte-preserving profile container. */
+#include "career.h"   /* CR_FILE_NAME only */
 #include "fe_profile.h"
 #include "controls_store.h"
 #include <dirent.h>
@@ -69,6 +70,21 @@ int fep_save(FeProfile *p) {
     int rc=st_profile_save(p->root,&p->value);
     if(rc==ST_OK){p->persisted=1;rc=active(p);}return result(p,rc);
 }
+/* M6: the career save (career.h CR_FILE_NAME) lives in the profile directory; a rename carries it over before
+ * the old directory is removed. Plain byte copy so this file does not link the career code. 1 ok/absent, 0 error. */
+static int carry_career(const char *root,const char *from,const char *to) {
+    char src[1200],dst[1200];
+    if(snprintf(src,sizeof src,"%s/%s/%s",root,from,CR_FILE_NAME)>=(int)sizeof src ||
+       snprintf(dst,sizeof dst,"%s/%s/%s",root,to,CR_FILE_NAME)>=(int)sizeof dst)return 0;
+    FILE *in=fopen(src,"rb");if(!in)return 1;
+    FILE *out=fopen(dst,"wb");if(!out){fclose(in);return 0;}
+    char buf[4096];size_t n;int ok=1;
+    while((n=fread(buf,1,sizeof buf,in))>0)if(fwrite(buf,1,n,out)!=n){ok=0;break;}
+    if(ferror(in))ok=0;
+    fclose(in);if(fclose(out)!=0)ok=0;
+    if(!ok)remove(dst);
+    return ok;
+}
 int fep_rename(FeProfile *p,const char *name) {
     if(!p->valid || !st_profile_name_valid(name))return result(p,ST_E_ARG);
     if(!strcmp(name,p->value.name))return fep_save(p);
@@ -78,6 +94,7 @@ int fep_rename(FeProfile *p,const char *name) {
     int rc=st_profile_save(p->root,&p->value);
     if(rc!=ST_OK){snprintf(p->value.name,sizeof p->value.name,"%s",old);return result(p,rc);}
     rc=active(p);
+    if(rc==ST_OK && p->persisted && !carry_career(p->root,old,name))rc=ST_E_IO;
     if(rc==ST_OK && p->persisted)rc=st_profile_delete(p->root,old);
     if(rc!=ST_OK){st_profile_delete(p->root,name);snprintf(p->value.name,sizeof p->value.name,"%s",old);active(p);return result(p,rc);}
     p->persisted=1;fep_refresh(p);return result(p,ST_OK);
