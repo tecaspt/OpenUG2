@@ -131,6 +131,37 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "behavior-blink")) { behavior_blink(argv[2]); return 0; }
     if (!strcmp(argv[1], "behavior-resume")) { behavior_resume(argv[2]); return 0; }
     if (!strcmp(argv[1], "checks")) { focused_checks(); return 0; }
+    if (!strcmp(argv[1], "confirm")) {   /* M6: a lone confirmation dialog, no resources: logic only */
+        PauseMenu *c = (PauseMenu *)calloc(1, sizeof *c);
+        int fails = 0;
+#define CK(x, m) do { if (!(x)) { printf("FAIL %s\n", m); fails++; } } while (0)
+        CK(pause_menu_confirm(c, GD_ENGAGE_RACE) && pause_menu_is_open(c), "opens");
+        CK(!pause_menu_confirm(c, GD_ENGAGE_RACE), "a second open is refused");
+        CK(pause_menu_dialog_open(c), "dialog reported open");
+        SDL_Event k = {0}; k.type = SDL_KEYDOWN;
+        k.key.keysym.sym = SDLK_LEFT; pause_menu_event(c, &k, NULL);
+        k.key.keysym.sym = SDLK_RETURN; pause_menu_event(c, &k, NULL);
+        CK(pause_menu_update(c, 0.1f) == FE_ACTION_NONE && pause_menu_is_open(c), "waits for the exit");
+        CK(pause_menu_update(c, 0.1f) == FE_ACTION_RESUME && !pause_menu_is_open(c), "closes with resume");
+        CK(pause_menu_take_confirm(c) == GD_RES_FIRST && pause_menu_take_confirm(c) == GD_RES_NONE, "Yes, once");
+        CK(pause_menu_confirm(c, GD_ENGAGE_RACE), "reopens");
+        k.key.keysym.sym = SDLK_ESCAPE; pause_menu_event(c, &k, NULL);
+        pause_menu_update(c, 0.2f);
+        CK(!pause_menu_is_open(c) && pause_menu_take_confirm(c) == GD_RES_SECOND, "Escape answers No");
+        CK(pause_menu_confirm(c, GD_ENGAGE_RACE), "reopens for Enter on the default focus");
+        k.key.keysym.sym = SDLK_RETURN; pause_menu_event(c, &k, NULL);
+        pause_menu_update(c, 0.2f);
+        CK(pause_menu_take_confirm(c) == GD_RES_SECOND, "default focus is No");
+        CK(pause_menu_confirm(c, GD_ENGAGE_RACE), "reopens for a click");
+        float e[4]; gd_button_extent(GD_ENGAGE_RACE, 0, e);
+        pause_menu_pointer(c, 320 + (e[0] + e[2]) / 2, 240 + (e[1] + e[3]) / 2, 640, 480);
+        pause_menu_update(c, 0.2f);
+        CK(pause_menu_take_confirm(c) == GD_RES_FIRST, "a click on Yes answers Yes");
+#undef CK
+        printf("pause_menu_test confirm: %s\n", fails ? "FAIL" : "PASS");
+        free(c);
+        return fails != 0;
+    }
     if (!strcmp(argv[1], "options")) { options_checks(); return 0; }
     if (!strcmp(argv[1], "correction")) { correction_vector(atoi(argv[2])); return 0; }
     if (!strcmp(argv[1], "geometry")) {

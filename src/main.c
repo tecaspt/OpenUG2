@@ -7310,6 +7310,24 @@ int main(int argc, char **argv) {
                 }
                 career_dev_frames = 0;
             }
+            /* M6: Enter Race asks first, with the retail "Would you like to race this event?" Yes / No dialog
+               (developer automation skips it). The answer arrives after the dialog closes; the engage pose is
+               the one the question was asked at. */
+            static float ask_x, ask_y, ask_kmh; static int ask_live;
+            if (career_enter && career_dev <= 0 && !ask_live) {
+                career_enter = 0;
+                if (pause_menu_confirm(pause_menu, GD_ENGAGE_RACE)) {
+                    ask_live = 1; ask_x = ce_x; ask_y = ce_y; ask_kmh = ce_kmh;
+                    if (adev) SDL_PauseAudioDevice(adev, 1);
+                    printf("career: asking to race (%.1f %.1f)\n", ce_x, ce_y);
+                }
+            }
+            if (ask_live && !pause_menu_is_open(pause_menu)) {
+                ask_live = 0;
+                int answer = pause_menu_take_confirm(pause_menu);
+                printf("career: race question answered %s\n", answer == GD_RES_FIRST ? "Yes" : "No");
+                if (answer == GD_RES_FIRST && career_roam) { career_enter = 1; ce_x = ask_x; ce_y = ask_y; ce_kmh = ask_kmh; }
+            }
             if (career_enter) {
                 career_enter = 0;
                 GfLaunch gl;

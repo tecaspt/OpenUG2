@@ -35,6 +35,9 @@ struct PauseMenu {
     PauseContext ctx;            /* host-described situation, applied at the next open */
     int ctx_set;
     int open;
+    GuiDialog confirm;           /* M6: a host confirmation shown alone, without the pause screen */
+    int confirm_only;
+    GdResult confirm_result;
     UgAssets assets;
     UgSkin skin;
     UgGL *gl;
@@ -133,6 +136,7 @@ static void pause_switch_view(PauseMenu *p, PmView want, OmScreen scr) {
 }
 
 static const GuiDialog *pause_current_dialog(const PauseMenu *p) {
+    if (p->confirm_only) return p->confirm.open ? &p->confirm : NULL;
     if (om_is_open(&p->options)) return p->options.dialog.open ? &p->options.dialog : NULL;
     return p->ps.dialog.open ? &p->ps.dialog : NULL;
 }
@@ -387,6 +391,12 @@ static void pause_pill_clear(PauseMenu *p) {
 }
 static void pause_key(PauseMenu *p, PmKey k) {
     if (!p->open || k == PMK_NONE) return;
+    if (p->confirm_only) {
+        GdInput in = k == PMK_LEFT ? GD_IN_LEFT : k == PMK_RIGHT ? GD_IN_RIGHT : k == PMK_ACCEPT ? GD_IN_ACCEPT :
+                     k == PMK_BACK ? GD_IN_BACK : GD_IN_NONE;
+        if (in != GD_IN_NONE) gd_input(&p->confirm, in);
+        return;
+    }
     if (om_is_open(&p->options)) { om_input(&p->options, om_of(k)); return; }
     PsInput in = ps_of(k);
     if (in != PS_IN_NONE) ps_input(&p->ps, in);
@@ -402,6 +412,7 @@ static void pause_pointer_press(PauseMenu *p, float x, float y) {
     if (!p->open) return;
     p->press_pill = 0;
     if (x < 0 || x >= 640 || y < 0 || y >= 480) return;
+    if (p->confirm_only) { gd_pointer_click(&p->confirm, x - 320, y - 240); return; }
     if (om_is_open(&p->options)) { om_pointer_click(&p->options, x - 320, y - 240); return; }
     if (p->ps.exiting) return;
     if (!p->ps.dialog.open) {
@@ -414,7 +425,7 @@ static void pause_pointer_release(PauseMenu *p, float x, float y) {
     if (!p->open) return;
     int pill = p->press_pill;
     p->press_pill = 0;
-    if (om_is_open(&p->options) || pill) return;
+    if (om_is_open(&p->options) || pill || p->confirm_only) return;
     ps_pointer_release(&p->ps, x - 320, y - 240);
 }
 /* Complete primary click at a window point (press and release together). */
@@ -524,6 +535,16 @@ FeAction pause_menu_update(PauseMenu *p, float seconds) {
     p->ui.time_ms = p->ui_ms;
     if (p->pill_initialized) { ug_anim_update(&p->pill_pulse, ms); ug_anim_update(&p->pill_glow, ms); }
     FeAction a = FE_ACTION_NONE;
+    if (p->confirm_only) {                                               /* M6: a lone confirmation */
+        gd_update(&p->confirm, seconds);
+        pause_sync_dialog(p, ms);
+        GdResult r = gd_poll(&p->confirm);
+        if (r == GD_RES_NONE) return FE_ACTION_NONE;
+        p->confirm_result = r;
+        p->confirm_only = 0; p->open = 0; p->press_pill = 0;
+        pause_drop_dialog(p); p->dlg_failed = 0;
+        return FE_ACTION_RESUME;                                          /* the host reads the answer */
+    }
     if (om_is_open(&p->options) || p->options.nevents) {
         if (p->cx && om_controls_capturing(&p->options)) {          /* a joystick capture reads the device each frame */
             int pad = p->options.cm.dev[p->options.cm.cur].pad;
@@ -619,6 +640,10 @@ static void pause_draw_pills(PauseMenu *p) {
 static void pause_compose(PauseMenu *p) {
     UgCanvas *cv = &p->canvas;
     ug_cv_clear(cv);
+    if (p->confirm_only) {                                               /* M6: the dialog over the running scene */
+        if (!p->dlg_loaded || !gv_screen_draw(&p->dlg_v.scr, &p->ui, cv)) { ug_cv_clear(cv); cv->visual_status = UG_VIS_UNAVAILABLE; }
+        return;
+    }
     if (!p->visual || !p->scr.loaded) { cv->visual_status = UG_VIS_UNAVAILABLE; return; }
     if (!gv_screen_draw(&p->scr, &p->ui, cv)) {
         p->visual = 0;
@@ -724,4 +749,21 @@ int pause_menu_draw_reference(PauseMenu *p, int width, int height, float elapsed
 
 const char *pause_menu_text(const PauseMenu *p, uint32_t key, const char *fallback) {
     return p && p->assets_open && key ? gv_text(&p->assets, key, fallback) : fallback;
+}
+
+int pause_menu_confirm(PauseMenu *p, int kind) {
+    if (!p || p->open) return 0;
+    GdSpec spec;
+    gd_spec(&spec, (GdKind)kind, NULL);
+    pause_drop_dialog(p); p->dlg_failed = 0;
+    gd_open(&p->confirm, &spec);
+    p->confirm_only = 1; p->confirm_result = GD_RES_NONE; p->open = 1; p->press_pill = 0;
+    pause_sync_dialog(p, 0);
+    return 1;
+}
+int pause_menu_take_confirm(PauseMenu *p) {
+    if (!p) return GD_RES_NONE;
+    int r = p->confirm_result;
+    p->confirm_result = GD_RES_NONE;
+    return r;
 }

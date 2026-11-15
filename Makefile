@@ -669,6 +669,7 @@ pause-menu-test: build/pause_menu_test
 	env -u UGUI_DATA -u NFSU2_DATA python3 tools/pause_menu_vector_check.py build/pause_menu_test tools/pause_menu_vectors
 	env -u UGUI_DATA -u NFSU2_DATA python3 tools/pause_menu_supplement_check.py build/pause_menu_test tools/pause_menu_vectors
 	env -u UGUI_DATA -u NFSU2_DATA python3 tools/pause_menu_behavior_check.py build/pause_menu_test tools/pause_menu_vectors
+	./build/pause_menu_test confirm
 .PHONY: pause-menu-test
 
 build/pause_menu_gl_test: tools/pause_menu_gl_test.c $(HDRS) $(UGUI_SRC)

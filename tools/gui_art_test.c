@@ -342,6 +342,13 @@ static void test_tvg10(void) {
     CHECK(d.message_key == 0x2BBCCA6Bu && !strcmp(d.message, "Reset to default settings?"), "defaults message");
     CHECK(d.label_key[0] == 0x0000F770u && !strcmp(d.label[0], "Yes") && d.label_key[1] == 0x0000061Cu && !strcmp(d.label[1], "No"), "defaults buttons");
     CHECK(d.initial_focus == 1 && d.back_msg == 0x34DC1BCFu, "defaults: focus on No, Back = No (0x34DC1BCF)");
+    GdSpec en;   /* M6 career engage: same package, Yes/No, retail message key */
+    gd_spec(&en, GD_ENGAGE_RACE, NULL);
+    CHECK(!strcmp(en.package, "GenericDialog_SMALL.fng") && en.message_key == 0xEC9488BBu &&
+          !strcmp(en.message, "Would you like to race this event?") && en.initial_focus == 1, "engage dialog spec");
+    CHECK(en.label_key[0] == 0x0000F770u && en.label_key[1] == 0x0000061Cu, "engage buttons Yes/No");
+    { float a[4], b[4]; gd_button_extent(GD_ENGAGE_RACE, 0, a); gd_button_extent(GD_DEFAULTS, 0, b);
+      CHECK(!memcmp(a, b, sizeof a), "engage buttons share the small dialog extents"); }
     jfree(j);
 
     /* state machine */
