@@ -66,6 +66,22 @@ map-bake-test: tools/map_bake_test.c src/map_bake.h src/nfsu2.h
 	$(CC) $(CFLAGS) -Isrc tools/map_bake_test.c -o build/map_bake_test -lm -lz
 	./build/map_bake_test
 
+hud-minimap-test: tools/hud_minimap_test.c src/hud_minimap.h src/hud_asset.c src/hud_asset.h src/ugui/ugui_codec.c
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Isrc tools/hud_minimap_test.c src/hud_asset.c src/ugui/ugui_codec.c -o build/hud_minimap_test -lm
+	./build/hud_minimap_test
+
+hud-host-map-test: tools/hud_host_map_test.c src/hud_host_map.h src/hud_minimap.h src/world.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function $(SDL_CFLAGS) -Isrc tools/hud_host_map_test.c -o build/hud_host_map_test -lm
+	./build/hud_host_map_test
+
+# Pose checks always run; the MARKER_GPS_AID solid check needs $OPENUG2_DATA (exit 77 = SKIP without it).
+gps-marker-test: tools/gps_marker_test.c src/gps_marker.h src/nfsu2.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function $(SDL_CFLAGS) -Isrc tools/gps_marker_test.c -o build/gps_marker_test -lz -lm
+	./build/gps_marker_test
+
 hud-race-test: tools/hud_race_test.c src/hud_race.c src/hud_race.h src/hud.h src/hud_asset.c src/hud_asset.h src/ugui/ugui_codec.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -DSDL_MAIN_HANDLED $(filter-out -Dmain=SDL_main,$(SDL_CFLAGS)) -Isrc tools/hud_race_test.c src/hud_race.c src/hud_asset.c src/ugui/ugui_codec.c -o build/hud_race_test -lm
