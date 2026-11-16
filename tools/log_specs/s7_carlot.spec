@@ -11,4 +11,7 @@ order /career: new stage/ /career: lot (\d+) cars:/ /career: bought/ /career-dev
 order /career-dev: crib/ /career: stage (\d+) -> (\d+)/
 expect 1 /stage complete/
 within /career: stage (\d+) -> (\d+)/ /stage complete/ 500
-forbid /Segmentation fault|ASan|AddressSanitizer|abort/
+# The brief's crash set was Segmentation|ASan|abort; a sanitizer's own banner is
+# "ERROR: AddressSanitizer:" / "SUMMARY: AddressSanitizer:" / "ERROR: LeakSanitizer:", which a bare
+# "ASan" never matches, so all three spellings are forbidden here. None of them is in any gate log.
+forbid /Segmentation|ASan|AddressSanitizer|LeakSanitizer|abort/
