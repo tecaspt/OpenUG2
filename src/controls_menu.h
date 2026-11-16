@@ -21,7 +21,7 @@ extern "C" {
 #define CM_COLUMNS 2                   /* 0 Primary, 1 Secondary */
 
 /* Language label keys of the fixed texts (3.3, 3.5, 4.6) */
-#define CM_KEY_HEADER 0x04DC6DB5u      /* Controls */
+#define CM_KEY_HEADER 0x04DC6DB5u      /* OPT_CONTROLLER ("Controls") */
 #define CM_KEY_PRIMARY 0x1B15F53Cu
 #define CM_KEY_SECONDARY 0x37E740E0u
 #define CM_KEY_INSTR_CONFIGURE 0x8BAB66EFu

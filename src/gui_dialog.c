@@ -8,6 +8,7 @@
 #define PKG_SMALL "GenericDialog_SMALL.fng"
 #define KEY_PKG_IN_GAME 0xAA469286u
 #define KEY_PKG_SMALL 0x6962C0CDu
+/* MSG_*: FE message ids the dialog sends on a choice (not language keys; absent from English.bin by design). */
 #define MSG_CANCEL 0xB4623F67u           /* second argument of every pause confirmation, also Back */
 #define MSG_DEFAULTS_NO 0x34DC1BCFu
 
@@ -55,7 +56,7 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->message = T_DEFAULTS.en;
         out->label_key[0] = 0x0000F770u; out->label[0] = "Yes";
         out->label_key[1] = 0x0000061Cu; out->label[1] = "No";
-        out->result_msg[0] = 0xD05FC3A3u;         /* Yes */
+        out->result_msg[0] = 0xD05FC3A3u;         /* FE message for the first button */
         out->result_msg[1] = MSG_DEFAULTS_NO;
         out->back_msg = MSG_DEFAULTS_NO;          /* Back = No */
         return;

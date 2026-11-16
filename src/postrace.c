@@ -62,7 +62,7 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
         snprintf(p->time,sizeof p->time,"%u",points);
         text(&p->result,"Header_Text_3",title);
     }
-    text(&p->result,"player_data_1",gv_text(&p->assets,ug_hash_upper("PLAYER"),"Player"));
+    text(&p->result,"player_data_1",gv_text(&p->assets,0xfa37740bu,"Player"));   /* LABEL_PLAYER (no PLAYER key in the table) */
     rank_label(&p->result,"ranking_data_1",info->failed?"DNF":p->place);
     text(&p->result,"car_data_1",p->info.car);
     text(&p->result,"time_data_1",info->failed?"DNF":p->time);
