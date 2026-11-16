@@ -18,7 +18,7 @@ struct PostRace {
     GvScreen result,menu;GvCarousel view;GuiCarousel carousel;GvEntry entries[3];PostRaceInfo info;
     int open,visual,pending,pressed,phase;
     char status[256],place[16],time[32],title[384];
-    char row_points[RR_MAX_CARS][32],row_places[RR_MAX_CARS][16];
+    char row_points[RR_MAX_CARS][32],row_places[RR_MAX_CARS][16],row_times[RR_MAX_CARS][32];
 };
 static void text(GvScreen *s,const char *name,const char *value) {
     int i=ug_scene_find_name(&s->scene,ug_hash_upper(name));
@@ -70,6 +70,43 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
         const char *prefix[]={"player_data_","ranking_data_","car_data_","time_data_"};
         for(int k=0;k<4;k++){char name[40];snprintf(name,sizeof name,"%s%d",prefix[k],row);
             int i=ug_scene_find_name(&p->result.scene,ug_hash_upper(name));if(i>=0)p->result.scene.nodes[i].app_hidden=1;}
+    }
+    if(info->have_standings && !info->have_url_standings && info->kind!=N2_RACE_DRIFT) {
+        /* M7: the whole field in place order: finishers by time, then the cars still racing, then those out. */
+        int count=info->standing_count;
+        if(count<1 || count>RR_MAX_CARS) {
+            snprintf(p->result.status,sizeof p->result.status,"postrace: invalid standings");goto fail;
+        }
+        int order[RR_MAX_CARS];
+        for(int k=0;k<count;k++) {
+            p->info.standing[k].name[31]=p->info.standing[k].car[31]=0;order[k]=k;
+            if(p->info.standing[k].place<1 || p->info.standing[k].place>count) {
+                snprintf(p->result.status,sizeof p->result.status,"postrace: invalid place");goto fail;
+            }
+        }
+        for(int k=1;k<count;k++) {
+            int value=order[k],j=k;
+            while(j>0 && p->info.standing[order[j-1]].place>p->info.standing[value].place){order[j]=order[j-1];j--;}
+            order[j]=value;
+        }
+        const char *prefix[]={"player_data_","ranking_data_","car_data_","time_data_"};
+        for(int row=0;row<count;row++) {
+            const PostRaceStanding *entry=&p->info.standing[order[row]];
+            double s=isfinite(entry->seconds) && entry->seconds>0?fmin(entry->seconds,359999):0;
+            unsigned c=(unsigned)(s*100);
+            if(entry->status==PR_STAND_OUT){snprintf(p->row_places[row],sizeof p->row_places[row],"DNF");
+                snprintf(p->row_times[row],sizeof p->row_times[row],"DNF");}
+            else {snprintf(p->row_places[row],sizeof p->row_places[row],"%d",entry->place);
+                if(entry->status==PR_STAND_FINISHED && c)snprintf(p->row_times[row],sizeof p->row_times[row],"%u:%02u.%02u",c/6000,c/100%60,c%100);
+                else p->row_times[row][0]=0;}   /* still racing: no time yet */
+            const char *value[]={entry->name,p->row_places[row],entry->car,p->row_times[row]};
+            for(int k=0;k<4;k++) {
+                char name[40];snprintf(name,sizeof name,"%s%d",prefix[k],row+1);
+                int node=ug_scene_find_name(&p->result.scene,ug_hash_upper(name));
+                if(node>=0){p->result.scene.nodes[node].app_hidden=!value[k][0];
+                    if(k==1)rank_label(&p->result,name,value[k]);else p->result.scene.nodes[node].text_override=value[k];}
+            }
+        }
     }
     if(info->kind==N2_RACE_URL && info->have_url_standings) {
         int count=info->standing_count;

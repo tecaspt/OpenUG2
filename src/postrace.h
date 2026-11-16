@@ -6,6 +6,7 @@
 typedef struct PostRace PostRace;
 typedef struct PostRaceStanding {
     char name[32],car[32];uint32_t points;int place;
+    double seconds;int status; /* field results: status PR_STAND_FINISHED / _RUNNING / _OUT */
 } PostRaceStanding;
 typedef struct PostRaceInfo {
     int event_id, kind, finish_place, failed;
@@ -13,9 +14,11 @@ typedef struct PostRaceInfo {
     char car[32];
     uint32_t drift_points;int have_drift_points;
     int have_url_standings,standing_count,url_round,url_rounds;
+    int have_standings; /* the whole field, ordered by place (Circuit/Sprint/Drag/Lap KO) */
     PostRaceStanding standing[RR_MAX_CARS];
     RrReward reward; /* optional supplied award; available=0 leaves existing title */
 } PostRaceInfo;
+enum { PR_STAND_FINISHED=0, PR_STAND_RUNNING, PR_STAND_OUT };
 enum { PR_ACT_NONE=0, PR_ACT_RESTART, PR_ACT_CONTINUE, PR_ACT_QUIT_MAIN };
 PostRace *pr_create(const char *dataroot);
 void pr_open(PostRace *,const PostRaceInfo *);

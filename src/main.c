@@ -2575,6 +2575,7 @@ int main(int argc, char **argv) {
     int touch_opt = -1;                  /* --touch 1 / --no-touch 0 / auto -1 */
     const char *script_spec = NULL;      /* --input-script SPEC */
     long debug_sink = -1;                /* --debug-sink FRAME: drop the car 30 m through the world (recovery check) */
+    int career_ask = 0;   /* --career-ask */
     int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
                                             engage the first available event, finish it in PLACE */
     for (int i = 1; i < argc; i++) {
@@ -2613,6 +2614,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--no-touch")) touch_opt = 0;
         else if (!strcmp(argv[i], "--input-script") && i+1 < argc) script_spec = argv[++i];
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--career-ask")) career_ask = 1;   /* with --career-dev: still ask the race question */
         else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
@@ -5586,6 +5588,7 @@ int main(int argc, char **argv) {
     AiRace race_drivers[N_RACE_AI]={0};
     RrKnockout knockout = {0}; int knockout_live = 0, race_lap_knockout = 0;   /* M7 P4 */
     RrUrl url_series = {0}; RrRound url_round = {0}; int url_live = 0;
+    RrRound field_round = {0}; int field_live = 0;   /* M7: whole-field results (finish times) for every AI race */
     int url_pending[RR_MAX_URL_RACES], url_pending_count = 0;
     RrOptions race_options = rr_options_default();   /* M7 P5: Quick Race options; */
     int saved_traffic_target = -1;
@@ -7342,10 +7345,10 @@ int main(int argc, char **argv) {
                 career_dev_frames = 0;
             }
             /* M6: Enter Race asks first, with the retail "Would you like to race this event?" Yes / No dialog
-               (--career-dev 1 skips it). The answer arrives after the dialog closes; the engage pose is
+               (--career-dev automation skips it unless --career-ask). The answer arrives after the dialog closes; the engage pose is
                the one the question was asked at. */
             static float ask_x, ask_y, ask_kmh; static int ask_live;
-            if (career_enter && career_dev != 1) {   /* --career-dev 2 also asks (checks) */
+            if (career_enter && (!career_dev || career_ask)) {   /* players are asked; --career-dev automation only with --career-ask */
                 career_enter = 0;   /* never engage unasked, also while a question is up */
                 if (!ask_live && pause_menu_confirm(PAUSE_MENU_READY, GD_ENGAGE_RACE)) {
                     ask_live = 1; ask_x = ce_x; ask_y = ce_y; ask_kmh = ce_kmh;
@@ -7518,6 +7521,53 @@ int main(int argc, char **argv) {
                                 info.standing[k].place = rr_url_place(&url_series, k);
                             }
                         }
+                    }
+                    if (!info.have_url_standings && field_live && field_round.count > 1 && field_round.count <= RR_MAX_CARS &&
+                        info.kind != N2_RACE_DRIFT) {   /* M7: the whole field on the results screen */
+                        int n = field_round.count, order[RR_MAX_CARS];
+                        for (int k = 0; k < n; ++k) order[k] = k;
+                        /* finishers by time, then cars still racing by progress, then cars out; player row at its own place */
+                        #define FIELD_KEY(k) (field_round.done[k] && !field_round.failed[k] ? 0 : !field_round.done[k] ? 1 : 2)
+                        for (int a = 1; a < n; ++a) {
+                            int v = order[a], b = a;
+                            while (b > 0) {
+                                int u = order[b - 1], ku = FIELD_KEY(u), kv = FIELD_KEY(v);
+                                int after = ku > kv || (ku == kv && ((ku == 0 && field_round.finish_time[u] > field_round.finish_time[v]) ||
+                                                                     (ku == 1 && field_round.progress[u] < field_round.progress[v])));
+                                if (!after) break;
+                                order[b] = u; b--;
+                            }
+                            order[b] = v;
+                        }
+                        int want = info.finish_place >= 1 && info.finish_place <= n ? info.finish_place - 1 : -1, at = 0;
+                        for (int r = 0; r < n; ++r) if (order[r] == 0) at = r;
+                        if (want >= 0 && want != at) {   /* host place is authoritative for the player (Lap KO, ties) */
+                            int dir = want > at ? 1 : -1;
+                            for (int r = at; r != want; r += dir) order[r] = order[r + dir];
+                            order[want] = 0;
+                        }
+                        info.have_standings = 1; info.standing_count = n;
+                        for (int r = 0; r < n; ++r) {
+                            int k = order[r]; PostRaceStanding *e = &info.standing[k];
+                            e->place = r + 1;
+                            e->status = k == 0 ? (info.failed ? PR_STAND_OUT : PR_STAND_FINISHED)
+                                      : FIELD_KEY(k) == 0 ? PR_STAND_FINISHED : FIELD_KEY(k) == 1 ? PR_STAND_RUNNING : PR_STAND_OUT;
+                            e->seconds = k == 0 ? info.seconds : field_round.finish_time[k];
+                            if (!k) { snprintf(e->name, sizeof e->name, "Player"); snprintf(e->car, sizeof e->car, "%s", carname); }
+                            else {
+                                snprintf(e->name, sizeof e->name, "Racer %d", k);
+                                int v = ai_actor_visual(k - 1, 1, nai, 1);
+                                if (v >= N_AI && v < N_ROAM_VISUALS && traffic[v].gpu && nracer_names > 0)
+                                    snprintf(e->car, sizeof e->car, "%s", racer_names[(v - N_AI) * nracer_names / (N_ROAM_VISUALS - N_AI)]);
+                                else if (v >= 0 && v < N_AI && traffic[v].gpu && ntraffic_names > 0)   /* same pick as load_traffic_visuals */
+                                    snprintf(e->car, sizeof e->car, "%s", traffic_names[v * ntraffic_names / N_AI]);
+                            }
+                        }
+                        #undef FIELD_KEY
+                        for (int r = 0; r < n; ++r) for (int k = 0; k < n; ++k) if (info.standing[k].place == r + 1)
+                            printf("results: %d. %s %s %s %.2f\n", r + 1, info.standing[k].name, info.standing[k].car,
+                                   info.standing[k].status == PR_STAND_OUT ? "out" : info.standing[k].status == PR_STAND_RUNNING ? "racing" : "finished",
+                                   info.standing[k].seconds);
                     }
                     /* M7 P6: only the career pays (quick races have no purse); show what it actually credited. */
                     if (g_career.active && g_career.race >= 0 && g_career.resolved) {
@@ -8352,6 +8402,7 @@ int main(int argc, char **argv) {
                         }
                         if (url_live) rr_round_init(&url_round, nai + 1);
                     } else url_live = 0;
+                    field_live = nai > 0 && nai + 1 <= RR_MAX_CARS && rr_round_init(&field_round, nai + 1);   /* every AI race */
                     memcpy(carpos,player.pos,sizeof player.pos);
                     heading=world.city.race.grid_named && !event->info.downhill?
                         player.head:ai_course_heading(&aipath,carpos);
@@ -9610,7 +9661,7 @@ int main(int argc, char **argv) {
             world.city.race.failed=drag_failure;world.city.race.finished=1;
             race_state=2;finish_place=nai+1;
         }
-        if (url_live && (race_state == 1 || race_state == 2)) {   /* M7 P4: URL round collector, once per tick */
+        if ((url_live || field_live) && (race_state == 1 || race_state == 2)) {   /* M7 P4: round collectors, once per tick */
             int fin[RR_MAX_CARS] = {0}, fl[RR_MAX_CARS] = {0};
             float prog[RR_MAX_CARS] = {0};
             fin[0] = world.city.race.finished; fl[0] = world.city.race.failed != 0;
@@ -9620,9 +9671,11 @@ int main(int argc, char **argv) {
                 fl[k + 1] = race_drivers[k].progress.failed || (race_drivers[k].drive.failed && !fin[k + 1]);
                 prog[k + 1] = world_race_progress_value(&race_drivers[k].progress, ais[k].pos[0], ais[k].pos[1]);
             }
-            if (rr_round_step(&url_round, fin, fl, prog, 1.0 / PHYS_TICKRATE) < 0) {
+            for (int k = 0; k < nai && k + 1 < RR_MAX_CARS; ++k) if (race_drivers[k].eliminated) fl[k + 1] = 1;   /* Lap KO */
+            if (url_live && rr_round_step(&url_round, fin, fl, prog, 1.0 / PHYS_TICKRATE) < 0) {
                 url_live = 0; world.city.race.failed = RR_FAIL_INVALID_RULES;
             }
+            if (field_live && rr_round_step(&field_round, fin, fl, prog, 1.0 / PHYS_TICKRATE) < 0) field_live = 0;
         }
         if (knockout_live && race_state == 1) {   /* M7 P4: last car at each lap end is knocked out */
             float progress[RR_MAX_CARS] = {0};
