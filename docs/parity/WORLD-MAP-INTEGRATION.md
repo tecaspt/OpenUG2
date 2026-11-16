@@ -445,21 +445,21 @@ Main/profile change or a different launch. Do not auto-engage or teleport.
 +	./build/fe_worldmap_test
 ```
 
-[inferred] After applying the patch in an owner-controlled scratch checkout, run each build/test through the shared memory-checking heavy wrapper (source `/home/nike/openug2-dev/env.sh` first; at most `-j2`; no forced software GL). The test recipe is included in the patch above. Use fresh storage directories for every run.
+[inferred] After applying the patch in an owner-controlled scratch checkout, run each build/test through the shared memory-checking heavy wrapper (source `$DEV/env.sh` first; at most `-j2`; no forced software GL). The test recipe is included in the patch above. Use fresh storage directories for every run.
 Example commands, from the scratch checkout:
 
 ```bash
-. /home/nike/openug2-dev/env.sh
-FWM_RUN_DIR=$(mktemp -d /home/nike/openug2-dev/reports/worldmap/owner-check.XXXXXX)
+. $DEV/env.sh
+FWM_RUN_DIR=$(mktemp -d $DEV/reports/worldmap/owner-check.XXXXXX)
 export XDG_CONFIG_HOME="$FWM_RUN_DIR/config" XDG_DATA_HOME="$FWM_RUN_DIR/data"
 mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 unset LIBGL_ALWAYS_SOFTWARE
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh make -j2 fe-worldmap-test
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh make -j2 fe-screen-test fe-polish-test gui-art-test fe-garage-test fe-lot-test pause-menu-test fe-binding-test
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy make -j2 fe-screens-check
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh make -j2 nfsu2
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy make -j2 CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -DN2_GLES $(pkg-config --cflags libpng)" GL_LIBS=-lGLESv2 fe-screens-check
-bash /home/nike/openug2-dev/reports/worldmap/run-heavy.sh make -j2 gles
+bash $DEV/reports/worldmap/run-heavy.sh make -j2 fe-worldmap-test
+bash $DEV/reports/worldmap/run-heavy.sh make -j2 fe-screen-test fe-polish-test gui-art-test fe-garage-test fe-lot-test pause-menu-test fe-binding-test
+bash $DEV/reports/worldmap/run-heavy.sh env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy make -j2 fe-screens-check
+bash $DEV/reports/worldmap/run-heavy.sh make -j2 nfsu2
+bash $DEV/reports/worldmap/run-heavy.sh env SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy make -j2 CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -DN2_GLES $(pkg-config --cflags libpng)" GL_LIBS=-lGLESv2 fe-screens-check
+bash $DEV/reports/worldmap/run-heavy.sh make -j2 gles
 ```
 
 [inferred] Verify host gameplay with an available career event and shop, stable identities even for co-located icons, Accept, Back, solver failure, exact marker, entry into the named polygon with HUD disabled, manual replacement/cancel, mode/race/profile transitions, and normal explicit race/shop confirmation. Capture before/after in GL and GLES; verify position, speed, audio and cursor survive map Back. Include unavailable assets and empty snapshot behavior. No device or retail parity result follows from the standalone tests.
