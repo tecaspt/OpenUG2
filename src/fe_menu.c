@@ -63,6 +63,8 @@ struct FeMenu {
     FeChoice choice;
     FeGarage *garage;
     int career_garage;           /* M6: Garage opened from career roam; leaving it requests FEM_REQ_CAREER_ROAM */
+    FeWorldMap world_map;
+    int map_pressed;
     FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
     int pending_input, pressed;
     int loading_event;
@@ -85,6 +87,7 @@ struct FeMenu {
 
 static const char *screen_name(FemScreen s) {
     switch (s) {
+    case FEM_SCR_WORLD_MAP: return "WORLD_MAP";
     case FEM_SCR_MAIN: return "MAIN";
     case FEM_SCR_QR_MODE: return "QR_MODE";
     case FEM_SCR_QR_TRACK: return "QR_TRACK";
@@ -101,6 +104,7 @@ static const char *screen_name(FemScreen s) {
 }
 static const char *package_of(FemScreen s) {
     switch (s) {
+    case FEM_SCR_WORLD_MAP:return "UI_CareerWorldMap.fng";
     case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
     case FEM_SCR_CAREER_LOT: return "UI_CareerCarLot.fng";
     case FEM_SCR_OPTIONS:return "UI_OptionsMain.fng";
@@ -120,6 +124,7 @@ static void drop_view(FeMenu *m) {
     if (m->scr.loaded) gv_screen_free(&m->scr);
     m->visual = 0;
     m->back_pressed = 0;
+    m->map_pressed = -1;
     m->has_carousel = 0;
     m->exit_sent = 0;
     m->exit_wait_ms = 0;
@@ -161,6 +166,12 @@ static void build_screen(FeMenu *m) {
     if (!pkg) {set_status(m,"%s: unknown screen",screen_name(m->screen));return;}
     if (!m->assets_open || !m->compatible || !m->gl) {
         snprintf(m->status, sizeof m->status, "%s: front-end resources unavailable (%.180s)", screen_name(m->screen), m->res_status);
+        return;
+    }
+    if(m->screen==FEM_SCR_WORLD_MAP) {
+        m->visual=fwm_bind(&m->world_map,&m->scr,&m->assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",
+            m->world_map.status[0]?m->world_map.status:m->scr.status);
         return;
     }
     if(m->screen==FEM_SCR_GARAGE) {
@@ -245,7 +256,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_WORLD_MAP)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -264,6 +275,11 @@ static void entries_to_view(FeMenu *m, GvEntry out[GC_MAX]) {
 static void views_update(FeMenu *m, float ms) {
     if (!m->visual || !m->scr.loaded) return;
     gv_screen_update(&m->scr, ms);
+    if(m->screen==FEM_SCR_WORLD_MAP && !fwm_sync(&m->world_map,&m->scr)) {
+        m->visual=0;
+        snprintf(m->status,sizeof m->status,"%s",m->world_map.status);
+        return;
+    }
     if(m->screen==FEM_SCR_GARAGE && !feg_sync(m->garage,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",feg_status(m->garage));return;}
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
     else if(m->screen==FEM_SCR_CAREER_LOT)fel_sync(&m->lot,&m->scr);
@@ -359,6 +375,7 @@ void fem_destroy(FeMenu *m) {
     ug_cv_free(&m->canvas);
     ug_assets_close(&m->assets);
     fet_free(&m->choice);
+    fwm_destroy(&m->world_map);
     feg_destroy(m->garage);
     fep_destroy(m->profile);if(m->store_open)st_reg_close(&m->store);
     if(m->editing)SDL_StopTextInput();
@@ -472,9 +489,15 @@ static int choice_hit(FeMenu *m,float x,float y,int select_row) {
     }
     return x<180?FES_IN_LEFT:x>460?FES_IN_RIGHT:FES_IN_ACCEPT;
 }
+/* [inferred] The authored Select Event caption is a touch Accept target. */
+static int map_accept_hit(float x,float y) { return x>=180 && x<=430 && y>=430 && y<=472; }
 static void pointer_press(FeMenu *m, float x, float y) {
     m->back_pressed = !m->locked && back_hit(x, y);
     if (m->back_pressed) return;
+    if(m->screen==FEM_SCR_WORLD_MAP) {
+        m->map_pressed=map_accept_hit(x,y)?-2:m->visual?fwm_hit(&m->world_map,x-320,y-240,12): -1;
+        return;
+    }
     if(!is_logic_screen(m)) {
         m->pressed=choice_hit(m,x,y,1);return;
     }
@@ -486,6 +509,16 @@ static void pointer_release(FeMenu *m, float x, float y) {
     int back = m->back_pressed && back_hit(x, y);
     m->back_pressed = 0;
     if (back && !m->locked) { menu_input(m,FES_IN_BACK); return; }
+    if(m->screen==FEM_SCR_WORLD_MAP) {
+        if(!m->locked && m->map_pressed==-2 && map_accept_hit(x,y))menu_input(m,FES_IN_ACCEPT);
+        else {
+            int hit=m->visual?fwm_hit(&m->world_map,x-320,y-240,12): -1;
+            if(!m->locked && hit>=0 && hit==m->map_pressed)
+                fwm_touch_select(&m->world_map,x-320,y-240,12);
+        }
+        m->map_pressed=-1;
+        return;
+    }
     if(!is_logic_screen(m)) {
         int hit=choice_hit(m,x,y,0);
         if(m->pressed==hit)menu_input(m,hit);
@@ -576,8 +609,17 @@ void fem_event(FeMenu *m, const SDL_Event *e, SDL_Window *win) {
         if(back){om_close(&m->options);fem_open(m,FEM_SCR_MAIN);}return;
     }
     if (e->type == SDL_WINDOWEVENT && (e->window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
-        e->window.event == SDL_WINDOWEVENT_HIDDEN)) { m->back_pressed = m->pressed = 0; return; }
+        e->window.event == SDL_WINDOWEVENT_HIDDEN)) { m->back_pressed = m->pressed = 0; m->map_pressed=-1; return; }
     if(m->screen==FEM_SCR_OPTIONS || (m->screen==FEM_SCR_PROFILE && m->editing)){advanced_event(m,e,win);return;}
+    if(m->screen==FEM_SCR_WORLD_MAP) {
+        if(e->type==SDL_KEYDOWN && !e->key.repeat && e->key.keysym.sym==SDLK_TAB) {
+            m->pending_input=(e->key.keysym.mod&KMOD_SHIFT)?FWM_IN_PREVIOUS:FWM_IN_NEXT;return;
+        }
+        if(e->type==SDL_CONTROLLERBUTTONDOWN &&
+           (e->cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER || e->cbutton.button==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) {
+            m->pending_input=e->cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER?FWM_IN_PREVIOUS:FWM_IN_NEXT;return;
+        }
+    }
     FesInput in = 0;
     if (e->type == SDL_KEYDOWN && !e->key.repeat) {
         switch (e->key.keysym.sym) {
@@ -658,6 +700,11 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         if(m->screen==FEM_SCR_OPTIONS && m->opt_shown!=om_screen(&m->options))build_screen(m);
     }
     int in=m->pending_input;m->pending_input=0;
+    if(m->screen==FEM_SCR_WORLD_MAP && in && !m->locked) {
+        int event=(m->visual || in==FES_IN_BACK)?fwm_input(&m->world_map,in,&req.destination):FWM_EV_NONE;
+        if(event==FWM_EV_DESTINATION){req.kind=FEM_REQ_SET_DESTINATION;m->locked=1;}
+        else if(event==FWM_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+    }
     if(m->screen==FEM_SCR_GARAGE) {
         int event=in&&(m->visual||in==FES_IN_BACK)?feg_input(m->garage,in):0;
         if(event==2 && m->career_garage){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}   /* M6: back to roam, not Main */
@@ -761,6 +808,11 @@ void fem_draw(FeMenu *m, int w, int h) {
         ug_cv_clear(cv);
         cv->visual_status = UG_VIS_UNAVAILABLE;
     }
+    if(m->screen==FEM_SCR_WORLD_MAP && m->visual && !fwm_draw(&m->world_map,&m->scr,cv)) {
+        m->visual=0;
+        snprintf(m->status,sizeof m->status,"%s",m->world_map.status);
+        ug_cv_clear(cv);       /* fail closed, retaining only the reachable Back adaptation below */
+    }
     if(m->screen==FEM_SCR_OPTIONS && m->opt_dialog.open)gv_screen_draw(&m->opt_dialog.scr,&m->ui,cv);
     if(m->screen!=FEM_SCR_LOADING)gv_touch_back(cv,&m->assets);
     ug_text_set_face(ug_assets_main_face(&m->assets));
@@ -821,4 +873,13 @@ void fem_open_career_garage(FeMenu *m) {
     if(!m || feg_busy(m->garage))return;
     m->career_garage=1;
     fem_open(m,FEM_SCR_GARAGE);
+}
+
+void fem_open_world_map(FeMenu *m,const FeMapIcon *icons,int n,float x,float y,float heading) {
+    if(!m)return;
+    fwm_open(&m->world_map,icons,n,x,y,heading);
+    fem_open(m,FEM_SCR_WORLD_MAP);
+}
+const FeWorldMap *fem_world_map_state(const FeMenu *m) {
+    return m && m->screen==FEM_SCR_WORLD_MAP?&m->world_map:NULL;
 }
