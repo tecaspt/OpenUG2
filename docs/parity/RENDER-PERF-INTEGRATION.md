@@ -240,3 +240,28 @@ In main.c, replace only the new float initialization from the required patch:
 The CLI still overrides the default. Keeping SDL_WINDOW_ALLOW_HIGHDPI and bypassing the
 post-GL backing cap is the proposed native-UI policy; the old cap helper need not be deleted.
 Do not combine native backing with an unreviewed production default1 on previously capped devices.
+
+
+## Resume the blocked display gate
+
+[observed] The sandbox Xvfb listener failure is independent of the test assertions. Run the
+following outside that restricted socket environment on the same Pi, against the already prepared
+scratch build. This is a test rerun, not permission to change system configuration. Explicit x11
+prevents SDL from silently choosing offscreen. The existing runner supplies its prescribed
+llvmpipe environment; no offscreen/software combination is used.
+
+```bash
+. /home/nike/openug2-dev/env.sh
+REPO=/home/nike/openug2-dev/reports/render-perf/scratch \
+MAKEARGS="-j2 DATA=$OPENUG2_DATA VK_PRESENT_ENV=SDL_VIDEODRIVER=x11" \
+SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
+bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh \
+  bash /home/nike/openug2-dev/scripts/run-tests.sh \
+  /home/nike/openug2-dev/reports/render-perf/gate-xvfb-host --xvfb \
+  render-resolution-test rhi-pipeline-test rhi-vk-present-test race-ai-test
+```
+
+Inspect gate-xvfb-host/summary.tsv: the original runner itself returns zero even if a target fails.
+All four target rows must say PASS before clearing the display acceptance blocker. Keep the
+original failed-launcher logs as evidence. LeakSanitizer remains a separate environment limitation;
+the passing sound-check rerun explicitly disables leak detection only.
