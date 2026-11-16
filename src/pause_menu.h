@@ -22,6 +22,9 @@ void pause_menu_pointer(PauseMenu *p, float x, float y, int width, int height);
  * pause_menu_open. Default: career free roam (Return to Explore Mode, Options, Replay, Quit to Main
  * Menu, SPEC_GUI_ART 2.2). NULL restores the default. */
 void pause_menu_set_context(PauseMenu *p, const PauseContext *ctx);
+/* Opt-in host adaptation: add the retail World Map entry/confirmation in career
+ * free roam at next open. Default off preserves the authored context lists. */
+void pause_menu_set_world_map_enabled(PauseMenu *p, int enabled);
 /* Options entry (SPEC_GUI): the entry exists once the host lends the graphics settings it edits (the
  * Options availability condition also needs PauseContext.options_ok). Options opens the hub
  * (UI_PauseOptionsMain.fng) -> Display (page 1) -> Customize. The lent objects must outlive the menu;

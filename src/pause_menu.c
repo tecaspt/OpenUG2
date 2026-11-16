@@ -34,6 +34,7 @@ struct PauseMenu {
     PauseScreen ps;
     PauseContext ctx;            /* host-described situation, applied at the next open */
     int ctx_set;
+    int world_map_enabled;   /* host opt-in; career free roam only */
     int open;
     GuiDialog confirm;           /* M6: a host confirmation shown alone, without the pause screen */
     int confirm_only;
@@ -262,11 +263,33 @@ void pause_menu_set_context(PauseMenu *p, const PauseContext *c) {
     if (c) p->ctx = *c;
 }
 
+void pause_menu_set_world_map_enabled(PauseMenu *p, int enabled) {
+    if (p) p->world_map_enabled = enabled != 0;
+}
+
 static void pause_start_pause_screen(PauseMenu *p) {
     PauseContext c;
     if (p->ctx_set) c = p->ctx; else pe_context_default(&c);
     c.options_ok = c.options_ok && p->options_enabled;       /* the Options entry needs the settings the host lends */
-    ps_open(&p->ps, &c);
+    if (p->world_map_enabled && c.mode == PE_MODE_CAREER && c.race == PE_RACE_NONE) {
+        PauseEntry entries[PE_MAX], candidates[PE_MAX];
+        int n = pe_build(&c, entries);
+        PauseContext map_context = c;
+        map_context.race = 1;
+        map_context.from_map = 1;
+        int count = pe_build(&map_context, candidates), already=0;
+        for (int i=0;i<n;i++)if(entries[i].id==PE_WORLD_MAP)already=1;
+        for (int i = 0; i < count && n < PE_MAX && !already; i++) if (candidates[i].id == PE_WORLD_MAP) {
+            int at = n;
+            for (int k = 0; k < n; k++) if (entries[k].id == PE_QUIT_MAIN) { at = k; break; }
+            memmove(entries + at + 1, entries + at, (size_t)(n - at) * sizeof entries[0]);
+            entries[at] = candidates[i];
+            n++;
+            break;
+        }
+        /* [inferred] Reuse the retail race-return row and its confirmation while exploring. */
+        ps_open_entries(&p->ps, &c, entries, n);
+    } else ps_open(&p->ps, &c);
 }
 
 void pause_menu_open(PauseMenu *p) {
@@ -516,7 +539,11 @@ static FeAction pause_action_of(PsEvent e) {
     case PS_EV_REPLAY: return FE_ACTION_REPLAY;
     case PS_EV_RESTART: return FE_ACTION_RESTART;
     case PS_EV_EXPLORE: return FE_ACTION_EXPLORE;
-    case PS_EV_WORLD_MAP: case PS_EV_GARAGE: return FE_ACTION_WORLD_MAP;
+    case PS_EV_WORLD_MAP: return FE_ACTION_WORLD_MAP;
+    case PS_EV_GARAGE:
+        /* This never-retail action has no host command; it must not select World Map. */
+        fprintf(stderr, "pause: Jump to Garage is unavailable; resuming\n");
+        return FE_ACTION_RESUME;
     default: return FE_ACTION_NONE;
     }
 }

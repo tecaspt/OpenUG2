@@ -12,6 +12,7 @@
 #include <SDL.h>
 #include "race_rules.h"
 #include "fe_lot.h"
+#include "fe_worldmap.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,10 +22,11 @@ struct GameCatalog;                /* game_catalog.h */
 
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER,
                FEM_REQ_LOT_BUY,       /* M6: buy the lot car named in `car` (second Accept on the Car Lot) */
-               FEM_REQ_CAREER_ROAM    /* M6: leave the Car Lot / career Garage back to free roam */
+               FEM_REQ_CAREER_ROAM,   /* M6: leave a career sub-screen back to free roam */
+               FEM_REQ_SET_DESTINATION /* Task S: destination carries world XY and explicit identity */
 } FemReqKind;
-typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT } FemScreen;
+typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; FeMapDestination destination; } FemRequest;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -76,6 +78,12 @@ void fem_set_career(FeMenu *, int available, int has_save);
 void fem_open_lot(FeMenu *, const FeLotCar *cars, int n, int must_buy, long long bank);
 /* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */
 void fem_open_career_garage(FeMenu *);
+/* Task S: copied bounded snapshot of available career races/open shops. World XY;
+ * heading radians. Accept requests a destination; Back requests CAREER_ROAM. */
+void fem_open_world_map(FeMenu *, const FeMapIcon *icons, int n,
+                        float player_x, float player_y, float heading);
+/* Read-only current model, for inspection; NULL outside World Map. */
+const FeWorldMap *fem_world_map_state(const FeMenu *);
 /* Directory holding the profile folders (career saves live inside them); NULL before storage opens. */
 const char *fem_profile_root(const FeMenu *);
 /* Writes the current profile if it only exists in memory (a career save needs its folder). ST_OK or ST_E_*. */
