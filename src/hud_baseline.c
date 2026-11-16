@@ -750,7 +750,8 @@ static void hud_baseline_draw_minimap(HudBaseline *h, const HudDC *dc, const Hud
 /* ------------------------------------------------------- navigation arrow */
 
 static void hud_baseline_draw_nav_arrow(HudBaseline *h, const HudDC *dc, const HudState *s) {
-    if (!s->nav_active) { h->arrow_primed = 0; return; }
+    const char *debug=getenv("OPENUG2_HUD_NAV_ARROW_2D");
+    if (!debug || strcmp(debug,"1") || !s->nav_active) { h->arrow_primed = 0; return; }
     /* Relative bearing: where the next reachable route node lies compared to
        where the car points. Guidance never points at the destination through
        a building — nav_bearing comes from the solved route, not from the

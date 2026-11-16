@@ -282,3 +282,20 @@ and historical-reference gates remain FAIL; rerun both in the normal host execut
 context before treating the mandatory suite as fully green. Device checks remain
 NOT RUN. Optional filters and race-return remain unimplemented because the core
 suite is not fully green. Earlier inferred input/colour choices remain inferred.
+
+## GPS presentation follow-up
+
+[data] Normal guidance now uses the 3D retail marker plus minimap guidance.
+The old 2D arrow/distance is opt-in through --hud-nav-arrow-2d. Runtime pose
+calibration uses --gps-marker ahead,height,pitch_deg,scale. Current-frame
+race/pause/front-end guards suppress the 3D marker before scene presentation.
+
+[inferred] Straight-view pose fitting uses the owner-supplied Focus capture;
+metric distance/scale, turning placement and bob remain partly inferred.
+The marker position follows car heading while its orientation follows the route,
+so turning guidance stays in view. The solid pass avoids additive face accumulation.
+
+[observed] Final validation and side-by-side evidence are being collected under
+reports/worldmap/s3. See GPS-ARROW.md for calibration assumptions, exact defaults,
+visibility rules and current check status. This follow-up supersedes the 2D and
+near/low-arrow presentation in the S2 screenshots; S2 routing/arrival logic stays.
