@@ -79,6 +79,7 @@ typedef struct RhiCaps {
     float      max_anisotropy;   /* 1.0 = anisotropic filtering unavailable */
     uint8_t    tex_bc1, tex_bc2, tex_bc3;  /* S3TC DXT1/3/5 uploads supported */
     uint8_t    wireframe;        /* rhi_cmd_set_wireframe works (debug views) */
+    uint8_t    scene_target;     /* RGBA8 + packed depth/stencil scene targets */
     uint8_t    gpu_timer;        /* RhiTimer measurements work (profiling) */
     int32_t    max_texture_size; /* largest texture width/height, pixels */
 } RhiCaps;
@@ -165,6 +166,19 @@ void      rhi_buffer_destroy(RhiBuffer buf);
 /* ------------------------------------------------------------------------------ */
 /* Opaque handle like RhiBuffer: slot index + generation, id 0 = no texture. */
 typedef struct RhiTexture { uint32_t id; } RhiTexture;
+typedef struct RhiSceneTarget { uint32_t id; } RhiSceneTarget;
+
+/* Optional logical-main RGBA8 + depth/stencil target (see caps.scene_target).
+ * Select/unselect inside a frame and outside ordinary passes. Selection is not
+ * part of snapshots; save/restore around ordinary passes to return to the scene.
+ * Color is borrowed until destroy. Frame end recovers a missed unselect without
+ * compositing. The selection query is CPU-only; Vulkan reports unsupported. */
+RhiResult rhi_scene_target_create(int32_t w, int32_t h, RhiSceneTarget *out);
+RhiTexture rhi_scene_target_color(RhiSceneTarget target);
+int rhi_scene_target_is_selected(RhiSceneTarget target);
+void rhi_scene_target_destroy(RhiSceneTarget target);
+RhiResult rhi_cmd_select_scene_target(RhiSceneTarget target);
+RhiResult rhi_cmd_unselect_scene_target(void);
 
 typedef enum RhiTextureType {
     RHI_TEXTURE_2D   = 0,
@@ -425,7 +439,8 @@ typedef struct RhiAttachment {
 } RhiAttachment;
 
 /* Rendering into textures. Viewport becomes the attachment size, the
- * scissor test is off and the output is not dithered. Passes do not nest; the main target is not a pass yet.
+ * scissor test is off and the output is not dithered. Passes do not nest. Scene selection is independent of these passes;
+ * callers save/restore state around an ordinary pass to return to the scene.
  * GL: clearing writes all colour channels / depth regardless of the last
  * pipeline's write masks. */
 typedef struct RhiPassDesc {
@@ -445,12 +460,14 @@ void      rhi_cmd_end_pass(void);
  * the depth for an RHI_FORMAT_DEPTH one. The texture takes the rectangle's
  * size. For screen-space effects that sample the frame drawn so far.
  * RHI_ERR_INVALID for a texture without COPY_DST or a rectangle outside the
- * open frame; RHI_ERR_UNSUPPORTED if the backend cannot copy it (GLES2: depth). */
+ * selected scene (or physical open frame if none); RHI_ERR_UNSUPPORTED if
+ * the backend cannot copy it (GLES2: depth). */
 RhiResult rhi_cmd_copy_main_to_texture(RhiTexture texture, int32_t x, int32_t y,
                                        int32_t w, int32_t h);
 
 /* Clears the whole main target: colour to `color`, depth to `depth`, stencil
- * to 0. Like rhi_cmd_begin_pass, the viewport becomes the frame size, the
+ * to 0. The main target is the selected scene, or the physical drawable.
+ * Like rhi_cmd_begin_pass, the viewport becomes that target's size, the
  * main target is bound, the scissor test goes off and the last pipeline's
  * write masks do not apply (they are restored afterwards).
  * Only inside a frame and outside a pass. */

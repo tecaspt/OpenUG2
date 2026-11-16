@@ -63,6 +63,13 @@ static struct {
     int           in_frame;
 } g_rhi;
 
+#define SCENE_MAX 64u
+typedef struct { GLuint fbo, depth; RhiTexture color; int32_t w, h; uint8_t generation; } GlScene;
+static GlScene g_scenes[SCENE_MAX];
+static RhiSceneTarget g_scene_selected;
+static int g_in_pass;
+static void scene_cleanup(void);
+
 static RhiBackend resolve(RhiBackend backend) {
     return backend == RHI_BACKEND_DEFAULT ? RHI_GL_BUILD_BACKEND : backend;
 }
@@ -112,6 +119,13 @@ static void query_caps(RhiCaps *c) {
     const char *ext = (const char *)glGetString(GL_EXTENSIONS);
     memset(c, 0, sizeof *c);
     c->backend = RHI_GL_BUILD_BACKEND;
+#ifdef N2_GLES
+    { const char *version = (const char *)glGetString(GL_VERSION);
+      c->scene_target = (uint8_t)(has_extension(ext, "GL_OES_packed_depth_stencil") ||
+                                  (version && strstr(version, "OpenGL ES 3."))); }
+#else
+    c->scene_target = 1;
+#endif
     glGetIntegerv(GL_MAX_VIEWPORT_DIMS, limit);
     c->max_viewport[0] = limit[0];
     c->max_viewport[1] = limit[1];
@@ -193,12 +207,20 @@ RhiResult rhi_device_create(const RhiDeviceDesc *desc) {
     /* Readbacks are tightly packed rows, including odd widths. */
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     query_caps(&g_rhi.caps);
+#ifdef N2_GLES
+    if (g_rhi.caps.scene_target) {
+        RhiSceneTarget probe = {0};
+        if (rhi_scene_target_create(1, 1, &probe) != RHI_OK) g_rhi.caps.scene_target = 0;
+        rhi_scene_target_destroy(probe);
+    }
+#endif
     SDL_GL_SetSwapInterval((desc->flags & RHI_DEVICE_VSYNC) ? 1 : 0);
     return RHI_OK;
 }
 
 void rhi_device_destroy(void) {
     if (!g_rhi.context) return;
+    scene_cleanup();
     SDL_GL_DeleteContext(g_rhi.context);
     memset(&g_rhi, 0, sizeof g_rhi);
     memset(&g_timers, 0, sizeof g_timers);
@@ -229,6 +251,10 @@ RhiResult rhi_frame_begin(RhiFrameInfo *out) {
 
 RhiResult rhi_frame_end(void) {
     if (!g_rhi.context) return RHI_ERR_INVALID;
+    if (g_scene_selected.id) {
+        if (g_in_pass) rhi_cmd_end_pass();
+        rhi_cmd_unselect_scene_target();
+    }
 #ifdef N2_IOS
     glBindRenderbuffer(GL_RENDERBUFFER, gls_main_renderbuffer());
 #endif
@@ -244,7 +270,7 @@ RhiResult rhi_frame_end(void) {
 RhiResult rhi_read_pixels(int32_t x, int32_t y, int32_t w, int32_t h,
                           RhiReadFormat format, void *dst, size_t stride) {
     size_t bpp = format == RHI_READ_RGB8 ? 3 : format == RHI_READ_RGBA8 ? 4 : 0;
-    if (!g_rhi.in_frame || !dst || !bpp || w <= 0 || h <= 0 || x < 0 || y < 0 ||
+    if (!g_rhi.in_frame || g_in_pass || g_scene_selected.id || !dst || !bpp || w <= 0 || h <= 0 || x < 0 || y < 0 ||
         w > g_rhi.frame_w - x || h > g_rhi.frame_h - y) return RHI_ERR_INVALID;
     size_t limit = (size_t)PTRDIFF_MAX;
     if ((size_t)w > limit / 4 / (size_t)h) return RHI_ERR_INVALID;
@@ -254,7 +280,11 @@ RhiResult rhi_read_pixels(int32_t x, int32_t y, int32_t w, int32_t h,
         return RHI_ERR_INVALID;
     unsigned char *rgba = malloc((size_t)w * h * 4);
     if (!rgba) return RHI_ERR_INVALID;
+    GLint previous_fbo;
+    gls_get_integerv(GL_FRAMEBUFFER_BINDING, &previous_fbo);
+    if (previous_fbo != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
     glReadPixels(x, g_rhi.frame_h - y - h, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    if (previous_fbo != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previous_fbo);
     for (int32_t row = 0; row < h; row++) {
         const unsigned char *src = rgba + (size_t)(h - 1 - row) * w * 4;
         unsigned char *out = (unsigned char *)dst + (size_t)row * stride;
@@ -1262,7 +1292,114 @@ static struct {
     GLenum     color_target;   /* GL_TEXTURE_2D or a cube face */
     int        complete;       /* checked since the last attachment change */
 } g_fbos[RHI_GL_MAX_FRAMEBUFFERS];
-static int g_in_pass;
+/* Scene selection is independent of ordinary passes and their caller snapshots. */
+static GlScene *scene_find(RhiSceneTarget h) {
+    uint32_t slot = h.id & RHI_GL_SLOT_MASK;
+    if (!slot || slot > SCENE_MAX) return NULL;
+    GlScene *s = &g_scenes[slot - 1];
+    return s->fbo && s->generation == (uint8_t)(h.id >> RHI_GL_SLOT_BITS) ? s : NULL;
+}
+RhiResult rhi_scene_target_create(int32_t w, int32_t h, RhiSceneTarget *out) {
+    if (out) out->id = 0;
+    if (!out || !g_rhi.context || w <= 0 || h <= 0) return RHI_ERR_INVALID;
+    if (!g_rhi.caps.scene_target) return RHI_ERR_UNSUPPORTED;
+    if (w > g_rhi.caps.max_texture_size || h > g_rhi.caps.max_texture_size ||
+        w > g_rhi.caps.max_viewport[0] || h > g_rhi.caps.max_viewport[1]) return RHI_ERR_UNSUPPORTED;
+    uint32_t i;
+    for (i = 0; i < SCENE_MAX; ++i) if (!g_scenes[i].fbo && g_scenes[i].generation != UINT8_MAX) break;
+    if (i == SCENE_MAX) return RHI_ERR_OUT_OF_MEMORY;
+    GLint old_fbo, old_rb, old_active, old_tex;
+    gls_get_integerv(GL_FRAMEBUFFER_BINDING, &old_fbo);
+    gls_get_integerv(GL_RENDERBUFFER_BINDING, &old_rb);
+    gls_get_integerv(GL_ACTIVE_TEXTURE, &old_active);
+    glActiveTexture(RHI_GL_WORK_UNIT);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_tex);
+    RhiTextureDesc desc = { RHI_TEXTURE_2D, RHI_FORMAT_RGBA8, w, h, RHI_TEXTURE_SAMPLED | RHI_TEXTURE_COLOR_TARGET };
+    RhiSamplerDesc sd = { RHI_FILTER_LINEAR, RHI_FILTER_LINEAR, RHI_MIP_NONE, RHI_WRAP_CLAMP, RHI_WRAP_CLAMP, 1.0f };
+    RhiTexture color = rhi_texture_create(&desc);
+    GLuint fbo = 0, depth = 0;
+    RhiResult result = color.id ? RHI_OK : RHI_ERR_OUT_OF_MEMORY;
+    if (result == RHI_OK) result = rhi_texture_upload(color, 0, 0, NULL, 0);
+    if (result == RHI_OK) {
+        RhiSampler sampler = rhi_sampler_create(&sd);
+        result = sampler.id ? rhi_texture_set_sampler(color, sampler) : RHI_ERR_OUT_OF_MEMORY;
+        if (result == RHI_OK) result = gl_result();
+    }
+    if (result == RHI_OK) {
+        glGenFramebuffers(1, &fbo);
+        glGenRenderbuffers(1, &depth);
+        if (!fbo || !depth) result = RHI_ERR_OUT_OF_MEMORY;
+    }
+    if (result == RHI_OK) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0 /* DEPTH24_STENCIL8 */, w, h);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_find(color)->name, 0);
+        result = gl_result();
+        if (result == RHI_OK && glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) result = RHI_ERR_UNSUPPORTED;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)old_fbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, (GLuint)old_rb);
+    if (result != RHI_OK) {
+        if (fbo) glDeleteFramebuffers(1, &fbo);
+        if (depth) glDeleteRenderbuffers(1, &depth);
+        if (color.id) rhi_texture_destroy(color);
+    } else {
+        GlScene *s = &g_scenes[i];
+        s->fbo = fbo; s->depth = depth; s->color = color; s->w = w; s->h = h;
+        out->id = ((uint32_t)s->generation << RHI_GL_SLOT_BITS) | (i + 1);
+    }
+    glActiveTexture(RHI_GL_WORK_UNIT);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)old_tex);
+    glActiveTexture((GLenum)old_active);
+    return result;
+}
+int rhi_scene_target_is_selected(RhiSceneTarget h) {
+    return h.id && h.id == g_scene_selected.id && scene_find(h) != NULL;
+}
+RhiTexture rhi_scene_target_color(RhiSceneTarget h) {
+    GlScene *s = scene_find(h); return s ? s->color : (RhiTexture){0};
+}
+RhiResult rhi_cmd_select_scene_target(RhiSceneTarget h) {
+    GlScene *s = scene_find(h);
+    if (!g_rhi.in_frame || g_in_pass || g_scene_selected.id || !s) return RHI_ERR_INVALID;
+    g_scene_selected = h;
+    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    glViewport(0, 0, s->w, s->h);
+    set_cap(GL_SCISSOR_TEST, 0);
+    return RHI_OK;
+}
+RhiResult rhi_cmd_unselect_scene_target(void) {
+    if (!g_rhi.in_frame || g_in_pass) return RHI_ERR_INVALID;
+    if (!g_scene_selected.id) return RHI_OK;
+    g_scene_selected.id = 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
+    glViewport(0, 0, g_rhi.frame_w, g_rhi.frame_h);
+    set_cap(GL_SCISSOR_TEST, 0);
+    return RHI_OK;
+}
+void rhi_scene_target_destroy(RhiSceneTarget h) {
+    GlScene *s = scene_find(h);
+    if (!s) return;
+    if (g_scene_selected.id == h.id) {
+        if (g_in_pass) { g_in_pass = 0; }
+        rhi_cmd_unselect_scene_target();
+    }
+    glDeleteFramebuffers(1, &s->fbo);
+    glDeleteRenderbuffers(1, &s->depth);
+    rhi_texture_destroy(s->color);
+    s->fbo = s->depth = 0; s->color.id = 0;
+    if (s->generation != UINT8_MAX) ++s->generation;
+}
+static void scene_cleanup(void) {
+    for (uint32_t i = 0; i < SCENE_MAX; ++i) if (g_scenes[i].fbo) {
+        RhiSceneTarget h = { ((uint32_t)g_scenes[i].generation << RHI_GL_SLOT_BITS) | (i + 1) };
+        rhi_scene_target_destroy(h);
+    }
+    g_scene_selected.id = 0; g_in_pass = 0;
+}
 
 static void rhi_gl_forget_framebuffers(RhiTexture tex) {
     for (uint32_t i = 0; i < RHI_GL_MAX_FRAMEBUFFERS; i++) {
@@ -1491,8 +1628,9 @@ void rhi_viewport(int32_t viewport[4]) {
 
 RhiResult rhi_cmd_clear_main(const float color[4], float depth) {
     if (!color || !g_rhi.in_frame || g_in_pass) return RHI_ERR_INVALID;
-    glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
-    glViewport(0, 0, g_rhi.frame_w, g_rhi.frame_h);
+    GlScene *scene = scene_find(g_scene_selected);
+    glBindFramebuffer(GL_FRAMEBUFFER, scene ? scene->fbo : GLS_MAIN_FRAMEBUFFER);
+    glViewport(0, 0, scene ? scene->w : g_rhi.frame_w, scene ? scene->h : g_rhi.frame_h);
     set_cap(GL_SCISSOR_TEST, 0);
     clear_target(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, color, depth);
     return RHI_OK;
@@ -1508,28 +1646,30 @@ RhiResult rhi_cmd_copy_main_to_texture(RhiTexture texture, int32_t x, int32_t y,
     if (!t || t->target != GL_TEXTURE_2D || w <= 0 || h <= 0 || x < 0 || y < 0 || g_in_pass ||
         !(t->usage & RHI_TEXTURE_COPY_DST) ||
         (t->format != RHI_FORMAT_RGBA8 && t->format != RHI_FORMAT_DEPTH) ||
-        w > INT_MAX - x || h > INT_MAX - y ||
-        (g_rhi.in_frame && (w > g_rhi.frame_w - x || h > g_rhi.frame_h - y))) return RHI_ERR_INVALID;
+        w > INT_MAX - x || h > INT_MAX - y) return RHI_ERR_INVALID;
 #ifdef N2_GLES
     if (t->format == RHI_FORMAT_DEPTH) return RHI_ERR_UNSUPPORTED;
 #endif
     SDL_Window *window = SDL_GL_GetCurrentWindow();
     int frame_w = 0, frame_h = 0;
     if (window) SDL_GL_GetDrawableSize(window, &frame_w, &frame_h);
+    GlScene *scene = scene_find(g_scene_selected);
+    if (scene) { frame_w = scene->w; frame_h = scene->h; }
     if (w > frame_w - x || h > frame_h - y) return RHI_ERR_INVALID;
+    GLuint main_fbo = scene ? scene->fbo : GLS_MAIN_FRAMEBUFFER;
     GLint framebuffer;
     gls_get_integerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
-    if (framebuffer != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, GLS_MAIN_FRAMEBUFFER);
+    if (framebuffer != (GLint)main_fbo) glBindFramebuffer(GL_FRAMEBUFFER, main_fbo);
     GLint active = work_unit_bind(GL_TEXTURE_2D, t->name);
     if (t->copied_w != w || t->copied_h != h) {
-        glCopyTexImage2D(GL_TEXTURE_2D, 0, t->format == RHI_FORMAT_DEPTH ? GL_DEPTH_COMPONENT : GL_RGBA,
+        glCopyTexImage2D(GL_TEXTURE_2D, 0, t->format == RHI_FORMAT_DEPTH ? (scene ? 0x81A6 /* DEPTH_COMPONENT24 */ : GL_DEPTH_COMPONENT) : GL_RGBA,
                          x, y, w, h, 0);
         for (uint32_t i = 0; i < RHI_GL_MAX_FRAMEBUFFERS; i++)
             if (g_fbos[i].color_name == t->name) g_fbos[i].complete = 0;
     } else glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, x, y, w, h);
     RhiResult result = glGetError() == GL_NO_ERROR ? RHI_OK : RHI_ERR_UNSUPPORTED;
     work_unit_done(active);
-    if (framebuffer != (GLint)GLS_MAIN_FRAMEBUFFER) glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)framebuffer);
+    if (framebuffer != (GLint)main_fbo) glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)framebuffer);
     if (result != RHI_OK) return result;
     t->copied_w = w; t->copied_h = h;
     t->width = w; t->height = h;
@@ -1546,6 +1686,9 @@ RhiResult rhi_cmd_set_viewport(int32_t x, int32_t y, int32_t width, int32_t heig
 /* Debug fill mode                                                                */
 /* ------------------------------------------------------------------------------ */
 RhiResult rhi_cmd_set_wireframe(int on) {
+#ifdef N2_GLES
+    (void)on;
+#endif
     if (!g_rhi.caps.wireframe) return RHI_ERR_UNSUPPORTED;
 #ifndef N2_GLES
     glPolygonMode(GL_FRONT_AND_BACK, on ? GL_LINE : GL_FILL);
