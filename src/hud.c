@@ -674,6 +674,9 @@ static void race_text(Hud*h,const HudState*s,int w,int height,int compact_angle)
    h->text_offset[1]=compact[1]-split[1];
   }
   if(k==HR_BANNER){memset(h->tint_rgba,255,4);h->tint_on=1;}
+  /* M9: the retail shift-grade caption is authored at alpha 0 (the game animates it in); show it in its
+     authored colour at full alpha for the 1 s feedback window. */
+  if(k==HR_SHIFT_GRADE){memcpy(h->tint_rgba,n->color,3);h->tint_rgba[3]=255;h->tint_on=1;}
   text(h,i,buf,w,height);h->tint_on=0;n->justification=justification;h->text_offset[0]=h->text_offset[1]=0;
  }
 }

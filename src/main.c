@@ -11911,6 +11911,9 @@ int main(int argc, char **argv) {
                         hs.shift_quality_seconds=drag_gear.feedback_seconds;
                         hs.shift_quality_key=drag_gear.feedback_seconds>0?rr_drag_grade_label(drag_gear.shift_quality):0;
                         hs.shift_quality_text=pause_menu_text(PAUSE_MENU_READY,hs.shift_quality_key,NULL);   /* M9: retail "Perfect Shift!" etc. */
+                        { static uint32_t logged_key; if(hs.shift_quality_key!=logged_key){ logged_key=hs.shift_quality_key;
+                            if(logged_key)printf("drag shift: grade %d gear %d caption \"%s\"\n",drag_gear.shift_quality,drag_gear.gear,
+                                                 hs.shift_quality_text?hs.shift_quality_text:"(none)"); } }
                     }
                 }
                 if (event_race) {
