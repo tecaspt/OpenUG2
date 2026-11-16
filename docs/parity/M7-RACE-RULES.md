@@ -111,7 +111,7 @@ still selects the legacy adapter until the orchestrator applies the documented h
 ## Priority 2: drag grading and engine failure
 
 [data] Fresh Labels/English parsing finds HUD_SHIFT_PERFECT (0x0598b065), HUD_SHIFT_GOOD
-(0x27d2dd45), HUD_SHIFT_SHORT (0x2303d76c), HUD_SHIFT_MISSED (0x75941dc1; English.bin has no HUD_SHIFT_OVER label). The drag tip describes
+(0x27d2dd45), HUD_SHIFT_SHORT (0x2303d76c), HUD_SHIFT_OVER (0x27d75cd8). The drag tip describes
 per-car/per-gear optimal shift points and an additional speed boost for perfect shifts.
 [inferred] Accepted upward shifts expose Perfect/Good/Early/Late feedback; Early maps to the retail
 Short Shift caption and Late to Over Rev. The center is caller-supplied shift_point_rpm, falling
