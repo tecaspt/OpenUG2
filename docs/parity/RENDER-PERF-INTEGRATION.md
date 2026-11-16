@@ -131,19 +131,19 @@ render-target-gl-test:
 **[inferred]** Once the owner applies these recipes, invoke them under the shared lock; the wrapper sources the environment, checks available memory inside the lock and runs `nice -n 10`:
 
 ```bash
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh make -j2 render-target-test
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh make -j2 render-scene-test
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh make -j2 render-target-gl-test
+bash $DEV/reports/render-perf/run-heavy.sh make -j2 render-target-test
+bash $DEV/reports/render-perf/run-heavy.sh make -j2 render-scene-test
+bash $DEV/reports/render-perf/run-heavy.sh make -j2 render-target-gl-test
 ```
 
 ## Standalone validation commands
 
-The following are the exact bodies of the external validation scripts. They are standalone tests, not a substitute for the existing full test gate, game captures, or before/after performance measurements. **[observed]** these commands and the three Make targets passed; the separate full-gate limitation is recorded below. Run compilation and each test under the project's shared heavy lock, after sourcing `/home/nike/openug2-dev/env.sh` and checking at least 2500 MiB available inside the lock. The supplied `run-heavy.sh` enforces that check and `nice -n 10`; a script invocation below serializes its tests under one lock.
+The following are the exact bodies of the external validation scripts. They are standalone tests, not a substitute for the existing full test gate, game captures, or before/after performance measurements. **[observed]** these commands and the three Make targets passed; the separate full-gate limitation is recorded below. Run compilation and each test under the project's shared heavy lock, after sourcing `$DEV/env.sh` and checking at least 2500 MiB available inside the lock. The supplied `run-heavy.sh` enforces that check and `nice -n 10`; a script invocation below serializes its tests under one lock.
 
 ```bash
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh bash /home/nike/openug2-dev/reports/render-perf/test-present.sh
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh bash /home/nike/openug2-dev/reports/render-perf/task-l-test.sh
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh bash /home/nike/openug2-dev/reports/render-perf/task-l-vk.sh
+bash $DEV/reports/render-perf/run-heavy.sh bash $DEV/reports/render-perf/test-present.sh
+bash $DEV/reports/render-perf/run-heavy.sh bash $DEV/reports/render-perf/task-l-test.sh
+bash $DEV/reports/render-perf/run-heavy.sh bash $DEV/reports/render-perf/task-l-vk.sh
 ```
 
 `test-present.sh` (pure scale/parser and compositor GL/GLES tests):
@@ -151,7 +151,7 @@ bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh bash /home/nike/ope
 ```bash
 #!/bin/bash
 set -eu
-cd /home/nike/openug2-dev/wt-render
+cd $DEV/wt-render
 cc -std=c99 -Wall -Wextra -Werror -Isrc src/render_target.c tools/render_target_test.c -lm -o /tmp/render_target_test
 /tmp/render_target_test
 cc -std=c99 -O2 -Isrc $(sdl2-config --cflags) tools/render_target_gl_test.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o /tmp/render_target_gl_test $(sdl2-config --libs) -lGL -lm
@@ -165,9 +165,9 @@ SDL_VIDEODRIVER=offscreen /tmp/render_target_gles_test
 ```bash
 #!/bin/bash
 set -euo pipefail
-. /home/nike/openug2-dev/env.sh
-cd /home/nike/openug2-dev/wt-render
-out=/home/nike/openug2-dev/reports/render-perf
+. $DEV/env.sh
+cd $DEV/wt-render
+out=$DEV/reports/render-perf
 for mode in gl gles; do
  flags=; libs=-lGL
  if [ "$mode" = gles ]; then flags=-DN2_GLES; libs=-lGLESv2; fi
@@ -187,9 +187,9 @@ done
 ```bash
 #!/bin/bash
 set -euo pipefail
-. /home/nike/openug2-dev/env.sh
-cd /home/nike/openug2-dev/wt-render
-out=/home/nike/openug2-dev/reports/render-perf
+. $DEV/env.sh
+cd $DEV/wt-render
+out=$DEV/reports/render-perf
 : > "$out/generated_shaders_vk.h"
 for shader in src/shaders/vk/*.vert src/shaders/vk/*.frag; do
  symbol=vk_$(basename "$shader" | tr '.' '_')
@@ -251,13 +251,13 @@ prevents SDL from silently choosing offscreen. The existing runner supplies its 
 llvmpipe environment; no offscreen/software combination is used.
 
 ```bash
-. /home/nike/openug2-dev/env.sh
-REPO=/home/nike/openug2-dev/reports/render-perf/scratch \
+. $DEV/env.sh
+REPO=$DEV/reports/render-perf/scratch \
 MAKEARGS="-j2 DATA=$OPENUG2_DATA VK_PRESENT_ENV=SDL_VIDEODRIVER=x11" \
 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-bash /home/nike/openug2-dev/reports/render-perf/run-heavy.sh \
-  bash /home/nike/openug2-dev/scripts/run-tests.sh \
-  /home/nike/openug2-dev/reports/render-perf/gate-xvfb-host --xvfb \
+bash $DEV/reports/render-perf/run-heavy.sh \
+  bash $DEV/scripts/run-tests.sh \
+  $DEV/reports/render-perf/gate-xvfb-host --xvfb \
   render-resolution-test rhi-pipeline-test rhi-vk-present-test race-ai-test
 ```
 

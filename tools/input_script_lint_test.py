@@ -664,7 +664,8 @@ class TestAgainstRealSdl(unittest.TestCase):
     """
 
     CANDIDATES = [os.environ.get("OPENUG2_SDL2_LIB"),
-                  "/home/nike/openug2-dev/sysroot/usr/lib/aarch64-linux-gnu/libSDL2-2.0.so.0"]
+                  os.path.join(os.environ["OPENUG2_DEV"], "sysroot/usr/lib/aarch64-linux-gnu/libSDL2-2.0.so.0")
+                  if os.environ.get("OPENUG2_DEV") else None]
 
     @classmethod
     def setUpClass(cls):

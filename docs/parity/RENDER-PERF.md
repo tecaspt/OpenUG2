@@ -158,7 +158,7 @@ The frame windows above, rather than a new time cutoff, must be used after a cha
 The exact executable form (replace the uppercase report paths, not the arguments) is:
 ```sh
 SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
-flock /home/nike/openug2-dev/.heavy.lock nice -n 10 timeout 1800 \
+flock $DEV/.heavy.lock nice -n 10 timeout 1800 \
   "$REPORT/baseline-BACKEND" --path "$OPENUG2_DATA" --car GOLF --track STREAML4RA \
   --resolution WIDTHxHEIGHT --touch --input-script "@$REPORT/runs/LABEL/input.txt" \
   --perf-csv "$REPORT/runs/LABEL/perf.csv"
