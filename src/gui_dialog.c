@@ -30,6 +30,7 @@ static const Text T_MAP_LOST = { 0xE761C8B8u, "Back to the World Map?^All unsave
 static const Text T_GARAGE = { 0xC9BA9E3Eu, "Jump to Garage?" };
 static const Text T_DEFAULTS = { 0x2BBCCA6Bu, "Reset to default settings?" };
 static const Text T_ENGAGE = { 0xEC9488BBu, "Would you like to race this event?" };
+static const Text T_ENGAGE_SHOP = { 0x0AAB553Eu, "Do you want to enter the car lot?" };   /* ASK_ENTER_CAR_LOT */
 
 static const Text *quit_text(const GdContext *c) {              /* 2.4 table, "Quit" rows */
     if (c->mode == 8u) {
@@ -61,11 +62,12 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->back_msg = MSG_DEFAULTS_NO;          /* Back = No */
         return;
     }
-    if (kind == GD_ENGAGE_RACE) {                 /* M6: career event zone; Yes / No like Default Settings */
+    if (kind == GD_ENGAGE_RACE || kind == GD_ENGAGE_SHOP) {   /* M6: career event / shop zone; Yes / No like Default Settings */
+        const Text *t = kind == GD_ENGAGE_SHOP ? &T_ENGAGE_SHOP : &T_ENGAGE;
         out->package = PKG_SMALL;
         out->package_key = KEY_PKG_SMALL;
-        out->message_key = T_ENGAGE.key;
-        out->message = T_ENGAGE.en;
+        out->message_key = t->key;
+        out->message = t->en;
         out->label_key[0] = 0x0000F770u; out->label[0] = "Yes";
         out->label_key[1] = 0x0000061Cu; out->label[1] = "No";
         return;
@@ -124,7 +126,7 @@ void gd_input(GuiDialog *d, GdInput in) {
 }
 
 void gd_button_extent(GdKind kind, int button, float e[4]) {
-    float cx = kind == GD_DEFAULTS || kind == GD_CONTROLS_RESET || kind == GD_ENGAGE_RACE ? 150.0f : 151.0f;        /* button centres, 6 */
+    float cx = kind == GD_DEFAULTS || kind == GD_CONTROLS_RESET || kind == GD_ENGAGE_RACE || kind == GD_ENGAGE_SHOP ? 150.0f : 151.0f;        /* button centres, 6 */
     cx = button ? cx : -cx;
     e[0] = cx - 149.0f;                                      /* 128 + 21 */
     e[2] = cx + 149.0f;

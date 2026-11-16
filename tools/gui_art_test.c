@@ -349,6 +349,13 @@ static void test_tvg10(void) {
     CHECK(en.label_key[0] == 0x0000F770u && en.label_key[1] == 0x0000061Cu, "engage buttons Yes/No");
     { float a[4], b[4]; gd_button_extent(GD_ENGAGE_RACE, 0, a); gd_button_extent(GD_DEFAULTS, 0, b);
       CHECK(!memcmp(a, b, sizeof a), "engage buttons share the small dialog extents"); }
+    GdSpec sh;   /* M6 shop engage: same package and buttons, ASK_ENTER_CAR_LOT */
+    gd_spec(&sh, GD_ENGAGE_SHOP, NULL);
+    CHECK(!strcmp(sh.package, "GenericDialog_SMALL.fng") && sh.message_key == 0x0AAB553Eu &&
+          !strcmp(sh.message, "Do you want to enter the car lot?") && sh.initial_focus == 1, "shop engage dialog spec");
+    CHECK(sh.label_key[0] == 0x0000F770u && sh.label_key[1] == 0x0000061Cu, "shop engage buttons Yes/No");
+    { float a[4], b[4]; gd_button_extent(GD_ENGAGE_SHOP, 1, a); gd_button_extent(GD_DEFAULTS, 1, b);
+      CHECK(!memcmp(a, b, sizeof a), "shop engage buttons share the small dialog extents"); }
     jfree(j);
 
     /* state machine */
