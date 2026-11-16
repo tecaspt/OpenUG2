@@ -13,6 +13,8 @@
 #define CD_ID_RACES    0x00034A11u
 #define CD_ID_STAGES   0x00034A18u
 #define CD_ID_STRINGS  0x00034A1Du
+#define CD_ID_SHOPS    0x00034A12u
+#define CD_ID_UNLOCKS  0x00034A1Fu
 #define CD_ID_ZONES    0x0003414Au
 #define CD_ID_MARKERS  0x00034146u
 #define CD_MAX_FILE    (256u * 1024u * 1024u)
@@ -67,10 +69,54 @@ static int kind_from_type(unsigned t) {
     }
 }
 
+/* Fixed-size NUL-padded string field: copies up to the first NUL (or `n` bytes), truncating to cap-1. */
+static void fixed_str(const uint8_t *p, size_t n, char *out, size_t cap) {
+    size_t i;
+    for (i = 0; i < n && i < cap - 1 && p[i]; i++) out[i] = (char)p[i];
+    out[i] = 0;
+}
+
+/* 0x34A12: 160-byte shop records. Missing or malformed table -> nshop 0. */
+static void parse_shops(CareerData *cd, const uint8_t *buf, size_t co, size_t cs) {
+    size_t o, sz;
+    unsigned i, n;
+    cd->nshop = 0;
+    if (!find_chunk(buf, co, co + cs, CD_ID_SHOPS, &o, &sz) || sz % CD_SHOP_BYTES) return;
+    n = (unsigned)(sz / CD_SHOP_BYTES);
+    if (n > CD_MAX_SHOPS) n = CD_MAX_SHOPS;
+    for (i = 0; i < n; i++) {
+        const uint8_t *r = buf + o + (size_t)i * CD_SHOP_BYTES;
+        CdShop *d = &cd->shop[i];
+        memset(d, 0, sizeof *d);
+        fixed_str(r, 0x38, d->name, sizeof d->name);
+        d->hash = rd32(r + 0x38); d->zone_hash = rd32(r + 0x3C);
+        fixed_str(r + 0x40, 0x10, d->platform, sizeof d->platform);
+        d->type = r[0x50]; d->known = r[0x9C]; d->open_stage = r[0x9D];
+    }
+    cd->nshop = (int)n;
+}
+
+/* 0x34A1F: {u32 car hash, u32 race A, u32 race B}. Missing or malformed table -> nunlock 0. */
+static void parse_unlocks(CareerData *cd, const uint8_t *buf, size_t co, size_t cs) {
+    size_t o, sz;
+    unsigned i, n;
+    cd->nunlock = 0;
+    if (!find_chunk(buf, co, co + cs, CD_ID_UNLOCKS, &o, &sz) || sz % CD_UNLOCK_BYTES) return;
+    n = (unsigned)(sz / CD_UNLOCK_BYTES);
+    if (n > CD_MAX_UNLOCKS) n = CD_MAX_UNLOCKS;
+    for (i = 0; i < n; i++) {
+        const uint8_t *r = buf + o + (size_t)i * CD_UNLOCK_BYTES;
+        cd->unlock[i].car_hash = rd32(r);
+        cd->unlock[i].race[0] = rd32(r + 4);
+        cd->unlock[i].race[1] = rd32(r + 8);
+    }
+    cd->nunlock = (int)n;
+}
+
 int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     size_t co, cs, ro, rs, so, ss, bo, bs;
     unsigned i, nr, ns;
-    cd->nrace = 0; cd->nstage = 0; cd->error[0] = 0;
+    cd->nrace = 0; cd->nstage = 0; cd->nshop = 0; cd->nunlock = 0; cd->error[0] = 0;
     if (!buf) return cd_fail(cd, "null buffer");
     if (!find_chunk(buf, 0, len, CD_ID_CAREER, &co, &cs)) return cd_fail(cd, "no 0x80034A10 chunk");
     if (!find_chunk(buf, co, co + cs, CD_ID_STRINGS, &bo, &bs)) return cd_fail(cd, "no 0x34A1D string blob");
@@ -100,6 +146,8 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
             if (d->heat[k].track) d->nheat++;
         }
         d->locator_hash = rd32(r + 0x28);
+        d->preset_hash = rd32(r + 0x2C);
+        d->shop_hash = rd32(r + 0x3C);
         d->purse = rd32(r + 0x30);
         d->category = r[0x34]; d->stage = r[0x37];
         d->nai = r[0x7C]; d->hidden = r[0x7F];
@@ -116,9 +164,12 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
         for (k = 0; k < d->nsponsors; k++) d->sponsor[k] = rd32(r + 0x08 + 4 * k);
         d->req_url = r[0x2E]; d->req_dvd = r[0x2F];
         d->req_sponsor = r[0x2D];   /* [inferred] 3 in every stage */
+        d->final_race = rd32(r + 0x28);
         d->req_total = r[0x42];
     }
     cd->nrace = (int)nr; cd->nstage = (int)ns;
+    parse_shops(cd, buf, co, cs);
+    parse_unlocks(cd, buf, co, cs);
     return (int)nr;
 }
 
@@ -126,11 +177,12 @@ static int finite_f(float f) { return f == f && fabsf(f) < 1e9f; }
 
 /* The 0x3414A payload is a stream of mixed variable-size records, so locator zones are found structurally:
  * bbox f32[4], u32 hash(!=0), 3 words, u16 n=4, u16 100, 4 x (x,y), with the bbox equal to the point extent and
- * at most 20 m wide ([data]: 8x8 m for every race locator). 4-byte aligned scan. When races are already loaded only
- * zones whose hash is a race locator are kept (the file also holds ~170 non-career zones). */
+ * at most CD_RACE_ZONE_MAX wide ([data]: 8x8 m for every race locator), or CD_SHOP_ZONE_MAX for a shop zone
+ * ([data] 15..21.1 m). 4-byte aligned scan. When races or shops are already loaded only zones whose hash is a race
+ * locator or a shop zone are kept (the file also holds ~170 non-career zones). */
 int cd_parse_zones(CareerData *cd, const uint8_t *buf, size_t len) {
     size_t co, cs, p;
-    int n = 0, j, filter = cd->nrace > 0;
+    int n = 0, j, filter = cd->nrace > 0 || cd->nshop > 0;
     cd->nzone = 0; cd->error[0] = 0;
     if (!buf) return cd_fail(cd, "null buffer");
     if (!find_chunk(buf, 0, len, CD_ID_ZONES, &co, &cs)) {
@@ -143,7 +195,7 @@ int cd_parse_zones(CareerData *cd, const uint8_t *buf, size_t len) {
         const uint8_t *r = buf + p;
         float bb[4], pt[8], x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
         uint32_t h = rd32(r + 16);
-        int k, dup = 0;
+        int k, dup = 0, is_shop = 0, is_race = 0;
         if (!h || rd16(r + 32) != 4 || rd16(r + 34) != 100) continue;
         for (k = 0; k < 4; k++) bb[k] = rdf(r + 4 * k);
         for (k = 0; k < 8; k++) pt[k] = rdf(r + 36 + 4 * k);
@@ -158,11 +210,11 @@ int cd_parse_zones(CareerData *cd, const uint8_t *buf, size_t len) {
             if (pt[2 * k + 1] > y1) y1 = pt[2 * k + 1];
         }
         if (fabsf(x0 - bb[0]) > 0.01f || fabsf(y0 - bb[1]) > 0.01f || fabsf(x1 - bb[2]) > 0.01f ||
-            fabsf(y1 - bb[3]) > 0.01f || x1 - x0 > 20.f || y1 - y0 > 20.f) continue;
-        if (filter) {
-            for (j = 0; j < cd->nrace; j++) if (cd->race[j].locator_hash == h) break;
-            if (j == cd->nrace) continue;
-        }
+            fabsf(y1 - bb[3]) > 0.01f || x1 - x0 > CD_SHOP_ZONE_MAX || y1 - y0 > CD_SHOP_ZONE_MAX) continue;
+        for (j = 0; j < cd->nshop; j++) if (cd->shop[j].zone_hash == h) { is_shop = 1; break; }
+        for (j = 0; j < cd->nrace; j++) if (cd->race[j].locator_hash == h) { is_race = 1; break; }
+        if (!is_shop && (x1 - x0 > CD_RACE_ZONE_MAX || y1 - y0 > CD_RACE_ZONE_MAX)) continue;
+        if (filter && !is_race && !is_shop) continue;
         for (j = 0; j < n; j++) if (cd->zone[j].hash == h) { dup = 1; break; }
         if (dup) continue;
         if (n >= CD_MAX_ZONES) break;
@@ -256,4 +308,19 @@ int cd_find_marker(const CareerData *cd, uint32_t h) {
     int i;
     for (i = 0; i < cd->nmarker; i++) if (cd->marker[i].hash == h) return i;
     return -1;
+}
+int cd_find_shop(const CareerData *cd, uint32_t h) {
+    int i;
+    for (i = 0; i < cd->nshop; i++) if (cd->shop[i].hash == h) return i;
+    return -1;
+}
+uint32_t cd_hash(const char *s) {
+    uint32_t h = 0xFFFFFFFFu;
+    if (!s) return h;
+    for (; *s; s++) {
+        uint8_t c = (uint8_t)*s;
+        if (c >= 'a' && c <= 'z') c = (uint8_t)(c - 32);
+        h = h * 33u + c;
+    }
+    return h;
 }

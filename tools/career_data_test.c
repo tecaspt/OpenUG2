@@ -30,6 +30,7 @@ static uint32_t hs(const char *s) { uint32_t h = 0xFFFFFFFFu; while (*s) h = h *
 static const char blob[] = "\0RACE_A\0LOC_A\0RACE_B\0LOC_B\0RACE_C\0LOC_C\0";
 enum { OFF_RA = 1, OFF_LA = 8, OFF_RB = 14, OFF_LB = 21, OFF_RC = 27, OFF_LC = 34 };
 
+static uint32_t g_preset, g_shop;   /* +0x2C / +0x3C of the next race() */
 static void race(Buf *b, unsigned name, const char *nm, unsigned loc, const char *lc, unsigned mode, unsigned type,
                  unsigned cat, unsigned stage, uint32_t purse, unsigned t0, unsigned laps0, unsigned t1) {
     size_t s = b->n;
@@ -37,17 +38,31 @@ static void race(Buf *b, unsigned name, const char *nm, unsigned loc, const char
     u8(b, mode); u8(b, 1); u8(b, 0); u8(b, type);
     u32(b, 0x01020304u); u32(b, 100);
     u16(b, t0); u8(b, 1); u8(b, laps0); u16(b, t1); u8(b, 0); u8(b, 2); pad(b, 8);
-    u32(b, hs(lc)); pad(b, 4); u32(b, purse); u8(b, cat); pad(b, 2); u8(b, stage);
+    u32(b, hs(lc)); u32(b, g_preset); u32(b, purse); u8(b, cat); pad(b, 2); u8(b, stage);
+    pad(b, 4); u32(b, g_shop);
     pad(b, 0x7C - (b->n - s)); u8(b, 3); pad(b, 2); u8(b, 1); pad(b, CD_RACE_BYTES - (b->n - s));
     CHECK(b->n - s == CD_RACE_BYTES);
 }
-static void stage(Buf *b, unsigned idx, unsigned nspon, uint32_t sp0, unsigned url, unsigned dvd, unsigned total) {
+static void stage(Buf *b, unsigned idx, unsigned nspon, uint32_t sp0, unsigned url, unsigned dvd, unsigned total,
+                  uint32_t final) {
     size_t s = b->n;
     u8(b, idx); u8(b, nspon); pad(b, 6); u32(b, sp0); u32(b, sp0 + 1); pad(b, 12);
+    pad(b, 0x28 - (b->n - s)); u32(b, final);
     pad(b, 0x2D - (b->n - s)); u8(b, 3); u8(b, url); u8(b, dvd);
     pad(b, 0x42 - (b->n - s)); u8(b, total); pad(b, CD_STAGE_BYTES - (b->n - s));
     CHECK(b->n - s == CD_STAGE_BYTES);
 }
+static void shop(Buf *b, const char *name, const char *zone, const char *plat, unsigned type, unsigned known,
+                 unsigned st) {
+    size_t s = b->n, l = strlen(name);
+    put(b, name, l); pad(b, 0x38 - l);
+    u32(b, hs(name)); u32(b, hs(zone));
+    l = strlen(plat); put(b, plat, l); pad(b, 16 - l);
+    u8(b, type); put(b, "GARBAGE_STRING", 14); pad(b, 0x9C - (b->n - s));
+    u8(b, known); u8(b, st); pad(b, CD_SHOP_BYTES - (b->n - s));
+    CHECK(b->n - s == CD_SHOP_BYTES);
+}
+static int g_tables = 1;   /* 0: build without the shop / unlock tables; 2: malformed table sizes */
 static void build_career(Buf *b, int with_decoy_first) {
     size_t c, s;
     if (with_decoy_first) {   /* an unrelated chunk, then a bogus 0x80034A10-less region */
@@ -58,11 +73,26 @@ static void build_career(Buf *b, int with_decoy_first) {
     s = begin(b, 0x34A11u);
     race(b, OFF_RA, "RACE_A", OFF_LA, "LOC_A", 1, 0, 0, 1, 250, 4013, 3, 0);
     race(b, OFF_RB, "RACE_B", OFF_LB, "LOC_B", 2, 4, 1, 2, 750, 4201, 1, 4202);
+    g_preset = hs("PRESET_CAR"); g_shop = hs("LOT_X");
     race(b, OFF_RC, "RACE_C", OFF_LC, "LOC_C", 3, 3, 3, 5, 10000, 4311, 2, 0);
+    g_preset = g_shop = 0;
     end(b, s);
+    if (g_tables) {
+        s = begin(b, 0x34A12u);
+        shop(b, "LOT_X", "LOT_X_ZONE", "CARLOT01.BIN", 4, 0, 0);
+        shop(b, "CRIB_X", "CRIB_X_ZONE", "CRIB01.BIN", 0, 1, 0);
+        shop(b, "A_SHOP_WITH_A_VERY_LONG_NAME_OVER_32_CHARS", "Z3", "PERFSHOP01.BIN", 3, 1, 2);
+        if (g_tables == 2) pad(b, 7);
+        end(b, s);
+        s = begin(b, 0x34A1Fu);
+        u32(b, hs("CAR_A")); u32(b, hs("RACE_B")); u32(b, 0);
+        u32(b, hs("CAR_B")); u32(b, 0); u32(b, hs("RACE_C"));
+        if (g_tables == 2) pad(b, 5);
+        end(b, s);
+    }
     s = begin(b, 0x34A18u);
-    stage(b, 0, 0, 0, 0, 0, 1);
-    stage(b, 1, 2, 0xAABB0000u, 7, 2, 5);
+    stage(b, 0, 0, 0, 0, 0, 1, hs("RACE_C"));
+    stage(b, 1, 2, 0xAABB0000u, 7, 2, 5, 0);
     end(b, s);
     end(b, c);
     /* a second, demo career chunk that must be ignored */
@@ -88,6 +118,9 @@ static void build_zones(Buf *b) {
     zone(b, hs("LOC_C"), 0, 0, 500, 500, 4);     /* too large: ignored */
     zone(b, hs("OTHER"), 5, 5, 13, 13, 4);       /* not a race locator: dropped only when races are loaded */
     zone(b, hs("LOC_A"), 300, 300, 308, 308, 4); /* duplicate hash: first wins */
+    zone(b, hs("CRIB_X_ZONE"), 640, -110, 661, -90, 4);   /* 21 m shop zone: kept (shop limit 32 m) */
+    zone(b, hs("Z3"), 0, 0, 40, 40, 4);                   /* 40 m shop zone: too large */
+    zone(b, hs("LOC_B2"), 0, 0, 21, 21, 4);               /* 21 m non-shop zone: too large */
     end(b, s); end(b, c);
 }
 static void marker(Buf *b, uint32_t h, unsigned slot, float x, float y, float z, unsigned head) {
@@ -130,13 +163,40 @@ static void test_good(void) {
     CHECK(cd.stage[1].req_url == 7 && cd.stage[1].req_dvd == 2 && cd.stage[1].req_sponsor == 3 &&
           cd.stage[1].req_total == 5);
     CHECK(cd_find(&cd, hs("RACE_B")) == 1 && cd_find(&cd, 12345) == -1);
+    CHECK(cd.race[2].preset_hash == hs("PRESET_CAR") && cd.race[2].shop_hash == hs("LOT_X"));
+    CHECK(cd.race[0].preset_hash == 0 && cd.race[0].shop_hash == 0);
+    CHECK(cd.stage[0].final_race == hs("RACE_C") && cd.stage[1].final_race == 0);
+    CHECK(cd.nshop == 3 && cd.nunlock == 2);
+    CHECK(!strcmp(cd.shop[0].name, "LOT_X") && cd.shop[0].hash == hs("LOT_X") && cd.shop[0].zone_hash == hs("LOT_X_ZONE"));
+    CHECK(!strcmp(cd.shop[0].platform, "CARLOT01.BIN") && cd.shop[0].type == CD_SHOP_CAR_LOT);
+    CHECK(cd.shop[0].known == 0 && cd.shop[0].open_stage == 0 && cd.shop[1].known == 1 && cd.shop[1].type == CD_SHOP_CRIB);
+    CHECK(strlen(cd.shop[2].name) == 31 && !strncmp(cd.shop[2].name, "A_SHOP_WITH", 11) && cd.shop[2].open_stage == 2);
+    CHECK(!strcmp(cd.shop[2].platform, "PERFSHOP01.BIN"));
+    CHECK(cd_find_shop(&cd, hs("CRIB_X")) == 1 && cd_find_shop(&cd, 99) == -1);
+    CHECK(cd.unlock[0].car_hash == hs("CAR_A") && cd.unlock[0].race[0] == hs("RACE_B") && cd.unlock[0].race[1] == 0);
+    CHECK(cd.unlock[1].car_hash == hs("CAR_B") && cd.unlock[1].race[1] == hs("RACE_C"));
+    CHECK(cd_hash("focus") == hs("FOCUS") && cd_hash("FOCUS") == hs("FOCUS") && cd_hash("") == 0xFFFFFFFFu);
     free(b.p);
+    {   /* tables missing / malformed -> count 0, races still parse */
+        int t;
+        for (t = 0; t <= 2; t += 2) {
+            static CareerData m;
+            Buf c = { 0, 0, 0 };
+            g_tables = t;
+            build_career(&c, 0);
+            CHECK(cd_parse_globalb(&m, c.p, c.n) == 3 && m.nshop == 0 && m.nunlock == 0);
+            free(c.p);
+        }
+        g_tables = 1;
+    }
 
     /* zones: with races loaded the OTHER zone is dropped */
     b.p = NULL; b.n = b.cap = 0;
     build_zones(&b);
-    CHECK(cd_parse_zones(&cd, b.p, b.n) == 2);
-    CHECK(cd.nzone == 2 && cd.zone[0].hash == hs("LOC_A") && cd.zone[1].hash == hs("LOC_B"));
+    CHECK(cd_parse_zones(&cd, b.p, b.n) == 3);
+    CHECK(cd.nzone == 3 && cd.zone[0].hash == hs("LOC_A") && cd.zone[1].hash == hs("LOC_B"));
+    CHECK(cd_find_zone(&cd, hs("CRIB_X_ZONE")) == 2 && cd_find_zone(&cd, hs("Z3")) == -1 &&
+          cd_find_zone(&cd, hs("LOC_B2")) == -1);
     CHECK(near(cd.zone[0].cx, -628) && near(cd.zone[0].cy, 232));
     CHECK(near(cd.zone[0].poly[0][0], -632) && near(cd.zone[0].poly[2][1], 236) && near(cd.zone[0].poly[1][0], -624));
     CHECK(cd_find_zone(&cd, hs("LOC_B")) == 1 && cd_find_zone(&cd, hs("OTHER")) == -1 &&
@@ -144,7 +204,7 @@ static void test_good(void) {
     {   /* without races all small zones are kept */
         static CareerData z;
         memset(&z, 0, sizeof z);
-        CHECK(cd_parse_zones(&z, b.p, b.n) == 3);
+        CHECK(cd_parse_zones(&z, b.p, b.n) == 3);   /* LOC_A, LOC_B, OTHER; no shop zones without shops */
         CHECK(cd_find_zone(&z, hs("OTHER")) >= 0 && near(z.zone[0].cx, -628));
     }
     free(b.p);
