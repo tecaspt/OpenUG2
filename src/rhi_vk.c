@@ -1638,6 +1638,17 @@ static int present_frame(void) {
     return 1;
 }
 
+RhiResult rhi_scene_target_create(int32_t w, int32_t h, RhiSceneTarget *out) {
+    (void)w; (void)h; if (out) out->id = 0; return RHI_ERR_UNSUPPORTED;
+}
+int rhi_scene_target_is_selected(RhiSceneTarget target) { (void)target; return 0; }
+RhiTexture rhi_scene_target_color(RhiSceneTarget target) { (void)target; return (RhiTexture){0}; }
+void rhi_scene_target_destroy(RhiSceneTarget target) { (void)target; }
+RhiResult rhi_cmd_select_scene_target(RhiSceneTarget target) { (void)target; return RHI_ERR_UNSUPPORTED; }
+RhiResult rhi_cmd_unselect_scene_target(void) {
+    return g_vk.in_frame && !g_vk.pass.active ? RHI_OK : RHI_ERR_INVALID;
+}
+
 RhiResult rhi_frame_end(void) {
     if (!g_vk.device || !g_vk.in_frame) return RHI_ERR_INVALID;
     if (g_vk.pass.active) rhi_cmd_end_pass();         /* a pass does not outlive its frame */

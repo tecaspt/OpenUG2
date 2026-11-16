@@ -28,6 +28,7 @@
 #include "nfsu2.h"
 #include "car_mod.h"
 #include "render.h"
+#include "render_target.h"
 #include "rhi.h"
 #include "physics.h"
 #include "drive_stage1.h"
@@ -2347,7 +2348,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev", "--career-ask", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2401,6 +2402,7 @@ int main(int argc, char **argv) {
          --pause-off FILE save same-frame frozen scene-only pair before UI
          --pause-reference capture independent populated authored reference with UI replay
          --resolution WxH window/render size (default 1920x1080; also used by audits)
+         --render-scale X scene-only resolution scale, 0.5..1.0 (default 1, iOS 0.75; UI stays full size)
          --carinfo CAR    dump CAR's part list + texture catalog and exit (GL-free)
          --world2         legacy alias; instance world is automatic for one STREAM
          --scenery-preview free|EVENT  load-time event-only scenery test (world2 capture/audit only)
@@ -2525,6 +2527,12 @@ int main(int argc, char **argv) {
     const char *ai_drive_audit = NULL; /* input-only route follower; reuses RA evidence */
     int follow_roam_ai = 0; /* ride along with the first simulated traffic car */
     const char *perf_csv = NULL;  /* --perf-csv FILE: per-frame section timings */
+#if defined(N2_IOS) && defined(__APPLE__)
+    float render_scale=0.75f;    /* --render-scale: iOS device-trial default (RENDER-PERF-INTEGRATION.md) */
+#else
+    float render_scale=1.0f;     /* --render-scale X: scene-only scale, UI stays at drawable size */
+#endif
+    RenderTarget scene_target={0};
     int world_cull_off = 0; /* diagnostic A/B, never changes loading or shadows */
     int perf_still = 0;           /* --perf-still: no --shot auto-throttle */
     int collision_source = WCOLLISION_BUN;
@@ -2788,6 +2796,11 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(argv[i], "--follow-roam-ai")) follow_roam_ai = 1;
         else if (!strcmp(argv[i], "--perf-csv") && i+1 < argc) perf_csv = argv[++i];
+        else if (!strcmp(argv[i], "--render-scale")) {
+            if(i+1>=argc || !render_target_parse_scale(argv[++i],&render_scale)) {
+                fprintf(stderr,"--render-scale expects a finite number in [0.5,1.0]\n");return 2;
+            }
+        }
         else if (!strcmp(argv[i], "--perf-still")) perf_still = 1;
         else if (!strcmp(argv[i], "--traffic-cull-off")) g_dbg.traffic_cull_off = 1;
         else if (!strcmp(argv[i], "--perf-orbit") && i+1 < argc) perf_orbit = (float)atof(argv[++i]);
@@ -10137,6 +10150,10 @@ int main(int argc, char **argv) {
             continue;
         }
         int W = frame.width, H = frame.height;
+        /* scene-only scaled target (Task L): W/H stay the drawable size for camera and UI */
+        render_target_begin(&scene_target,W,H,render_scale);
+        if(frame.frame_index==0)printf("render scale: requested=%.3f effective=%.3f drawable=%dx%d scene=%dx%d\n",
+            render_scale,scene_target.effective_scale,W,H,scene_target.scene_w,scene_target.scene_h);
         pf_mark(PF_CAMERA); pf_gpu(pf_frame,0);
         /* the sky is cleared to the fog colour: distant geometry dissolves
            into exactly what the horizon shows */
@@ -11713,6 +11730,7 @@ int main(int argc, char **argv) {
         collision_debug_draw(&rp,&wall_debug_vbo,&scene,
             (const float (*)[4])world.neighborhood.mbb,obstsrc,nobst,
             g_dbg.freecam?cam:render_player.pos,render_player.pos,MVP);
+        render_target_present(&scene_target);   /* upscale; HUD/FE/pause/touch below draw on the physical drawable */
 
         if(!hud && (world.city.race.active || (ai_race && race_state!=3))) {
             hud=hud_init(dataroot);
@@ -13275,6 +13293,7 @@ int main(int argc, char **argv) {
     free_headlight_shadows(&headlight_shadows);
     clear_car_vinyl();
     tex_override_shutdown();   /* frees the index only; no-op when off */
+    render_target_destroy(&scene_target);
     rhi_device_destroy(); SDL_DestroyWindow(win); SDL_Quit();
     return final_status;
 }

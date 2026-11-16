@@ -27,7 +27,7 @@ Legend: DONE · ACTIVE · NEXT · LATER. "Engine today" summarises what exists b
 | M2 | Front-end options, profiles, controls | DONE (task E, wired 7b89797) | Front-end Options (display/audio applied), Profile Manager (new/rename/delete/load). |
 | M3 | Boot / attract | LATER | EA/THX logos, intro FMV (needs a VP6 decoder for `MOVIES/*.vp6`), splash, language select, loading tips. |
 | M4 | Front-end 3D scenes | LATER | Showroom platforms (`FRONTEND/PLATFORMS`), car rotate behind Main/Car Select. |
-| M5 | Customise car and performance tuning | ACTIVE (task J, Codex, `parity/garage`) | Customize hub + visual parts, rims, per-profile save, paint/vinyl; performance-part data research. Spinners, hydraulics, ICE, dyno later. |
+| M5 | Customise car and performance tuning | ACTIVE (task J, `parity/garage`) | Customize hub + visual parts, rims, per-profile save, paint/vinyl; performance-part data research. Spinners, hydraulics, ICE, dyno later. |
 | M6 | Career core | ACTIVE (S1 + Career screen merged) | Done: career DB reader, Career screen (Resume/New), free roam with event zones + Enter Race, rewards (bank/rep), stage unlocks, save per profile, live bank on HUD. Next: world map, ENGAGE prompt art, Stage 0 intro + car lot, SMS, sponsors, shops, DVD/magazines, hidden races. See [M6-CAREER.md](M6-CAREER.md). |
 | M7 | Race-mode parity | ACTIVE (task F merged f34cd87) | Done: dimensional drag model (drag top speed fixed), drag shift grading/over-rev, drift chains + points ranking, Lap KO and URL tournament rules, race-option host plumbing, career payout on results. Next: FE option rows (task J addendum), HUD captions for shift grade/drift multiplier/KO/URL. |
 | M8 | Audio | ACTIVE | Done: retail .abk reader (task D), mixer (task G), retail impact/skid/road/shift effects in game ([M8-SFX-GAME.md](M8-SFX-GAME.md)). Next: menu sounds (sample meanings unknown), surface-dependent loops, turbo/NOS, music/EA Trax, speech. |
@@ -60,7 +60,7 @@ switch, finish, results, restart, pause, quit to menu, Free Run, quit; same flow
 ## Platform and collision work outside the milestone table
 - iOS/iPadOS (TestFlight) is the owner's main test platform. Build 8 (f34cd87) is the latest; render backing capped at
   ~2.1 Mpx and every launch writes `Documents/OpenUG2-perf.csv`. Rendering performance (scaled scene target, draw cost):
-  task L, queued for Codex. Frame-time report tool: task K, queued for Qwen.
+  task L. Frame-time report tool: task K.
 - Collisions: highway crash barrels are breakable props; fall-through recovery puts a fallen car back on the road
   (4231243). A barrier pass-through at speed reported on device is being located with `race_events_check --drive
   --escape-audit`.
