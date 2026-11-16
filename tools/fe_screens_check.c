@@ -137,23 +137,29 @@ static void pause_worldmap_checks(const char *data) {
     pause_menu_set_context(p,&c);pause_menu_open(p);assert(pause_find(p,PE_WORLD_MAP)<0);
     pause_menu_set_world_map_enabled(p,1);pause_menu_open(p);pause_menu_update(p,.05f);
     int at=pause_find(p,PE_WORLD_MAP);assert(at>=0);
-    for(int i=0;i<at;i++){pause_key(p,SDLK_RIGHT);pause_menu_update(p,.5f);}
+    for(int i=0;i<PE_MAX && ps_selected(pause_menu_screen(p))!=at;i++) {
+        pause_key(p,SDLK_RIGHT);pause_menu_update(p,.5f);
+    }
+    assert(ps_selected(pause_menu_screen(p))==at);
     pause_key(p,SDLK_RETURN);pause_menu_update(p,.05f);assert(ps_dialog_open(pause_menu_screen(p)));
-    pause_key(p,SDLK_ESCAPE);pause_menu_update(p,.05f);assert(pause_menu_is_open(p));
+    pause_key(p,SDLK_ESCAPE);pause_menu_update(p,.5f);assert(pause_menu_is_open(p));
     assert(!ps_dialog_open(pause_menu_screen(p)));
     pause_key(p,SDLK_RETURN);pause_menu_update(p,.05f);
     pause_key(p,SDLK_LEFT);pause_menu_update(p,.05f);pause_key(p,SDLK_RETURN);
-    assert(pause_menu_update(p,.05f)==FE_ACTION_WORLD_MAP);
+    assert(pause_menu_update(p,.5f)==FE_ACTION_WORLD_MAP);
     pause_menu_open(p);pause_menu_update(p,.05f);pause_key(p,SDLK_ESCAPE);
-    assert(pause_menu_update(p,.05f)==FE_ACTION_RESUME);
+    assert(pause_menu_update(p,.5f)==FE_ACTION_RESUME);
     c.mode=0;pause_menu_set_context(p,&c);pause_menu_open(p);assert(pause_find(p,PE_WORLD_MAP)<0);
     c.mode=PE_MODE_CAREER;c.garage_flag=1;pause_menu_set_context(p,&c);
     pause_menu_set_world_map_enabled(p,0);pause_menu_open(p);pause_menu_update(p,.05f);
     at=pause_find(p,PE_GARAGE);assert(at>=0);
-    for(int i=0;i<at;i++){pause_key(p,SDLK_RIGHT);pause_menu_update(p,.5f);}
+    for(int i=0;i<PE_MAX && ps_selected(pause_menu_screen(p))!=at;i++) {
+        pause_key(p,SDLK_RIGHT);pause_menu_update(p,.5f);
+    }
+    assert(ps_selected(pause_menu_screen(p))==at);
     pause_key(p,SDLK_RETURN);pause_menu_update(p,.05f);
     pause_key(p,SDLK_LEFT);pause_menu_update(p,.05f);pause_key(p,SDLK_RETURN);
-    assert(pause_menu_update(p,.05f)==FE_ACTION_RESUME);
+    assert(pause_menu_update(p,.5f)==FE_ACTION_RESUME);
 
     pause_menu_destroy(p);
 }
@@ -205,6 +211,9 @@ int main(int argc, char **argv) {
         key(m,SDLK_ESCAPE);assert(frames(m,2,NULL).kind==FEM_REQ_CAREER_ROAM);
     }
     worldmap_checks(m,win,argv[1]);
+    /* Direct World Map opening must load its own map/player art without a preceding QR visit. */
+    FeMenu *standalone=fem_create(argv[1],&cat,1);assert(standalone);
+    worldmap_checks(standalone,win,argv[1]);fem_destroy(standalone);
     pause_worldmap_checks(argv[1]);
     printf("fe_screens_check: PASS\n");
     fem_destroy(m);

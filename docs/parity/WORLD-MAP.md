@@ -2,12 +2,12 @@
 
 ## Status and clean-room scope
 
-[data] Research is complete against base2037712 (commit4ffae95). The module, FE/pause adapters,
-synthetic tests and exact host integration patches are written. C builds/render checks have NOT RUN:
-the mandatory available-memory gate has stayed below2500MiB while both jobs remain queued.
-This is not a build-verified or visually accepted implementation.
+[observed] Research, the screen module, FE/pause adapters and synthetic tests are complete.
+Desktop GL and GLES screen checks and full scratch game builds pass against base2037712.
+All ten map captures were reviewed by eye. Exact host patches are supplied separately; live
+GPS/arrival gameplay and device validation remain NOT RUN for the orchestrator to perform.
 Only installed data and existing OpenUG2 readers were inspected. No game executable or external
-recompiled/decompiled code was used. Raw dumps, calibration JSON and future PNGs stay outside Git,
+recompiled/decompiled code was used. Raw dumps, calibration JSON and PNGs stay outside Git,
 in the private reports/worldmap directory. This document records format/identity facts, not assets.
 
 ## Package identities and authored layout
@@ -73,12 +73,14 @@ EV_68(-888,636),EV_30(1814,-832). Their normalized coordinates are respectively
 405.059601)); navigation/arrival must use the selected zone rather than confuse it with a spawn.
 [data] The rendered shop controls use the actual spawn-marker positions, independently of the
 zone-centre destinations used by ch_icons; the two event controls use the locator-zone centres.
-[inferred] Correct visual registration still needs the required rendered four-point check.
+[observed] Four rendered controls align with the corresponding map road locations in GL and GLES;
+projection/inverse checks recover their world positions within0.001m. This validates registration,
+not independent retail input behavior or exact retail category colors.
 Existing hand-authored district-name/geography comments are not independent retail calibration.
 
 ## Icon snapshot, selection and input contract
 
-[inferred] FeMapIcon will carry finite worldXY, explicit event/shop kind and stable data identifier,
+[inferred] FeMapIcon carries finite worldXY, explicit event/shop kind and stable data identifier,
 plus presentation category metadata. The host supplies only available races/open shops through
 fem_open_world_map(menu,icons,n,playerX,playerY,heading); the menu copies a bounded snapshot.
 Filtering/selection must preserve identity even for co-located items. HudMapIcon has no ID;
@@ -96,7 +98,7 @@ fem_status reports the reason. No replacement native map or invented icon art is
 ## Pause and GPS integration requirements
 
 [data] Existing free-roam pause has no World Map entry; Return to World Map is offered by the
-race/from_map context. The adapter currently also maps Garage to FE_ACTION_WORLD_MAP.
+race/from_map context. The base adapter also maps Garage to FE_ACTION_WORLD_MAP; this task splits those actions.
 [inferred] Add an opt-in career-free-roam entry using the existing retail row and confirmation
 via pause_menu.c/h, retaining default lists and Back/Continue behavior. Split Garage from Map.
 The reuse of race-return wording while exploring is an adaptation; it is not proven retail behavior.
@@ -108,18 +110,23 @@ also lies inside HUD drawing and does not test career zones.
 point to the route request/minimap, clear on entry into the selected zone or race start, and keep
 arrival separate from explicit engagement. Exact owner edits belong in WORLD-MAP-INTEGRATION.md.
 
-## Implemented adapter behavior (validation pending)
+## Implemented adapter behavior
 
 [inferred] Available events and shops reuse the genuine generic U2 mini-icon pool style, with the
 existing minimap legend tints. Unsupported event tint variants use the generic circuit-event tint;
 this is not evidence of retail World Map category colors. The player uses the genuine directional
-Minimap_Icon_Car art from the installed in-game texture set. Its heading is derived by projecting
+Minimap_Icon_Car art from GLOBAL/InGameCommon.lzc (with a .bun fallback).
+[data] The final real-data check confirms that InGameCommon supplies the player texture;
+InGameFreeRoam alone does not.
+[inferred] Its heading is derived by projecting
 the world heading vector, accounting for the reversed mapY axis. Selection uses the authored
 highlight sprite's size/color, and textured triangles are clipped to the affine map rectangle.
 
 [inferred] Directional snapping favors nearby icons aligned with the requested direction. Tab/
 Shift-Tab and pad shoulders cycle visible choices; repeated taps cycle co-located identities.
-The existing Select Event caption is a touch Accept target. A lost/hidden window cancels a pending
+The existing Select Event caption is a touch Accept target. Its authored text node is drawn
+explicitly because the shared PC view hides console hint strips. No replacement caption art is used.
+A lost/hidden window cancels a pending
 tap. Accept locks the menu until the host reacts; repeated updates cannot emit another request.
 Unbound player/cash, help, region-selector and example status/distance/time widgets are hidden.
 
@@ -128,42 +135,70 @@ preserving the numeric indexes currently used by Quick Race Car and PostRace. Th
 restricted to career free roam and is default-off. It copies the existing retail World Map entry
 and confirmation. The unsupported Garage action resumes; it no longer aliases World Map.
 
-## Checks and resumable evidence
+## Checks and evidence
 
-| Requested check | Current result |
+| Requested check | Result |
 |---|---|
-|1. Synthetic World Map and existing FE tests|NOT RUN: compilation queued behind memory gate|
-|2. Four-point real-data projection PNG|NOT RUN: renderer cannot start below memory threshold|
-|3. GL/GLES screen/destination PNGs|NOT RUN: same gate|
-|4. Every added language key|PASS for both new lookups:0xa0c6ae56 World Map,0xdaac95f9 Select Event|
-|5. Full build and unchanged24 warnings|NOT RUN: before/after scratch builds queued;24 is the brief's expected count, not a measured result|
+|1. Synthetic World Map and existing FE tests|PASS: all requested targets, plus fe-binding-test; GL/GLES real-data screen checks|
+|2. Four-point real-data projection PNG|PASS: car-lot/crib spawn markers and two event zones, round-trip within0.001m; captures reviewed|
+|3. GL/GLES screen/destination PNGs|PASS: five captures per backend, fresh isolated storage; reviewed by eye|
+|4. Every added language key|PASS for both new lookups:0xa0c6ae56 World Map,0xdaac95f9 Select Event; whole audit retains baseline findings|
+|5. Full build and unchanged24 warnings|PASS: desktop baseline24 / modified24, exact normalized warning list unchanged; GLES baseline30 / modified30, also unchanged|
 
-[data] The full language audit command exits1 on both baseline and modified source: baseline has
+[observed] fe-worldmap-test passes with -Wall -Wextra -Werror. Existing fe-screen-test,
+fe-polish-test, gui-art-test, fe-garage-test, fe-lot-test, pause-menu-test and fe-binding-test pass.
+fe-screens-check passes in desktop GL and GLES. Both full scratch games build with the exact
+Main/HUD/Makefile patches in WORLD-MAP-INTEGRATION.md; no production host files were edited.
+GLES has six additional pre-existing warnings in unowned renderer/backend code; no new warning
+appears in either backend. Baseline and modified warning messages match after line-number removal.
+
+[observed] The full language audit command exits1 on both baseline and modified source: baseline has
 31OK,10MISSING,3LABEL-MISMATCH; modified has33OK with the same10MISSING/3LABEL-MISMATCH. No new
 missing/mismatched lookup is introduced. Existing findings include non-language asset hashes, so
 the global command is not reported PASS. Reports are language-audit-before.log and language-audit.log.
 
-[data] A bounded independent scan found all139 parsed career zones inside the4000 frame. The PNG
-harness reads real UC_CAR_LOT/CRIB_1 spawn markers and two event locator zones at runtime, projects
-and inverse-checks them, tests typed request identity, renders four controls plus a touch-selected
-destination, and checks keyboard/touch Back, focus cancellation and the opt-in pause confirmation.
-It deliberately supplies diagnostic controls independent of career unlock stage, not a claim that
-those later-stage events are available in a new career.
+[data] A bounded independent scan found all139 parsed career zones inside the4000 frame.
+[observed] The PNG harness reads real UC_CAR_LOT/CRIB_1 spawn markers and two event locator zones
+at runtime, projects and inverse-checks them, tests typed request identity/no repeat emission,
+renders four controls plus a touch-selected destination, and checks keyboard/touch Back, focus
+cancellation and the opt-in pause confirmation. A fresh standalone menu repeats those checks
+without a preceding Quick Race visit, proving the screen loads its own map and player art.
+The diagnostic controls are independent of career unlock stage; their presence in this test is
+not a claim that those later-stage events are available in a new career.
 
-[data] Resumable artifacts under the private reports/worldmap directory:
+[observed] The following ten final PNGs were reviewed by eye. Paths are relative to the private
+project reports/worldmap directory; screenshots are not committed:
 
-- baseline-source and baseline-build.log: immutable base2037712 and queued warning baseline.
-- prepare-scratch.py: copies only project source into external GL/GLES scratch trees and patches Makefile.
+- shots/gl/worldmap-control0.png — UC_CAR_LOT spawn marker.
+- shots/gl/worldmap-control1.png — CRIB_1 spawn marker.
+- shots/gl/worldmap-control2.png — EV_68 locator zone.
+- shots/gl/worldmap-control3.png — EV_30 locator zone.
+- shots/gl/worldmap-destination.png — touch-selected event, with player at car lot.
+- shots/gles/worldmap-control0.png
+- shots/gles/worldmap-control1.png
+- shots/gles/worldmap-control2.png
+- shots/gles/worldmap-control3.png
+- shots/gles/worldmap-destination.png
+
+[observed] Resumable artifacts under the private reports/worldmap directory:
+
+- baseline-source, baseline-build.log, baseline-gles-build.log: immutable base2037712 and measured warning baselines.
+- build-gl.log/build-gles.log: final full scratch builds.
+- prepare-scratch.py: copies project source into external GL/GLES scratch trees and patches Makefile.
 - prepare-host.py/main-helpers.c: generates exact Main/HUD preview patches and applies only to scratch.
-- run-checks.sh: RAM check before each target, pure/FE/GL/GLES checks and full builds; run through run-heavy.sh.
-- checks.status/checks.exit: progress and eventual real exit status; absence of checks.exit means still waiting/running.
+- run-checks.sh/checks.status/checks.exit: full validation run, final exit0.
+- fresh-checks.status: standalone fresh-menu checks PASS in both backends.
+- final-captures.sh/final-captures.status: final GL/GLES captures, separate fresh XDG storage per backend, both PASS.
 - worldmap.json/fng-map-geometry.json/map-calibration.json/frame-coverage.json: local-only research evidence.
 
-[inferred] Intended rendered proof paths after successful execution are shots/gl/worldmap-control0.png
-through control3.png and worldmap-destination.png, with the same names under shots/gles/. These PNGs
-do not yet exist and have not been reviewed. Do not convert pending checks into PASS from source review.
+[observed] Initial validation failures exposed the missing player texture import and test timing/
+disabled-row traversal assumptions. The final source loads InGameCommon; pause checks now wait
+for dialog transitions and navigate by actual selected row. Failed earlier logs remain retained;
+only the final successful runs above support the PASS claims.
 
 [inferred] Host gameplay hooks (GPS, exact minimap marker and zone arrival) still need the owner to
 apply/review the integration document and run gameplay checks. Optional race-return and unproven
-legend/filter controls are not implemented. No retail executable, native map fallback, production
-host-file edit, publishing or real user-config modification is part of this task.
+legend/filter controls are not implemented. Generic icon tints, directional selection and touch
+adaptations remain inferred; retail captures would help refine them. Decorative authored left
+rails remain inactive. No retail executable, native map fallback, production host-file edit,
+publishing or real user-config modification is part of this task.

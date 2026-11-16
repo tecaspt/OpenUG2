@@ -108,7 +108,7 @@ int fwm_input(FeWorldMap *m,int in,FeMapDestination *out) {
  return FWM_EV_NONE;
 }
 
-struct FeWorldMapView { UgBuf buffers[2]; int nbuf; int map,mini,highlight,car,mini_node,highlight_node; };
+struct FeWorldMapView { UgBuf buffers[2]; int nbuf; int map,mini,highlight,car,mini_node,highlight_node,accept_node; };
 typedef struct MapRead { int count,bad; double x,y,extent; } MapRead;
 static uint32_t rd32(const unsigned char *p){return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 static float rdf(const unsigned char *p){uint32_t v=rd32(p);float f;memcpy(&f,&v,4);return f;}
@@ -150,13 +150,23 @@ int fwm_bind(FeWorldMap *m,GvScreen *s,UgAssets *a){
  v->map=gv_texture(a,ug_hash_upper("TRACKMAP4000"));if(!v->map){if(!add_pack(m,a,"TRACKS/TRACKMAP4000.BIN"))return fail(m,s,"world map TRACKMAP4000 pack unavailable");v->map=gv_texture(a,ug_hash_upper("TRACKMAP4000"));}
  v->mini=ug_assets_texture_for(a,"U2_mini_icon.tga")+1;v->highlight=ug_assets_texture_for(a,"U2_mini_icon_highlight.tga")+1;
  v->car=ug_assets_texture_for(a,"Minimap_Icon_Car.tga")+1;
- if(!v->car){if(!add_pack(m,a,"GLOBAL/InGameFreeRoam.bun"))return fail(m,s,"world map player texture pack unavailable");v->car=ug_assets_texture_for(a,"Minimap_Icon_Car.tga")+1;}
- if(!v->map||!v->mini||!v->highlight||!v->car)return fail(m,s,"world map required retail texture unavailable");
+ if(!v->car){
+  if(!add_pack(m,a,"GLOBAL/InGameCommon.lzc") && !add_pack(m,a,"GLOBAL/InGameCommon.bun"))
+   return fail(m,s,"world map player art GLOBAL/InGameCommon unavailable");
+  v->car=ug_assets_texture_for(a,"Minimap_Icon_Car.tga")+1;
+ }
+ if(!v->map||!v->mini||!v->highlight||!v->car) {
+  char message[180];snprintf(message,sizeof message,"world map retail texture unavailable (map=%d mini=%d highlight=%d player=%d)",v->map,v->mini,v->highlight,v->car);
+  return fail(m,s,message);
+ }
  int ids[]={v->map,v->mini,v->highlight,v->car};for(unsigned i=0;i<4;i++)if(!ug_texlib_pixels(&a->tex,ids[i]-1))return fail(m,s,"world map required retail texture undecodable");
  UgTexture *map=&a->tex.t[v->map-1];if(map->fmt==UG_PF_DXT3){int zero=1;size_t count=(size_t)map->w*map->h;for(size_t i=0;i<count;i++)if(map->rgba[4*i+3]){zero=0;break;}if(zero)for(size_t i=0;i<count;i++)map->rgba[4*i+3]=255;}
  int node=ug_scene_find_guid(&s->scene,0xe252e);if(node<0)return fail(m,s,"world map node missing");s->scene.nodes[node].tex_override=v->map;
  v->mini_node=ug_scene_find_guid(&s->scene,0xe3117);
  v->highlight_node=ug_scene_find_guid(&s->scene,0xe3114);
+ v->accept_node=ug_scene_find_guid(&s->scene,0xe6af6);
+ if(v->accept_node<0 || !s->scene.nodes[v->accept_node].face || s->scene.nodes[v->accept_node].face->tex<=0)
+  return fail(m,s,"world map Select Event font unavailable");
  if(v->mini_node<0||v->highlight_node<0)return fail(m,s,"world map icon templates missing");
  m->status[0]=0;return fwm_sync(m,s);
 }
@@ -232,6 +242,14 @@ int fwm_draw(FeWorldMap *m,GvScreen *s,UgCanvas *cv){
   int first=cv->n;
   ug_cv_push(cv);ug_cv_translate(cv,x,y);ug_cv_rotate(cv,atan2f(dx,-dy));ug_cv_image_rect(cv,UG_RECT_C(0,0,16,16),v->car,UG_RGBA(48,207,48,255));ug_cv_pop(cv);
   if(!clip_images(cv,first,&m->projection))return fail(m,s,"world map player clipping allocation failed");
- }return 1;
+ }
+ /* The shared PC view suppresses the console hint strip. Reuse its authored
+  * Select Event text alone so the touch Accept target remains visible. */
+ UgNode hint=s->scene.nodes[v->accept_node];
+ UgScene one=s->scene; UgCtx ui; int order=0;
+ ug_ctx_init(&ui); one.nodes=&hint;one.n=1;one.order=&order;
+ hint.visible=1;hint.wcolor=hint.obj->color;hint.scene=&one;hint.index=0;hint.parent=-1;
+ ug_scene_draw(&one,&ui,cv);
+ return 1;
 }
 void fwm_destroy(FeWorldMap *m){if(!m||!m->view)return;for(int i=0;i<m->view->nbuf;i++)ug_buf_free(&m->view->buffers[i]);free(m->view);m->view=NULL;}
