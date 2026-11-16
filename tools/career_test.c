@@ -50,6 +50,204 @@ static void build_data(void)
     mkzone(2, H_H + 0x1000, 200, 200, 210, 210);
     cd.nzone = 3;
 }
+static CrResult res(uint32_t h, int place, int failed, int aborted);
+static int state_eq(const CareerState *a, const CareerState *b);
+
+/* ---- M6 stage 0 / car lot data ---- */
+enum { H_OPT = 0x200, H_DA, H_DB, H_S1, H_URL, H_LOT1 = 0x300, H_CRIB, H_LOT2, H_PERF };
+static uint32_t nh(const char *s) { uint32_t h = 0xFFFFFFFFu; while (*s) h = h * 33u + (uint8_t)*s++; return h; }
+static void mkshop(int i, const char *name, uint32_t hash, int type, int stage)
+{
+    CdShop *p = &cd.shop[i];
+    memset(p, 0, sizeof *p);
+    strcpy(p->name, name); p->hash = hash; p->zone_hash = hash + 0x1000; p->type = (uint8_t)type; p->open_stage = (uint8_t)stage;
+}
+static void build_lot_data(void)
+{
+    memset(&cd, 0, sizeof cd);
+    mk(0, "S0_OPT", H_OPT, CD_UNLOCK_SCRIPTED, CD_CAT_WORLD, 0, 0, 200, 4);
+    mk(1, "DDAY_A", H_DA, CD_UNLOCK_SCRIPTED, CD_CAT_INTRO, 0, 0, 0, 0);
+    cd.race[1].type = CD_TYPE_SCRIPTED; cd.race[1].shop_hash = H_LOT1; cd.race[1].preset_hash = 0x777;
+    mk(2, "DDAY_B", H_DB, CD_UNLOCK_SCRIPTED, CD_CAT_INTRO, 0, H_DA, 0, 0);
+    cd.race[2].type = CD_TYPE_SCRIPTED; cd.race[2].shop_hash = H_CRIB;
+    mk(3, "S1_R", H_S1, CD_UNLOCK_SCRIPTED, CD_CAT_WORLD, 1, H_DB, 300, 5);
+    mk(4, "S2_URL", H_URL, CD_UNLOCK_STAGE, CD_CAT_URL, 2, 0, 900, 9);
+    cd.nrace = 5;
+    cd.stage[0].index = 0; cd.stage[0].req_total = 1; cd.stage[0].final_race = H_DB;
+    cd.stage[1].index = 1; cd.stage[1].req_total = 1;
+    cd.stage[2].index = 2; cd.stage[2].req_total = 9;
+    cd.nstage = 3;
+    mkshop(0, "LOT1", H_LOT1, CD_SHOP_CAR_LOT, 0);
+    mkshop(1, "CRIB", H_CRIB, CD_SHOP_CRIB, 0);
+    mkshop(2, "LOT2", H_LOT2, CD_SHOP_CAR_LOT, 2);
+    mkshop(3, "PERF", H_PERF, CD_SHOP_PERF, 0);
+    cd.nshop = 4;
+    mkzone(0, H_OPT + 0x1000, 0, 0, 10, 10);
+    mkzone(1, H_LOT1 + 0x1000, 100, 0, 115, 15);
+    mkzone(2, H_CRIB + 0x1000, 200, 0, 221, 21);
+    mkzone(3, H_LOT2 + 0x1000, 300, 0, 315, 15);
+    mkzone(4, H_PERF + 0x1000, 400, 0, 415, 15);
+    cd.nzone = 5;
+    cd.unlock[0].car_hash = nh("CAR_U"); cd.unlock[0].race[0] = H_URL;
+    cd.unlock[1].car_hash = nh("CAR_V"); cd.unlock[1].race[1] = H_URL;
+    cd.unlock[2].car_hash = nh("CAR_W"); cd.unlock[2].race[0] = H_URL; cd.unlock[2].race[1] = H_URL;
+    cd.nunlock = 3;
+}
+static int lot_has(const CrLotCar *c, int n, const char *name)
+{
+    int i;
+    for (i = 0; i < n; i++) if (!strcmp(c[i].name, name)) return i;
+    return -1;
+}
+
+static void test_lot(void)
+{
+    static CareerState s, t;
+    static const char *const inst[] = { "STARTER1", "CAR_U", "CAR_V", "CAR_W" };
+    static const char *const inst_b[] = { "CAR_V", "CAR_W" };
+    static const char *const inst_none[] = { "STARTER1" };
+    CrLotCar lot[16];
+    CrOutcome o;
+    int n, list[CD_MAX_RACES];
+    CrResult r;
+    build_lot_data();
+    CHECK(cr_region_pick(&cd, inst, 4) == 0);        /* both columns complete: tie -> A */
+    CHECK(cr_region_pick(&cd, inst_b, 2) == 1);      /* A lacks CAR_U -> B */
+    CHECK(cr_region_pick(&cd, inst_none, 1) == 0);   /* neither -> A */
+    CHECK(cr_region_pick(&cd, NULL, 0) == 0);
+    cr_new_stage0(&s, &cd, 0);
+    CHECK(s.started && s.stage == 0 && !s.intro_done && s.bank == 0 && s.nowned == 0 && s.region == 0 && !s.car[0]);
+    cr_new_stage0(&t, &cd, 7);
+    CHECK(t.region == CR_REGION_UNKNOWN);
+    /* objectives and map */
+    CHECK(cr_objective(&s, &cd) == 1);
+    n = cr_list(&s, &cd, list, CD_MAX_RACES);
+    CHECK(n == 1 && list[0] == 0);                   /* SCRIPTED optional race in stage 0; DDAY events never listed */
+    CHECK(cr_shop_open(&s, &cd, 0) && cr_shop_open(&s, &cd, 1) && !cr_shop_open(&s, &cd, 2) && !cr_shop_open(&s, &cd, 3));
+    CHECK(!cr_shop_open(&s, &cd, -1) && !cr_shop_open(&s, &cd, 9));
+    CHECK(cr_shop_hit(&s, &cd, 105, 5) == 0 && cr_shop_hit(&s, &cd, 220, 20) == 1);
+    CHECK(cr_shop_hit(&s, &cd, 305, 5) == -1 && cr_shop_hit(&s, &cd, 405, 5) == -1 && cr_shop_hit(&s, &cd, 50, 50) == -1);
+    /* lot inventory, region A */
+    n = cr_lot_list(&s, &cd, inst, 4, lot, 16);
+    CHECK(n == 2 && !strcmp(lot[0].name, "STARTER1") && !strcmp(lot[1].name, "CAR_V"));
+    CHECK(lot[0].starter && lot[1].starter && !lot[0].owned && lot[0].price == 0 && cr_rule_car_price(&cd, "CAR_V") == 0);
+    CHECK(cr_lot_list(&s, &cd, inst, 4, lot, 1) == 1);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "CAR_U", &o) == CR_LOT_E_LOCKED);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "NOPE", &o) == CR_LOT_E_ARG);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, NULL, &o) == CR_LOT_E_ARG);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "", &o) == CR_LOT_E_ARG);
+    /* an optional stage-0 win must not end stage 0 (req_total 1 is not the stage-0 rule) */
+    r = res(H_OPT, 1, 0, 0);
+    CHECK(cr_apply(&s, &cd, &r, NULL, NULL, &o) == 1 && s.stage == 0 && s.bank == 200 && !cr_stage_complete(&s, &cd));
+    /* buy: DDAY_A resolved by the choice */
+    memset(&o, 0x55, sizeof o);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "STARTER1", &o) == CR_LOT_OK);
+    CHECK(o.first_win == 1 && o.stage_before == 0 && o.stage_after == 0 && o.reward.cash == 0);
+    CHECK(!strcmp(s.car, "STARTER1") && s.nowned == 1 && !strcmp(s.owned[0], "STARTER1") && s.active == 0);
+    CHECK(cr_owns(&s, "STARTER1") && !cr_owns(&s, "CAR_V") && !cr_owns(&s, NULL) && s.bank == 200);
+    CHECK(cr_objective(&s, &cd) == 2 && s.stage == 0 && !s.intro_done);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "STARTER1", &o) == CR_LOT_E_SAME);
+    n = cr_lot_list(&s, &cd, inst, 4, lot, 16);
+    CHECK(n == 2 && lot[0].owned && !lot[1].owned);
+    /* the crib resolves DDAY_B: stage 0 -> 1 only there */
+    CHECK(cr_objective_done(&s, &cd, 0, &o) == 0 && s.stage == 0);   /* wrong shop */
+    CHECK(cr_objective_done(&s, &cd, 1, &o) == 1);
+    CHECK(o.first_win && o.stage_before == 0 && o.stage_after == 1 && s.stage == 1 && s.intro_done);
+    CHECK(cr_objective(&s, &cd) == -1 && cr_objective_done(&s, &cd, -1, &o) == 0 && o.stage_after == 1);
+    CHECK(s.won == 1 && s.entered == 1);             /* story events are not counted as race wins */
+    n = cr_list(&s, &cd, list, CD_MAX_RACES);
+    CHECK(n == 1 && list[0] == 3);
+    /* second car: one slot, replaced */
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "CAR_V", &o) == CR_LOT_OK && o.first_win == 0 && o.stage_after == 1);
+    CHECK(s.nowned == 1 && !strcmp(s.owned[0], "CAR_V") && !strcmp(s.car, "CAR_V"));
+    /* unlock race won -> CAR_U and CAR_W on sale (region A) */
+    s.stage = 2;
+    r = res(H_URL, 1, 0, 0);
+    CHECK(cr_apply(&s, &cd, &r, NULL, NULL, &o) == 1);
+    n = cr_lot_list(&s, &cd, inst, 4, lot, 16);
+    CHECK(n == 4 && lot_has(lot, n, "CAR_U") >= 0 && !lot[lot_has(lot, n, "CAR_U")].starter);
+    CHECK(cr_lot_buy(&s, &cd, inst, 4, "CAR_W", &o) == CR_LOT_OK && !strcmp(s.car, "CAR_W"));
+    CHECK(cr_shop_open(&s, &cd, 2));
+    /* region B: CAR_V locked, CAR_U a starter */
+    cr_new_stage0(&t, &cd, 1);
+    n = cr_lot_list(&t, &cd, inst, 4, lot, 16);
+    CHECK(n == 2 && lot_has(lot, n, "CAR_U") >= 0 && lot_has(lot, n, "CAR_V") < 0);
+    /* unknown region: picked from the installed cars and fixed on the first buy */
+    cr_new_stage0(&t, &cd, -1);
+    n = cr_lot_list(&t, &cd, inst_b, 2, lot, 16);
+    CHECK(n == 0);                                   /* region B by pick; CAR_V/CAR_W locked */
+    CHECK(cr_lot_buy(&t, &cd, inst_b, 2, "CAR_V", &o) == CR_LOT_E_LOCKED && t.region == CR_REGION_UNKNOWN);
+    CHECK(cr_lot_buy(&t, &cd, inst, 4, "STARTER1", &o) == CR_LOT_OK && t.region == 0);
+}
+
+/* schema 2 OWNED TLV, schema 1 migration, schema 3 rejection, truncation */
+static void test_save2(void)
+{
+    static CareerState s, t, u;
+    static uint8_t buf[16384], blk[512], tmp[1024];
+    uint8_t a[8];
+    size_t len, bl, tl, i;
+    StContainerView v;
+    cr_new(&s, &cd, "FIRST");
+    CHECK(s.nowned == 1 && !strcmp(s.owned[0], "FIRST") && s.region == CR_REGION_UNKNOWN);
+    strcpy(s.owned[1], "SECOND_CAR_WITH_A_31_CHAR_NAME_"); s.nowned = 2; s.active = 1; s.region = 1;
+    strcpy(s.car, "SECOND_CAR_WITH_A_31_CHAR_NAME_");
+    s.stage = 0; s.bank = 12345;
+    len = cr_serialize(&s, buf, sizeof buf);
+    CHECK(len > 0);
+    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.size_a == 8 && v.a[4] == 2);
+    memset(&t, 0x33, sizeof t);
+    CHECK(cr_parse(&t, buf, len) == ST_OK && state_eq(&s, &t));
+    for (i = 0; i < len; i++) CHECK(cr_parse(&u, buf, i) != ST_OK);
+    s.nowned = 6;
+    CHECK(cr_serialize(&s, buf, sizeof buf) == 0);
+    s.nowned = 2;
+    /* schema 1 blob written by hand: CORE, CAR, POSE */
+    a[0] = 0x4F; a[1] = 0x55; a[2] = 0x43; a[3] = 0x52; a[4] = 1; a[5] = a[6] = a[7] = 0;
+    memset(blk, 0, sizeof blk);
+    bl = 0;
+    blk[bl] = 1; blk[bl + 4] = 24; bl += 8;
+    blk[bl] = 1; blk[bl + 1] = 3; blk[bl + 2] = 1; blk[bl + 4] = 0x10; blk[bl + 5] = 0x27; bl += 24;   /* stage 3, bank 10000 */
+    blk[bl] = 3; blk[bl + 4] = 6; bl += 8; memcpy(blk + bl, "OLDCAR", 6); bl += 6;
+    blk[bl] = 4; blk[bl + 4] = 16; bl += 8 + 16;
+    blk[bl] = 5; blk[bl + 4] = 3; bl += 8 + 3;      /* a tag-5 TLV is not defined in schema 1: dropped */
+    tl = st_container_build(tmp, sizeof tmp, a, 8, blk, (uint32_t)bl);
+    CHECK(tl > 0);
+    memset(&t, 0x44, sizeof t);
+    CHECK(cr_parse(&t, tmp, tl) == ST_OK);
+    CHECK(t.stage == 3 && t.bank == 10000 && t.started == 1 && !strcmp(t.car, "OLDCAR") && t.nextra == 0);
+    CHECK(t.nowned == 1 && !strcmp(t.owned[0], "OLDCAR") && t.active == 0 && t.region == CR_REGION_UNKNOWN);
+    len = cr_serialize(&t, buf, sizeof buf);       /* re-saved as schema 2 */
+    CHECK(len > 0 && cr_parse(&u, buf, len) == ST_OK && state_eq(&t, &u));
+    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.a[4] == 2);
+    /* schema 1 without a car: owns nothing */
+    tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 32);
+    CHECK(cr_parse(&t, tmp, tl) == ST_OK && t.nowned == 0 && t.region == CR_REGION_UNKNOWN);
+    /* schema 3 refused */
+    a[4] = 3;
+    tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 32);
+    CHECK(cr_parse(&t, tmp, tl) == ST_E_INCOMPATIBLE);
+    /* malformed OWNED TLVs (schema 2) */
+    a[4] = 2;
+    {
+        static const uint8_t bad5[4][4] = { { 6, 0, 0, 0 }, { 1, 1, 0, 0 }, { 0, 1, 0, 0 }, { 1, 0, 0, 0 } };
+        static const uint32_t badlen[4] = { 4 + 32 * 6, 36, 4, 35 };   /* last: length short of n x 32 */
+        int k;
+        for (k = 0; k < 4; k++) {
+            memset(blk, 0, sizeof blk);
+            blk[0] = 5; blk[4] = (uint8_t)badlen[k]; blk[5] = (uint8_t)(badlen[k] >> 8);
+            memcpy(blk + 8, bad5[k], 4);
+            tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 8 + badlen[k]);
+            CHECK(tl > 0 && cr_parse(&t, tmp, tl) == ST_E_CORRUPT);
+        }
+        /* well-formed empty OWNED */
+        memset(blk, 0, sizeof blk);
+        blk[0] = 5; blk[4] = 4; blk[10] = 1;
+        tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 12);
+        CHECK(cr_parse(&t, tmp, tl) == ST_OK && t.nowned == 0 && t.region == 1);
+    }
+}
+
 static CrResult res(uint32_t h, int place, int failed, int aborted)
 {
     CrResult r; memset(&r, 0, sizeof r);
@@ -76,6 +274,8 @@ static int state_eq(const CareerState *a, const CareerState *b)
         a->rep != b->rep || a->entered != b->entered || a->won != b->won || a->nrec != b->nrec ||
         strcmp(a->car, b->car) || memcmp(a->pose, b->pose, sizeof a->pose) || a->nextra != b->nextra ||
         memcmp(a->extra, b->extra, a->nextra)) return 0;
+    if (a->nowned != b->nowned || a->active != b->active || a->region != b->region) return 0;
+    for (i = 0; i < a->nowned; i++) if (strcmp(a->owned[i], b->owned[i])) return 0;
     for (i = 0; i < a->nrec; i++)
         if (a->rec[i].hash != b->rec[i].hash || a->rec[i].best_place != b->rec[i].best_place ||
             a->rec[i].flags != b->rec[i].flags || a->rec[i].attempts != b->rec[i].attempts) return 0;
@@ -170,7 +370,7 @@ int main(void)
         /* schema 2 */
         {
             uint8_t a2[8];
-            memcpy(a2, v.a, 8); a2[4] = 2;
+            memcpy(a2, v.a, 8); a2[4] = 3;   /* schema 3: newer than this build */
             tl = st_container_build(tmp, sizeof tmp, a2, 8, v.b, v.size_b);
             CHECK(cr_parse(&s3, tmp, tl) == ST_E_INCOMPATIBLE);
             a2[4] = 0;
@@ -251,6 +451,8 @@ int main(void)
         rmdir(root);
     }
 
+    test_lot();
+    test_save2();
     printf("career_test: %d checks, %d failures\n", checks, fails);
     printf(fails ? "FAIL\n" : "PASS\n");
     return fails != 0;
