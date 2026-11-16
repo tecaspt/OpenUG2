@@ -62,6 +62,8 @@ SRC += src/fe_lot.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
 SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
+SRC += src/render_target.c   # Task L scene target and upscale
+HDRS += src/render_target.h
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/fe_lot.h
@@ -902,6 +904,27 @@ nfsu2-vk: $(VK_GAME_SRC) $(HDRS) $(GEN) src/generated_shaders_vk.h
 .PHONY: nfsu2-vk
 
 # Native file mapping and Windows sorted-directory compatibility, no assets/GPU.
+.PHONY: render-target-test render-scene-test render-target-gl-test
+
+render-target-test:
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -Wextra -Werror -Isrc src/render_target.c tools/render_target_test.c -lm -o build/render_target_test
+	./build/render_target_test
+
+render-scene-test:
+	@mkdir -p build
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-parameter $(SDL_CFLAGS) -Isrc tools/render_scene_test.c src/rhi_gl.c src/rhi_gl_state.c $(SDL_LIBS) -lGL -lm -o build/render_scene_gl_test
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/render_scene_gl_test
+	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-parameter -DN2_GLES $(SDL_CFLAGS) -Isrc tools/render_scene_test.c src/rhi_gl.c src/rhi_gl_state.c $(SDL_LIBS) -lGLESv2 -lm -o build/render_scene_gles_test
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/render_scene_gles_test
+
+render-target-gl-test:
+	@mkdir -p build
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -Isrc $(SDL_CFLAGS) tools/render_target_gl_test.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o build/render_target_gl_test $(SDL_LIBS) -lGL -lm
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/render_target_gl_test
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -DN2_GLES -Isrc $(SDL_CFLAGS) tools/render_target_gl_test.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o build/render_target_gles_test $(SDL_LIBS) -lGLESv2 -lm
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/render_target_gles_test
+
 resource-map-test: tools/resource_map_test.c src/resource.c src/resource.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/resource_map_test.c src/resource.c -o build/resource_map_test$(EXEEXT) -lm
