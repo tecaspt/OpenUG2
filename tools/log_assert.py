@@ -47,6 +47,9 @@ Exit code: 0 all rules passed, 1 at least one failed, 2 usage, spec or log error
 prints 'spec:LINE: reason' and checks nothing. A spec with no rules in it is itself a spec error:
 a spec that asserts nothing is the bug this tool exists to catch. --json PATH writes the results
 to PATH and keeps the human report on stdout; --json alone writes JSON on stdout instead of it.
+PATH is optional, which makes '--json OUT FILE' ambiguous to any parser - write '--json=OUT' (or
+put --json last), and a PATH naming a file this run also reads is refused rather than overwritten,
+so a mistyped argument list cannot eat the gate log it was meant to report on.
 """
 import argparse
 import json
@@ -579,7 +582,8 @@ def main(argv):
                     help="SPEC_FILE then LOG_FILE(s), or just the LOG_FILE(s) with --spec")
     ap.add_argument("--spec", metavar="RULES", help="rules inline, separated by ';'")
     ap.add_argument("--json", metavar="OUT", nargs="?", const="-",
-                    help="write the results as JSON to OUT (stdout when OUT is left out)")
+                    help="write the results as JSON to OUT (stdout when OUT is left out); "
+                         "OUT is optional, so write --json=OUT when the next word is a file")
     try:
         o = ap.parse_args(argv[1:])
     except SystemExit as exc:
@@ -607,6 +611,12 @@ def main(argv):
         except OSError as exc:
             raise ToolError("cannot read %s: %s" % (spec_src, exc.strerror or exc))
         pairs = spec_pairs(raw.decode("utf-8", "replace"), False)
+    if o.json not in (None, "-") and o.json in [spec_src] + list(logs):
+        # --json's path is optional, so a mis-ordered argument list can point the report at a file
+        # this run is reading; replacing a gate log with its own report would lose the evidence.
+        # Compared by the path as given, which is how a shell loop repeats it by accident.
+        return usage("--json %s is a file this run also reads; name another OUT (or --json=OUT)"
+                     % o.json)
     rules = parse_spec(pairs)
 
     entries = []

@@ -411,6 +411,30 @@ class LogAssert(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("...", out, "long evidence lines are cut")
 
+    def test_it_refuses_to_write_the_report_over_a_file_it_reads(self):
+        # --json's path is optional, so `--json LOG LOG` in a gate loop names the log as the report;
+        # replacing a gate log with its own report would destroy the evidence the gate is arguing.
+        log = self.log("a.log", "anything")
+        spec = self.spec("expect /anything/")
+        rc, out, err = self.run_tool("--json", log, "--spec", "expect /anything/", log)
+        self.assertEqual((rc, out), (2, ""), out + err)
+        self.assertIn("--json", err)
+        self.assertIn("also reads", err)
+        with open(os.path.join(self.dir, "a.log")) as fh:
+            self.assertEqual(fh.read(), "anything\n", "the log must be untouched")
+        rc, out, err = self.run_tool("--json", spec, spec, log)
+        self.assertEqual((rc, out), (2, ""), out + err)
+        with open(os.path.join(self.dir, spec)) as fh:
+            self.assertEqual(fh.read(), "expect /anything/", "the spec must be untouched")
+        # the unambiguous spellings still work
+        rc, out, err = self.run_tool("--json=out.json", spec, log)
+        self.assertEqual((rc, out), (0, "PASS spec:1  expect /anything/\n1 rules, 1 pass, 0 fail\n"), err)
+        with open(os.path.join(self.dir, "out.json")) as fh:
+            self.assertEqual(json.load(fh)["summary"], {"rules": 1, "pass": 1, "fail": 0})
+        rc, out, _ = self.run_tool(spec, log, "--json", "report.json")
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "report.json")))
+
     def test_rules_run_in_spec_order_and_fail_independently(self):
         log = self.log("a.log", "one", "two")
         rc, out, _ = self.check("expect /one/; expect /nope/; expect /two/; forbid /one/", log)
