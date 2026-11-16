@@ -44,7 +44,8 @@ the C reader itself has no string-table read path (no ug_strtab_* / gv_text call
 src/career_data.c or src/career.c).
 
 Exit code: 0 = the request was served, 2 = usage or data error (an unknown --race name prints close
-matches). Float maths is float32-faithful (see f32) so the numbers match the C reader bit for bit.
+matches, and --race with an explicit --section is a usage error rather than a silently ignored
+flag). Float maths is float32-faithful (see f32) so the numbers match the C reader bit for bit.
 """
 import argparse
 import difflib
@@ -103,9 +104,9 @@ MARKERS = os.path.join("TRACKS", "ROUTESL4RA", "TrackPosMarkersFreeRoam.bin")
 
 
 def f32(value):
-    """Round to float32, because every float in the C reader is one (rdf, the bbox tolerance, the
-    zone size limits, cx/cy, marker heading). Doubles would disagree with C within ~1e-7 of a
-    limit, which is enough to keep or drop a borderline zone."""
+    """Round to float32, because every float and float literal in the C reader is one (rdf, the
+    0.01f bbox tolerance, the zone size limits, cx/cy, marker heading). Doubles would disagree with
+    C within ~1e-7 of a limit, which is enough to keep or drop a borderline zone."""
     try:
         return struct.unpack("<f", struct.pack("<f", value))[0]
     except (OverflowError, ValueError):
@@ -367,8 +368,9 @@ def parse_zones(cd, buf):
         xs, ys = pt[0::2], pt[1::2]
         x0, x1, y0, y1 = f32(min(xs)), f32(max(xs)), f32(min(ys)), f32(max(ys))
         width, height = f32(x1 - x0), f32(y1 - y0)     # C does the subtractions in float too
-        if (abs(x0 - bb[0]) > 0.01 or abs(y0 - bb[1]) > 0.01 or abs(x1 - bb[2]) > 0.01
-                or abs(y1 - bb[3]) > 0.01 or width > SHOP_ZONE_MAX or height > SHOP_ZONE_MAX):
+        if (abs(f32(x0 - bb[0])) > f32(0.01) or abs(f32(y0 - bb[1])) > f32(0.01)
+                or abs(f32(x1 - bb[2])) > f32(0.01) or abs(f32(y1 - bb[3])) > f32(0.01)
+                or width > SHOP_ZONE_MAX or height > SHOP_ZONE_MAX):
             continue
         is_shop, is_race = h in shop_hashes, h in race_hashes
         if not is_shop and (width > RACE_ZONE_MAX or height > RACE_ZONE_MAX):

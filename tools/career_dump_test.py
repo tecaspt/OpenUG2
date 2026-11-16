@@ -411,6 +411,23 @@ class TestDump(Fixture):
             self.assertEqual(code, 2)
             self.assertIn("usage error", err)
 
+    def test_race_json(self):
+        """--race --json writes that one race, keyed like the races table rows."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.dataroot(tmp)
+            target = os.path.join(tmp, "race.json")
+            code, out, err = self.run_main(root, "--race", "RACE_B", "--json", target)
+            self.assertEqual((code, err), (0, ""))
+            with open(target, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(sorted(data), ["counts", "race"])
+            self.assertEqual(data["race"]["index"], 1)
+            self.assertEqual(data["race"]["name"], "RACE_B")
+            self.assertEqual(data["race"]["nheat"], 2)               # both heats, not just heat 0
+            self.assertEqual(data["race"]["shop_ref"], "SHOP_A")
+            self.assertEqual(data["race"]["preset_ref"], "f7e19102")
+            self.assertIsNone(data["race"]["zone_index"])            # no locator hash to match
+
     def test_json_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.dataroot(tmp)
