@@ -19,7 +19,8 @@ typedef enum {
     GD_QUIT, GD_RESTART, GD_EXPLORE, GD_WORLD_MAP, GD_GARAGE,    /* UI_InGameDialog.fng */
     GD_DEFAULTS,                                                  /* GenericDialog_SMALL.fng */
     GD_CONTROLS_RESET,                                            /* same package: OK / Cancel (CONTROLS_SPEC 4.6) */
-    GD_ENGAGE_RACE                                                /* M6: same package, Yes / No: "Would you like to race this event?" */
+    GD_ENGAGE_RACE,                                               /* M6: same package, Yes / No: "Would you like to race this event?" */
+    GD_ENGAGE_SHOP                                                /* M6: same package, Yes / No: ASK_ENTER_CAR_LOT */
 } GdKind;
 
 /* Selectors that choose the message text (tvg10 "context"). */

@@ -96,6 +96,17 @@ int main(int argc, char **argv) {
     printf("postmenu open=%d status=%s\n",pr_is_open(post),pr_status(post));assert(pr_is_open(post) && !pr_status(post)[0]);
     pr_event(post,&next,NULL);assert(pr_update(post,0)==PR_ACT_RESTART);pr_destroy(post);
     fem_open(m,FEM_SCR_QR_TRACK);click(m,win,145,680);frames(m,30,NULL);assert(fem_screen(m)==FEM_SCR_QR_MODE);
+    {   /* M6 career Car Lot (UI_CareerCarLot.fng): browse, must-buy Back block, two-step buy (touch), owned car */
+        FeLotCar lot[2]={{"MIATA",0,0,1},{"RX7",0,0,1}};
+        fem_open_lot(m,lot,2,1,0);frames(m,60,"lot.png");report(m,"lot");assert(fem_visual_available(m));
+        key(m,SDLK_RIGHT);frames(m,15,NULL);assert(!strcmp(fem_preview_car(m),"RX7"));
+        click(m,win,145,680);frames(m,30,"lot_must_buy.png");assert(fem_screen(m)==FEM_SCR_CAREER_LOT);
+        click(m,win,480,360);frames(m,30,"lot_confirm.png");
+        click(m,win,480,360);FemRequest b=frames(m,2,NULL);
+        printf("lot request=%d car=%s\n",b.kind,b.car);assert(b.kind==FEM_REQ_LOT_BUY && !strcmp(b.car,"RX7"));
+        lot[0].owned=1;fem_open_lot(m,lot,2,0,12345);key(m,SDLK_LEFT);frames(m,1,NULL);key(m,SDLK_RETURN);frames(m,30,"lot_same_car.png");
+        key(m,SDLK_ESCAPE);assert(frames(m,2,NULL).kind==FEM_REQ_CAREER_ROAM);
+    }
     printf("fe_screens_check: PASS\n");
     fem_destroy(m);
     rhi_device_destroy();

@@ -11,6 +11,7 @@
 
 #include <SDL.h>
 #include "race_rules.h"
+#include "fe_lot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,9 +19,12 @@ extern "C" {
 
 struct GameCatalog;                /* game_catalog.h */
 
-typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER } FemReqKind;
+typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER,
+               FEM_REQ_LOT_BUY,       /* M6: buy the lot car named in `car` (second Accept on the Car Lot) */
+               FEM_REQ_CAREER_ROAM    /* M6: leave the Car Lot / career Garage back to free roam */
+} FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE } FemScreen;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -65,6 +69,13 @@ int fem_options_page(const FeMenu *);
 /* M6: enables Main > Career (career data loaded) and says whether the current profile has a save.
  * Choosing Career returns FEM_REQ_CAREER with event_id 1 = new career, 0 = continue, car = current car. */
 void fem_set_career(FeMenu *, int available, int has_save);
+/* M6 Car Lot (UI_CareerCarLot.fng): left/right browse `cars` (previewed through fem_preview_car), Accept asks
+ * CAR_SELECT_CONFIRM_CHOOSE_CAR and a second Accept returns FEM_REQ_LOT_BUY (car = name). Back returns
+ * FEM_REQ_CAREER_ROAM unless `must_buy` (then the CAR_LOT_MUST_BUY caption). An owned car shows
+ * CAR_SELECT_SAME_CAR. `bank` fills PLAYER_CASH. The menu is locked after a request until the host reopens. */
+void fem_open_lot(FeMenu *, const FeLotCar *cars, int n, int must_buy, long long bank);
+/* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */
+void fem_open_career_garage(FeMenu *);
 /* Directory holding the profile folders (career saves live inside them); NULL before storage opens. */
 const char *fem_profile_root(const FeMenu *);
 /* Writes the current profile if it only exists in memory (a career save needs its folder). ST_OK or ST_E_*. */

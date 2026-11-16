@@ -62,6 +62,8 @@ struct FeMenu {
     char cur_car[32], cur_track[16];
     FeChoice choice;
     FeGarage *garage;
+    int career_garage;           /* M6: Garage opened from career roam; leaving it requests FEM_REQ_CAREER_ROAM */
+    FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
     int pending_input, pressed;
     int loading_event;
     OptionsMenu options;
@@ -92,6 +94,7 @@ static const char *screen_name(FemScreen s) {
     case FEM_SCR_PROFILE:return "PROFILE";
     case FEM_SCR_CAREER: return "CAREER";
     case FEM_SCR_GARAGE:return "GARAGE";
+    case FEM_SCR_CAREER_LOT: return "CAREER_LOT";
     case FEM_SCR_LOADING: return "LOADING";
     default: return "NONE";
     }
@@ -99,6 +102,7 @@ static const char *screen_name(FemScreen s) {
 static const char *package_of(FemScreen s) {
     switch (s) {
     case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
+    case FEM_SCR_CAREER_LOT: return "UI_CareerCarLot.fng";
     case FEM_SCR_OPTIONS:return "UI_OptionsMain.fng";
     case FEM_SCR_PROFILE:return "UI_ProfileManager.fng";
     case FEM_SCR_MAIN: return "UI_Main.fng";
@@ -161,6 +165,11 @@ static void build_screen(FeMenu *m) {
     }
     if(m->screen==FEM_SCR_GARAGE) {
         m->visual=feg_open(m->garage,&m->scr,&m->assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
+        return;
+    }
+    if(m->screen==FEM_SCR_CAREER_LOT) {
+        m->visual=fel_bind(&m->lot,&m->scr,&m->assets);
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
         return;
     }
@@ -236,7 +245,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -257,6 +266,7 @@ static void views_update(FeMenu *m, float ms) {
     gv_screen_update(&m->scr, ms);
     if(m->screen==FEM_SCR_GARAGE && !feg_sync(m->garage,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",feg_status(m->garage));return;}
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
+    else if(m->screen==FEM_SCR_CAREER_LOT)fel_sync(&m->lot,&m->scr);
     else if(m->screen==FEM_SCR_QR_TRACK || m->screen==FEM_SCR_QR_OPTIONS)
         fet_sync(&m->choice,&m->scr,ms,m->screen==FEM_SCR_QR_OPTIONS);
     if(m->screen==FEM_SCR_QR_TRACK && m->status[0])for(int i=0;i<m->scr.scene.n;i++)
@@ -360,9 +370,11 @@ void fem_open(FeMenu *m, FemScreen screen) {
     if (!m) return;
     if (screen == FEM_SCR_NONE) { fem_close(m); return; }
     m->pending_input=0;m->pressed=0;
+    if(screen!=FEM_SCR_GARAGE)m->career_garage=0;
     if(m->editing && screen!=FEM_SCR_PROFILE){m->editing=0;SDL_StopTextInput();}
     /* Pause uses a separate store handle; reload its keys before any FE write. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN) {
+    int from_roam=screen==FEM_SCR_GARAGE && m->career_garage && !m->open;   /* career Garage: pause may have written */
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && (m->screen==FEM_SCR_MAIN || from_roam)) {
         StRegStore fresh={0};
         int rc=m->config_path[0]?st_reg_open_ini(&fresh,m->config_path):st_reg_open_default(&fresh);
         if(rc==ST_OK) {
@@ -376,7 +388,7 @@ void fem_open(FeMenu *m, FemScreen screen) {
         }
     }
     /* Pause Controls may have updated the existing OPENUG2 container since last visit. */
-    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && m->screen==FEM_SCR_MAIN &&
+    if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && (m->screen==FEM_SCR_MAIN || from_roam) &&
        m->profile && m->profile->persisted)fep_load(m->profile,m->profile->value.name);
     if(screen==FEM_SCR_OPTIONS && (!om_is_open(&m->options) || m->screen!=FEM_SCR_OPTIONS)) {
         OmConfig cfg;om_config_default(&cfg,OM_CTX_FRONTEND);
@@ -399,6 +411,7 @@ void fem_close(FeMenu *m) {
     if(m->screen==FEM_SCR_GARAGE)feg_input(m->garage,FES_IN_BACK);
     m->open = 0;
     m->screen = FEM_SCR_NONE;
+    m->career_garage = 0;
     drop_view(m);
     fprintf(stderr, "fem: closed\n");
 }
@@ -426,7 +439,10 @@ void fem_show_error(FeMenu *m, const char *message) {
     snprintf(m->status, sizeof m->status, "%s", message ? message : "launch failed");
 }
 
-const char *fem_preview_car(const FeMenu *m) { return m && m->screen==FEM_SCR_QR_CAR ? m->choice.preview : ""; }
+const char *fem_preview_car(const FeMenu *m) {
+    if(m && m->open && m->screen==FEM_SCR_CAREER_LOT)return m->lot.preview;
+    return m && m->screen==FEM_SCR_QR_CAR ? m->choice.preview : "";
+}
 int fem_visual_available(const FeMenu *m) { return m && m->open && m->visual && m->compatible && m->gl; }
 const char *fem_status(const FeMenu *m) {
     if(!m)return "front-end menu allocation unavailable";
@@ -436,6 +452,7 @@ const char *fem_status(const FeMenu *m) {
     if(m->screen==FEM_SCR_GARAGE)return feg_status(m->garage);
     if(m->screen==FEM_SCR_QR_TRACK)return m->choice.track_status;
     if(m->screen==FEM_SCR_QR_CAR)return m->choice.car_status;
+    if(m->screen==FEM_SCR_CAREER_LOT)return m->lot.status;
     return m->status;
 }
 
@@ -643,7 +660,8 @@ FemRequest fem_update(FeMenu *m, float seconds) {
     int in=m->pending_input;m->pending_input=0;
     if(m->screen==FEM_SCR_GARAGE) {
         int event=in&&(m->visual||in==FES_IN_BACK)?feg_input(m->garage,in):0;
-        if(event==2)fem_open(m,FEM_SCR_MAIN);
+        if(event==2 && m->career_garage){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}   /* M6: back to roam, not Main */
+        else if(event==2)fem_open(m,FEM_SCR_MAIN);
         else if(event==1||feg_advance(m->garage,seconds))build_screen(m);
     }
 
@@ -663,6 +681,12 @@ FemRequest fem_update(FeMenu *m, float seconds) {
             else fet_move(&m->choice,dir,in>=5,m->screen==FEM_SCR_QR_OPTIONS);
         }
     }
+    if(m->screen==FEM_SCR_CAREER_LOT) {
+        FelEvent ev=in && !m->locked?fel_input(&m->lot,in):FEL_EV_NONE;
+        if(ev==FEL_EV_BUY){req.kind=FEM_REQ_LOT_BUY;snprintf(req.car,sizeof req.car,"%s",fel_selected(&m->lot));m->locked=1;}
+        else if(ev==FEL_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+        fel_advance(&m->lot,seconds);
+    }
     if (is_logic_screen(m)) {
         fes_update(&m->fes, seconds);
         if (m->fes.exiting) {
@@ -679,7 +703,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
                     m->career_confirm = 0; m->career_focus = m->career_save ? FE_CAREER_RESUME : FE_CAREER_NEW;
                     fem_open(m, FEM_SCR_CAREER);
                 } else if (id == FE_MAIN_QUICK_RACE) fem_open(m, FEM_SCR_QR_MODE);
-                else if(id==FE_MAIN_CUSTOMIZE)fem_open(m,FEM_SCR_GARAGE);
+                else if(id==FE_MAIN_CUSTOMIZE){m->career_garage=0;fem_open(m,FEM_SCR_GARAGE);}
                 else if(id==FE_MAIN_OPTIONS)fem_open(m,FEM_SCR_OPTIONS);
                 else if(id==FE_MAIN_PROFILE)fem_open(m,FEM_SCR_PROFILE);
                 else fem_open(m,FEM_SCR_MAIN);
@@ -717,7 +741,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
 
 void fem_draw(FeMenu *m, int w, int h) {
     if (!fem_is_open(m) || w <= 0 || h <= 0) return;
-    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE) {
+    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE && m->screen != FEM_SCR_CAREER_LOT) {   /* 3D car behind */
         static const float black[4] = { 0, 0, 0, 1 };
         rhi_cmd_clear_main(black, 1.0f);
     }
@@ -785,4 +809,16 @@ int fem_garage_page(const FeMenu *m){return m?feg_page(m->garage):-1;}
 int fem_garage_saved(const FeMenu *m,const char *car,GarageConfig *out) {
  if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
  return garage_load(m->profile->root,m->profile->value.name,car,out);
+}
+
+void fem_open_lot(FeMenu *m,const FeLotCar *cars,int n,int must_buy,long long bank) {
+    if(!m || feg_busy(m->garage))return;
+    fel_open(&m->lot,cars,n,must_buy,bank);
+    m->career_garage=0;
+    fem_open(m,FEM_SCR_CAREER_LOT);
+}
+void fem_open_career_garage(FeMenu *m) {
+    if(!m || feg_busy(m->garage))return;
+    m->career_garage=1;
+    fem_open(m,FEM_SCR_GARAGE);
 }
