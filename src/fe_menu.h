@@ -10,6 +10,7 @@
 #define OPENUG2_FE_MENU_H
 
 #include <SDL.h>
+#include "race_rules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,7 +19,7 @@ extern "C" {
 struct GameCatalog;                /* game_catalog.h */
 
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER } FemReqKind;
-typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; } FemRequest;
+typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; } FemRequest;
 typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE } FemScreen;
 typedef struct FeMenu FeMenu;
 
@@ -80,6 +81,7 @@ int fem_garage_page(const FeMenu *);
 typedef struct FeChoice {
     const GameCatalog *cat;
     int kind, event_index, car_index, laps, difficulty, option, options_page;
+    RrOptions rules;
     int event_indices[GC_MAX_EVENTS], nevents;
     int cars[64], ncars, selected;
     float preview_wait;
@@ -99,6 +101,8 @@ int fet_map_opaque(uint8_t *,size_t pixels);
 int fet_same_layout(const void *,size_t,const void *,size_t);
 void fet_sync(FeChoice *, GvScreen *, float ms, int options);
 void fet_move(FeChoice *, int direction, int vertical, int options);
+int fet_row_count(const FeChoice *);
+int fet_row_enabled(const FeChoice *, int row);
 int fec_open(FeChoice *, GvScreen *, const UgAssets *);
 void fec_sync(FeChoice *, GvScreen *, float seconds);
 void fec_move(FeChoice *, int direction);

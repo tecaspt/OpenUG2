@@ -79,12 +79,14 @@ int main(int argc, char **argv) {
     strcpy(cat.car[0].name,"MIATA");strcpy(cat.car[1].name,"RX7");cat.ncar=2;
     fem_open(m,FEM_SCR_QR_TRACK);frames(m,60,"track.png");report(m,"track");assert(fem_visual_available(m));
     key(m,SDLK_RETURN);frames(m,60,"options.png");report(m,"options");
-    key(m,SDLK_RIGHT);frames(m,1,NULL);key(m,SDLK_DOWN);frames(m,1,NULL);key(m,SDLK_RIGHT);frames(m,5,NULL);
-    key(m,SDLK_RETURN);frames(m,60,"mode_options.png");key(m,SDLK_RETURN);frames(m,60,"car.png");report(m,"car");
+    key(m,SDLK_RIGHT);frames(m,1,NULL);key(m,SDLK_DOWN);frames(m,1,NULL);key(m,SDLK_RIGHT);frames(m,5,NULL);   /* Laps+1, Direction=Reverse */
+    key(m,SDLK_RETURN);frames(m,60,"mode_options.png");key(m,SDLK_RIGHT);frames(m,5,NULL);   /* Difficulty=Medium */
+    key(m,SDLK_RETURN);frames(m,60,"car.png");report(m,"car");
     key(m,SDLK_RIGHT);frames(m,10,NULL);printf("preview=%s\n",fem_preview_car(m));assert(!strcmp(fem_preview_car(m),"RX7"));
     key(m,SDLK_RETURN);FemRequest r=frames(m,2,NULL);
     printf("request=%d event=%d car=%s track=%s laps=%d difficulty=%d\n",r.kind,r.event_id,r.car,r.track,r.laps,r.difficulty);
     assert(r.kind==FEM_REQ_QUICK_RACE && r.event_id==4000 && r.laps==3 && r.difficulty==1 && !strcmp(r.car,"RX7"));
+    {RrOptions d=rr_options_default();assert(r.rules.reverse==1 && r.rules.opponents==d.opponents && r.rules.traffic==d.traffic && r.rules.catch_up==d.catch_up && r.rules.lap_knockout==0);}
     PostRace *post=pr_create(argv[1]);PostRaceInfo info={.event_id=4001,.finish_place=1,.seconds=62.34};strcpy(info.car,"MIATA");
     pr_open(post,&info);
     for(int n=0;n<60;n++){pr_update(post,1.0f/30);rhi_frame_begin(NULL);static const float black[4]={0,0,0,1};rhi_cmd_clear_main(black,1);pr_draw(post,W,H);if(n==59){char out[600];snprintf(out,sizeof out,"%s/results.png",dir);save(out,W,H);}rhi_frame_end();}

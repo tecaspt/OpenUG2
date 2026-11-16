@@ -312,7 +312,7 @@ FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allo
     m->cat = cat;
     m->garage=feg_create(dataroot);
     feg_set_save(m->garage,save_garage,m);
-    m->choice.cat=cat;m->choice.laps=2;m->choice.kind=1;
+    m->choice.cat=cat;m->choice.laps=2;m->choice.kind=1;m->choice.rules=rr_options_default();
     m->allow_quit = allow_quit;
     m->main_enabled = FE_M1_MAIN_ENABLED;
     m->main_focus = FE_MAIN_QUICK_RACE;
@@ -445,7 +445,8 @@ const char *fem_status(const FeMenu *m) {
  * Use the same retail pill kit as pause, kept below the screen content. */
 static int back_hit(float x, float y) { return x >= 24 && x <= 170 && y >= 440 && y <= 472; }
 static int choice_hit(FeMenu *m,float x,float y,int select_row) {
-    if(m->screen==FEM_SCR_QR_OPTIONS)for(int row=0;row<2;row++) {
+    if(m->screen==FEM_SCR_QR_OPTIONS)for(int row=0;row<fet_row_count(&m->choice);row++) {
+        if(!fet_row_enabled(&m->choice,row))continue;
         float top=gl_row_top(&m->choice.list.anchors,row);
         if(y-240>=top-12 && y-240<=top+28) {
             if(select_row)m->choice.option=row;
@@ -615,7 +616,7 @@ static FemRequest mode_request(FeMenu *m, int mode) {
     r.kind = FEM_REQ_QUICK_RACE;
     r.event_id = ev->id;
     snprintf(r.car,sizeof r.car,"%s",m->cat->car[m->choice.car_index].name);
-    r.laps=m->choice.laps;r.difficulty=m->choice.difficulty;
+    r.laps=m->choice.laps;r.difficulty=m->choice.difficulty;r.rules=m->choice.rules;if(ev->kind!=1)r.rules.lap_knockout=0;   /* Lap KO is circuit-only */
     for (int k = 0; k < m->cat->nregion; k++)
         if (!strcmp(m->cat->region[k].stem, ev->region)) { snprintf(r.track, sizeof r.track, "%s", m->cat->region[k].track); break; }
     return r;
@@ -654,7 +655,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         else if(in==FES_IN_ACCEPT && m->visual) {
             if(m->screen==FEM_SCR_QR_CAR){req=mode_request(m,m->mode_focus);m->locked=req.kind!=0;}
             else if(m->screen==FEM_SCR_QR_TRACK){m->choice.options_page=0;fem_open(m,FEM_SCR_QR_OPTIONS);}
-            else if(!m->choice.options_page){m->choice.options_page=1;m->choice.option=1;fem_open(m,FEM_SCR_QR_OPTIONS);}
+            else if(!m->choice.options_page){m->choice.options_page=1;m->choice.option=0;fem_open(m,FEM_SCR_QR_OPTIONS);}
             else fem_open(m,FEM_SCR_QR_CAR);
         } else if(in==FES_IN_LEFT || in==FES_IN_RIGHT || in==5 || in==6) {
             int dir=in==FES_IN_LEFT || in==5?-1:1;

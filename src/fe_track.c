@@ -126,11 +126,56 @@ int fet_open(FeChoice *c,GvScreen *s,UgAssets *a,int options) {
     if(options)return gv_list_bind_rows(&c->list,s);
     return 1;
 }
+/* [inferred] Quick Race option rows. Page 0 (track options): Laps / Direction / Lap KO; page 1 (mode
+ * options): Difficulty / Opponents / Traffic / Catch Up. Disabled rows are skipped by focus and ignore
+ * left/right. Opponents/traffic/catch-up -1 keep the authored/host default (shown as that default). */
+enum { ROW_LAPS, ROW_DIR, ROW_KO, ROW_DIFF, ROW_OPP, ROW_TRAFFIC, ROW_CATCH };
+enum { K_CIRCUIT=1, K_SPRINT=2, K_DRAG=3, K_DRIFT=4, K_URL=6 };
+static int cur_downhill(const FeChoice *c) {
+    return c->cat && c->event_index>=0 && c->event_index<c->cat->nev && c->cat->ev[c->event_index].downhill;
+}
+static int row_enabled(const FeChoice *c,int id) {
+    switch(id) {
+    case ROW_KO: return c->kind==K_CIRCUIT;
+    case ROW_OPP: return !(c->kind==K_DRIFT && cur_downhill(c));
+    case ROW_TRAFFIC: return c->kind==K_CIRCUIT||c->kind==K_SPRINT||c->kind==K_DRAG||(c->kind==K_DRIFT&&cur_downhill(c));
+    default: return 1;
+    }
+}
+static int row_ids(const FeChoice *c,int *ids) {
+    static const int p0[]={ROW_LAPS,ROW_DIR,ROW_KO},p1[]={ROW_DIFF,ROW_OPP,ROW_TRAFFIC,ROW_CATCH};
+    const int *src=c->options_page?p1:p0;int n=c->options_page?4:3;
+    for(int i=0;i<n;i++)ids[i]=src[i];
+    return n;
+}
+int fet_row_count(const FeChoice *c){int ids[4];return row_ids(c,ids);}
+int fet_row_enabled(const FeChoice *c,int row){
+    int ids[4],n=row_ids(c,ids);return row>=0&&row<n&&row_enabled(c,ids[row]);
+}
+static int authored_opponents(const FeChoice *c){return cur_downhill(c)&&c->kind==K_DRIFT?0:c->kind==K_URL?5:3;}
+static int clampi(int v,int lo,int hi){return v<lo?lo:v>hi?hi:v;}
+static void row_change(FeChoice *c,int id,int dir) {
+    RrOptions *r=&c->rules;
+    switch(id) {
+    case ROW_LAPS: c->laps=clampi(c->laps+dir,1,8);break;
+    case ROW_DIFF: c->difficulty=clampi(c->difficulty+dir,0,2);break;
+    case ROW_DIR: r->reverse=dir>0?1:0;break;
+    case ROW_KO: r->lap_knockout=dir>0?1:0;break;
+    case ROW_OPP: r->opponents=clampi((r->opponents<0?authored_opponents(c):r->opponents)+dir,0,RR_MAX_CARS-1);break;
+    case ROW_TRAFFIC: r->traffic=clampi((r->traffic<0?2:r->traffic)+dir,0,3);break;
+    case ROW_CATCH: r->catch_up=dir>0?1:0;break;
+    }
+}
 void fet_move(FeChoice *c,int dir,int vertical,int options) {
     if(options) {
-        if(vertical)c->option=c->option?0:1;
-        else if(c->option==0){c->laps+=dir;if(c->laps<1)c->laps=1;if(c->laps>8)c->laps=8;}
-        else {c->difficulty+=dir;if(c->difficulty<0)c->difficulty=0;if(c->difficulty>2)c->difficulty=2;}
+        int ids[4],n=row_ids(c,ids);
+        if(c->option<0||c->option>=n)c->option=0;
+        if(vertical) {
+            for(int k=1;k<=n;k++) {
+                int row=((c->option+(dir<0?-k:k))%n+n)%n;
+                if(row_enabled(c,ids[row])){c->option=row;break;}
+            }
+        } else if(row_enabled(c,ids[c->option]))row_change(c,ids[c->option],dir);
     } else {
         c->selected+=dir;
         if(c->selected<0)c->selected=0;
@@ -138,18 +183,41 @@ void fet_move(FeChoice *c,int dir,int vertical,int options) {
         if(c->selected>=0)c->event_index=c->event_indices[c->selected];
     }
 }
+static const char *caption(FeChoice *c,const GvScreen *s,const char *key) {
+    const char *t=s->assets&&s->assets->have_strings?ug_strtab_get(&s->assets->strings,ug_hash_upper(key)):NULL;
+    if(t)return t;
+    snprintf(c->track_status,sizeof c->track_status,"caption %s unavailable",key);   /* no guessed label */
+    return "";
+}
 void fet_sync(FeChoice *c,GvScreen *s,float ms,int options) {
     if(options) {
-        snprintf(c->laps_text,sizeof c->laps_text,"%d",c->laps);
-        static const char *keys[]={"QR_DIFFICULTY_EASY","QR_DIFFICULTY_MEDIUM","QR_DIFFICULTY_HARD"};
+        int ids[4],n=row_ids(c,ids);
+        GvListRow rows[4];static char opp[16];   /* the scene keeps the pointer */
+        static const char *diff[]={"QR_DIFFICULTY_EASY","QR_DIFFICULTY_MEDIUM","QR_DIFFICULTY_HARD"};
         static const char *fallback[]={"Easy","Medium","Hard"};
-        GvListRow rows[]={
-            {gv_text(s->assets,ug_hash_upper("QR_LAPS"),"Laps"),c->laps_text,1},
-            {gv_text(s->assets,ug_hash_upper("QR_DIFFICULTY"),"Difficulty"),gv_text(s->assets,ug_hash_upper(keys[c->difficulty]),fallback[c->difficulty]),1},
-            {gv_text(s->assets,ug_hash_upper("QR_OPPONENTS"),"Opponents"),NULL,0},
-            {gv_text(s->assets,ug_hash_upper("QR_TRAFFIC"),"Traffic Level"),NULL,0},
-            {gv_text(s->assets,ug_hash_upper("QR_CATCH_UP"),"Catch Up"),NULL,0}};
-        gv_list_sync_rows(&c->list,rows,5,c->option,ms);return;
+        static const char *traf[]={"TRAFFIC_NONE","TRAFFIC_LIGHT","TRAFFIC_MEDIUM","TRAFFIC_HEAVY"};
+        c->track_status[0]=0;
+        snprintf(c->laps_text,sizeof c->laps_text,"%d",c->laps);
+        for(int i=0;i<n;i++) {
+            const RrOptions *r=&c->rules;
+            rows[i].enabled=row_enabled(c,ids[i]);rows[i].value="";
+            switch(ids[i]) {
+            case ROW_LAPS: rows[i].label=caption(c,s,"QR_OPT_LAPS");rows[i].value=c->laps_text;break;
+            case ROW_DIR: rows[i].label=caption(c,s,"TRACK_DIRECTION");
+                rows[i].value=caption(c,s,r->reverse?"TRACK_DIRECTION_REVERSE":"TRACK_DIRECTION_FORWARD");break;
+            case ROW_KO: rows[i].label=caption(c,s,"QR_OPT_LAP_KO");
+                rows[i].value=caption(c,s,r->lap_knockout&&rows[i].enabled?"UI_COMMON_ON":"UI_COMMON_OFF");break;
+            case ROW_DIFF: rows[i].label=caption(c,s,"QR_OPT_DIFFICULTY");
+                rows[i].value=gv_text(s->assets,ug_hash_upper(diff[c->difficulty]),fallback[c->difficulty]);break;
+            case ROW_OPP: rows[i].label=caption(c,s,"QR_OPT_OPPONENTS");
+                snprintf(opp,sizeof opp,"%d",rows[i].enabled?(r->opponents<0?authored_opponents(c):r->opponents):0);rows[i].value=opp;break;
+            case ROW_TRAFFIC: rows[i].label=caption(c,s,"QR_OPT_TRAFFIC_LEVEL");
+                rows[i].value=caption(c,s,traf[rows[i].enabled?(r->traffic<0?2:r->traffic):0]);break;
+            case ROW_CATCH: rows[i].label=caption(c,s,"QR_OPT_CATCH_UP");
+                rows[i].value=caption(c,s,r->catch_up==0?"UI_COMMON_OFF":"UI_COMMON_ON");break;
+            }
+        }
+        gv_list_sync_rows(&c->list,rows,n,c->option,ms);return;
     }
     if(c->event_index<0 || !c->cat)return;
     const GcEvent *e=&c->cat->ev[c->event_index];

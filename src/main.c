@@ -5587,7 +5587,7 @@ int main(int argc, char **argv) {
     RrKnockout knockout = {0}; int knockout_live = 0, race_lap_knockout = 0;   /* M7 P4 */
     RrUrl url_series = {0}; RrRound url_round = {0}; int url_live = 0;
     int url_pending[RR_MAX_URL_RACES], url_pending_count = 0;
-    RrOptions race_options = rr_options_default();   /* M7 P5: Quick Race options; FE rows pending (task J) */
+    RrOptions race_options = rr_options_default();   /* M7 P5: Quick Race options; */
     int saved_traffic_target = -1;
     PhysManual drag_gear={0};AiDrive drag_line={0};
     float drag_lane=0,drag_lanes[WORLD_MAXGRID];int drag_lanen=0,drag_shift=0,drag_change=0;
@@ -7270,6 +7270,15 @@ int main(int argc, char **argv) {
                 fem_show_error(fem, "Garage configuration is not ready. Select a profile or retry the car.");
                 frq.kind = FEM_REQ_NONE;
             }
+            if (frq.kind == FEM_REQ_QUICK_RACE) {   /* M7 P5: explicit Quick Race options */
+                if (!rr_options_valid(&frq.rules)) {
+                    fem_show_error(fem, "Invalid race options");
+                    frq.kind = FEM_REQ_NONE;
+                } else {
+                    race_options = frq.rules;
+                    race_lap_knockout = race_options.lap_knockout;
+                }
+            }
             if (frq.kind == FEM_REQ_QUIT) running = 0;
             else if (frq.kind == FEM_REQ_QUICK_RACE || frq.kind == FEM_REQ_FREE_RUN) {
                 GfLaunch gl; memset(&gl, 0, sizeof gl);
@@ -7452,6 +7461,9 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "fe: event %d not found\n", gcmd.event_id);
                 } else if (world.city.ev[evi].info.kind == N2_RACE_DRAG && !phys_drag_config_valid(&launch_drag)) {
                     snprintf(g_dbg.race_error, sizeof g_dbg.race_error, "Drag wheel/engine/resistance data is unavailable.");
+                    fprintf(stderr, "fe: event %d: %s\n", gcmd.event_id, g_dbg.race_error);
+                } else if (race_lap_knockout && (world.city.ev[evi].info.kind != N2_RACE_CIRCUIT || race_options.opponents == 0)) {   /* M7 P5 */
+                    snprintf(g_dbg.race_error, sizeof g_dbg.race_error, "Lap Knockout needs a Circuit race with at least one opponent.");
                     fprintf(stderr, "fe: event %d: %s\n", gcmd.event_id, g_dbg.race_error);
                 } else {
                     if (gcmd.difficulty >= 0) g_dbg.race_ai_difficulty = gcmd.difficulty;
@@ -8321,6 +8333,8 @@ int main(int argc, char **argv) {
                     nai=ai_traffic_spawn(&roam_roads,&traffic_world,ais,traffic_routes,carpos,heading);
                 } else {
                     knockout_live = race_lap_knockout && event->info.kind == N2_RACE_CIRCUIT && nai > 0;   /* M7 P4 */
+                    printf("race rules: opponents %d (field %d) traffic %d catch-up %d reverse %d lap-ko %s\n", race_options.opponents, nai,
+                           race_options.traffic, race_options.catch_up, race_options.reverse, knockout_live ? "live" : "off");
                     if (knockout_live) {
                         rr_knockout_init(&knockout, nai + 1);
                         world.city.race.maxlaps = nai;
