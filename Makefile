@@ -62,6 +62,8 @@ SRC += src/fe_lot.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
 SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
+SRC += src/fe_worldmap.c
+HDRS += src/fe_worldmap.h
 SRC += src/render_target.c   # Task L scene target and upscale
 HDRS += src/render_target.h
 HDRS += src/hud_race.h src/dir_scan.h
@@ -989,6 +991,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
 SCREENS_TEST_SRC = src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC += src/fe_worldmap.c src/career_data.c src/pause_menu.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
 	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_track_test.c src/fe_track.c src/fe_car.c src/race_rules.c -lm -Wl,--gc-sections -o build/fe_track_test
@@ -1164,3 +1167,9 @@ garage-check:
 	@mkdir -p build
 	$(CC) -O0 -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/garage_check.c src/game_catalog.c src/world.c src/resource.c src/ugui/ugui_util.c -Wl,--gc-sections $(SDL_LIBS) -lGL -lz -lm -o build/garage_check
 	./build/garage_check "$(OPENUG2_DATA)"
+
+.PHONY: fe-worldmap-test
+fe-worldmap-test: tools/fe_worldmap_test.c src/fe_worldmap.c src/fe_worldmap.h
+	@mkdir -p build
+	$(CC) -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_worldmap_test.c src/fe_worldmap.c -Wl,--gc-sections -lm -o build/fe_worldmap_test
+	./build/fe_worldmap_test

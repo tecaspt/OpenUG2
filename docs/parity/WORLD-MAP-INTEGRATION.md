@@ -1,4 +1,26 @@
-# World Map host integration (base2037712)
+# World Map host integration
+
+## Applied host follow-up
+
+[data] The host integration is now applied to the integration tree based on760f585.
+The patches below retain the original task-S scratch proposal for reference; the
+production implementation in main.c and Makefile is authoritative.
+
+[data] The destination marker uses the existing HudMapIcon/HMI_GPS contract, so
+hud.c and hud.h require no edits. With a solved route, nav_target_x/y carry the
+exact zone centre while the bearing still follows the next road node. Without a
+route, the host appends the exact GPS icon to the career icon list. Arrival checks
+the canonical zone polygon independently of HUD visibility, then clears both the
+route and destination. The icon array reserves space for all288 career icons and
+one destination. Scale-target/frame presentation order is preserved.
+
+[data] The explicit --world-map-dev diagnostic enables F8 to move the player to a
+revalidated selected destination; it has no effect without that flag and a live
+career target. It resets drive state and emits typed arrival diagnostics. It is
+for host arrival checks; ordinary selection never teleports. Device checks remain
+NOT RUN. Host validation results are recorded in WORLD-MAP.md.
+
+## Original scratch proposal
 
 [data] The following exact patches were generated against base2037712; the real Main/Make/HUD
 files were not edited. [inferred] This implements navigation selection only, with no teleport,

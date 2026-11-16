@@ -68,6 +68,7 @@
 #include "touch_controls.h"
 #include "ui_flat.h"
 #include "fe_menu.h"
+#include "fe_worldmap.h"
 #include "career_host.h"   /* M6 career */
 #include "postrace.h"
 #include "hud_host_map.h"
@@ -1618,6 +1619,82 @@ static int track_authored_focus(const char *troot, const char *track, float xy[2
 /* M6 career: one career host; a one-shot focus override lets a career return load the city around the
  * pre-race pose instead of the authored focus (consumed by the next prepare_map_switch). */
 static CareerHost g_career;
+
+static int wm_resolve(const CareerHost *ch, int kind, uint32_t id,
+                      FeMapDestination *canonical, int *zone_out)
+{
+    int matches=0, zone=-1;
+    if (!ch || !ch->active || ch->race>=0) return 0;
+    if (kind==FWM_ICON_EVENT) {
+        for (int i=0;i<ch->cd.nrace;i++) {
+            if (ch->cd.race[i].name_hash!=id || !cr_available(&ch->st,&ch->cd,i)) continue;
+            int z=cd_find_zone(&ch->cd,ch->cd.race[i].locator_hash);
+            if (z>=0) { matches++; zone=z; }
+        }
+    } else if (kind==FWM_ICON_SHOP) {
+        for (int i=0;i<ch->cd.nshop;i++) {
+            if (ch->cd.shop[i].hash!=id || !cr_shop_open(&ch->st,&ch->cd,i)) continue;
+            int z=cd_find_zone(&ch->cd,ch->cd.shop[i].zone_hash);
+            if (z>=0) { matches++; zone=z; }
+        }
+    }
+    if (matches!=1) return 0;
+    const CdZone *z=&ch->cd.zone[zone];
+    float x=0, y=0;
+    for (int j=0;j<4;j++) { x+=z->poly[j][0]*0.25f; y+=z->poly[j][1]*0.25f; }
+    if (!isfinite(x) || !isfinite(y)) return 0;
+    if (canonical) *canonical=(FeMapDestination){x,y,kind,id};
+    if (zone_out) *zone_out=zone;
+    return 1;
+}
+
+static uint32_t wm_event_label(int kind)
+{
+    static const char *const keys[]={"", "QR_CIRCUIT", "QR_SPRINT", "QR_DRAG", "QR_DRIFT", "QR_STREET_CROSS", "QR_URL"};
+    return kind>0 && kind<7 ? ug_hash_upper(keys[kind]) : 0;
+}
+
+static int wm_snapshot(const CareerHost *ch, FeMapIcon out[FWM_MAX_ICONS])
+{
+    HudMapIcon visual[FWM_MAX_ICONS];
+    if (!ch || !ch->loaded || !ch->active || ch->race>=0) return -1;
+    int n=ch_icons(ch,visual,FWM_MAX_ICONS), k=0;
+    int idx[CD_MAX_RACES];
+    int nr=cr_list(&ch->st,&ch->cd,idx,CD_MAX_RACES);
+    for (int j=0;j<nr && k<n;j++) {
+        int i=idx[j], z=cd_find_zone(&ch->cd,ch->cd.race[i].locator_hash);
+        if (z<0) continue;
+        if (visual[k].kind!=HMI_EVENT) return -1;
+        out[k]=(FeMapIcon){visual[k].x,visual[k].y,FWM_ICON_EVENT,
+                          visual[k].variant,ch->cd.race[i].name_hash,wm_event_label(ch->cd.race[i].kind)};
+        k++;
+    }
+    for (int i=0;i<ch->cd.nshop && k<n;i++) {
+        if (!cr_shop_open(&ch->st,&ch->cd,i) || cd_find_zone(&ch->cd,ch->cd.shop[i].zone_hash)<0) continue;
+        if (visual[k].kind!=HMI_SHOP) return -1;
+        out[k]=(FeMapIcon){visual[k].x,visual[k].y,FWM_ICON_SHOP,
+                          visual[k].variant,ch->cd.shop[i].hash,
+            ch->cd.shop[i].type==CD_SHOP_CAR_LOT ? 0x7edc9715u :
+            ch->cd.shop[i].type==CD_SHOP_CRIB ? 0x7ce21662u : 0};
+        k++;
+    }
+    if (k!=n) return -1;
+    /* A duplicate hash in one namespace is ambiguous; don't offer either. */
+    for (int i=0;i<n;i++) {
+        FeMapDestination c;
+        if (!wm_resolve(ch,out[i].kind,out[i].id,&c,NULL) ||
+            fabsf(c.x-out[i].x)>.01f || fabsf(c.y-out[i].y)>.01f) return -1;
+    }
+    return n;
+}
+
+static void wm_clear_destination(int *valid,int *owned_request,int *marker)
+{
+    *valid=0; *owned_request=0;
+    if (marker) *marker=0;
+    g_dbg.gps_n=0; g_dbg.gps_request=0;
+}
+
 static int g_focus_override_set;
 static float g_focus_override[2];
 
@@ -2348,7 +2425,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--world-map-dev", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2599,6 +2676,7 @@ int main(int argc, char **argv) {
     int touch_opt = -1;                  /* --touch 1 / --no-touch 0 / auto -1 */
     const char *script_spec = NULL;      /* --input-script SPEC */
     long debug_sink = -1;                /* --debug-sink FRAME: drop the car 30 m through the world (recovery check) */
+    int world_map_dev = 0; /* explicit scripted arrival check; F8 teleports only to a validated destination */
     int career_ask = 0;   /* --career-ask */
     int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
                                             engage the first available event, finish it in PLACE */
@@ -2638,6 +2716,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--no-touch")) touch_opt = 0;
         else if (!strcmp(argv[i], "--input-script") && i+1 < argc) script_spec = argv[++i];
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--world-map-dev")) world_map_dev=1;
         else if (!strcmp(argv[i], "--career-ask")) career_ask = 1;   /* with --career-dev: still ask the race question */
         else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
@@ -6708,6 +6787,8 @@ int main(int argc, char **argv) {
     tm_init(&g_tm,128);memset(&g_tm_player,0,sizeof g_tm_player);g_tm_frame=0;
     tm_load_textures(dataroot);
     GpsMarker *gps_marker = gps_marker_load(dataroot);   /* M9: 3D GPS arrow; NULL keeps the 2D arrow only */
+    FeMapDestination wm_destination={0};
+    int wm_destination_valid=0, wm_from_pause=0, wm_owned_request=0;
     int gps_marker_on = 0; float gps_marker_bearing = 0.0f;   /* last frame's HUD guidance */
     {   /* streamed vertex/colour buffers; static up-normals and quad indices */
         static float normals[TM_MAX_VERTICES*3];static uint16_t indices[TM_MAX_VERTICES/4*6];
@@ -6943,10 +7024,15 @@ int main(int argc, char **argv) {
                 if (!pause_menu) pause_menu = pause_menu_build(dataroot, &opt_gfx, &opt_caps, &opt_store, &opt_store_open);
                 if (pause_menu) {
                     pause_menu_set_mouse_look(pause_menu,&gc.settings.mouse_look);
-                    if (fe_enabled) {   /* non-career pause entries (Return to Free Run / Restart / Quit to Main Menu) */
+                    if (fe_enabled || g_career.active) {
                         PauseContext pctx; gf_pause_context(&gflow, world.city.race.active, &pctx);
-                        pause_menu_set_context(pause_menu, &pctx);
+                        if (g_career.active) pctx.mode=PE_MODE_CAREER;
+                        pctx.from_map=0; /* no map-launched race origin is claimed by this flow */
+                        pause_menu_set_context(pause_menu,&pctx);
                     }
+                    pause_menu_set_world_map_enabled(pause_menu,
+                        g_career.active && g_career.race<0 && gflow.state==GF_RUNNING &&
+                        gflow.launch.free_run && !world.city.race.active);
                     pause_menu_open(pause_menu);
                     pause_cursor = SDL_ShowCursor(SDL_QUERY);
                     SDL_ShowCursor(SDL_ENABLE);
@@ -6997,6 +7083,17 @@ int main(int argc, char **argv) {
 #endif
             if(e.type==SDL_KEYDOWN && !e.key.repeat && !text_input) {
                 SDL_Keycode key=e.key.keysym.sym;
+                if (world_map_dev && key==SDLK_F8 && wm_destination_valid && !pause_frame) {
+                    FeMapDestination target;
+                    if (wm_resolve(&g_career,wm_destination.kind,wm_destination.id,&target,NULL)) {
+                        carpos[0]=target.x; carpos[1]=target.y;
+                        vel[0]=vel[1]=0; speed=0;
+                        stage1_drive_reset(&g_stage1,vel,heading);
+                        sim_reset=1; presentation_snap=1;
+                        printf("world map: test arrival kind=%d id=%08x at=(%.3f %.3f)\n",target.kind,target.id,target.x,target.y);
+                    }
+                    continue;
+                }
                 int evsc=(int)e.key.keysym.scancode;
                 if((key==SDLK_PERIOD || key==SDLK_KP_PERIOD) && !cx_key_bound(&g_cx,evsc)){g_dbg.race_log_mark=1;continue;}
                 if(race_state==1 && !g_dbg.freecam && world.city.race.active &&
@@ -7029,6 +7126,7 @@ int main(int argc, char **argv) {
                 float ny = 1.0f - (float)e.button.y / (wh > 0 ? (float)wh : 1.0f) * 2.0f;
                 float px = 0, py = 0;
                 if (hud_pick(hud, nx, ny, &px, &py)) {
+                    wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                     g_dbg.gps_want_x = px; g_dbg.gps_want_y = py;
                     g_dbg.gps_request = 1;
                     printf("HUD: destination picked at (%.1f, %.1f)\n", px, py);
@@ -7061,7 +7159,7 @@ int main(int argc, char **argv) {
                 SDL_Keycode k = e.key.keysym.sym;
                 int kbound = cx_key_bound(&g_cx, (int)e.key.keysym.scancode);   /* developer keys stand back for bindings */
                 if (k == SDLK_g && hud && !e.key.repeat && !kbound) {
-                    g_dbg.gps_n = 0; g_dbg.gps_request = 0;   /* cancel guidance */
+                    wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on); /* cancel guidance */
                     printf("HUD: destination cleared\n");
                 }
                 else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
@@ -7247,13 +7345,35 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "options: lighting, car reflection/shadow and road reflection updated\n");
             }
         }
+        if (pause_action==FE_ACTION_WORLD_MAP && fem && g_career.active && g_career.race<0 &&
+            gflow.state==GF_RUNNING && gflow.launch.free_run && !world.city.race.active) {
+            FeMapIcon icons[FWM_MAX_ICONS];
+            int n=wm_snapshot(&g_career,icons);
+            if (n>=0) {
+                fem_open_world_map(fem,icons,n,carpos[0],carpos[1],heading);
+                wm_from_pause=1;
+                printf("world map: opened icons=%d player=(%.3f %.3f)\n",n,carpos[0],carpos[1]);
+                if (world_map_dev) {
+                    const FeWorldMap *state=fem_world_map_state(fem);
+                    for (int i=0;state && i<n;i++) {
+                        float x,y;
+                        if (fwm_project(&state->projection,icons[i].x,icons[i].y,&x,&y))
+                            printf("world map: icon=%d kind=%d id=%08x canvas=(%.3f %.3f)\n",i,icons[i].kind,icons[i].id,x,y);
+                    }
+                }
+                pause_action=FE_ACTION_NONE; /* consume; keep audio paused and cursor visible */
+            } else {
+                fprintf(stderr,"world map: inconsistent career icon snapshot\n");
+                pause_action=FE_ACTION_RESUME;
+            }
+        }
         int gf_handled = pause_action != FE_ACTION_NONE ? gf_pause_action(&gflow, pause_action) : 0;
         if (pause_action == FE_ACTION_QUIT && !gf_handled) running = 0;
         else if (pause_action != FE_ACTION_NONE) {
             /* The adapter returns RESUME when the screen's exit script has finished (SPEC_GUI_ART 2.4:
              * 320 ms after Return to Explore Mode / Back / Start). The paused frames never simulated, and
              * the next frame simulates and accepts driving input again. Race actions (restart, leave the
-             * race, world map) and Replay are not offered by this host's pause context; if one arrives
+             * race) and Replay are not offered by this host's pause context; if one arrives
              * anyway the game resumes. */
             if (pause_action != FE_ACTION_RESUME && !gf_handled)
                 fprintf(stderr, "pause: action %d is not supported by this host; resuming\n", (int)pause_action);
@@ -7274,6 +7394,27 @@ int main(int argc, char **argv) {
                 garage_current.rim_style=wheel_style;
                 fem_garage_current(fem,carname,&garage_current);}
             FemRequest frq = fem_update(fem, (float)fmin(frame_seconds, .1));
+            if (wm_from_pause && fem_screen(fem)==FEM_SCR_WORLD_MAP &&
+                (frq.kind==FEM_REQ_CAREER_ROAM || frq.kind==FEM_REQ_SET_DESTINATION)) {
+                if (frq.kind==FEM_REQ_SET_DESTINATION) {
+                    FeMapDestination canonical;
+                    if (isfinite(frq.destination.x) && isfinite(frq.destination.y) &&
+                        wm_resolve(&g_career,frq.destination.kind,frq.destination.id,&canonical,NULL)) {
+                        wm_destination=canonical; wm_destination_valid=1; wm_owned_request=1;
+                        printf("world map: selected kind=%d id=%08x x=%.3f y=%.3f\n",canonical.kind,canonical.id,canonical.x,canonical.y);
+                        g_dbg.gps_want_x=canonical.x; g_dbg.gps_want_y=canonical.y; g_dbg.gps_request=1;
+                    } else {
+                        wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
+                        fprintf(stderr,"world map: destination no longer available\n");
+                    }
+                }
+                wm_from_pause=0; fem_close(fem);
+                SDL_ShowCursor(pause_cursor);
+                SDL_SetRelativeMouseMode(g_dbg.freecam && race_state!=3 ? SDL_TRUE : SDL_FALSE);
+                if (adev) SDL_PauseAudioDevice(adev,0);
+                sim_reset=1;
+                frq.kind=FEM_REQ_NONE; /* never run lot/crib resume side effects */
+            }
             /* M2: front-end Options/Profile apply requests (consume-once mask). */
             unsigned fe_apply = fem_take_apply(fem);
             if (fe_apply & (FEM_APPLY_GRAPHICS | FEM_APPLY_REINIT)) {
@@ -7287,6 +7428,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "front end: display re-init requested; renderer reset hook not wired\n");
             }
             if (fe_apply & FEM_APPLY_PROFILE) {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 garage_reload_pending = 1; garage_load_failed = 0;
                 const StProfile *fp = fem_current_profile(fem);
                 if (fp) {
@@ -7343,6 +7485,7 @@ int main(int argc, char **argv) {
                 }
             }
             else if (frq.kind == FEM_REQ_CAREER) {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 const StProfile *fp = fem_current_profile(fem);
                 const char *root = fem_profile_root(fem);
                 GfLaunch gl;
@@ -7594,6 +7737,7 @@ int main(int argc, char **argv) {
                 if (fem) fem_set_loading(fem, gflow.launch.free_run ? -1 : gflow.launch.event_id);
                 break;
             case GF_CMD_SWITCH_TRACK: {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 int idx = -1;
                 for (int k = 0; k < ntrack; k++) if (!strcmp(tracklist[k], gcmd.name)) idx = k;
                 if (idx < 0) fprintf(stderr, "fe: track %s is not available\n", gcmd.name);
@@ -7606,6 +7750,7 @@ int main(int argc, char **argv) {
                 else { vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); pending_car = idx; }
                 break; }
             case GF_CMD_ARM_EVENT: {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 int evi = -1;
                 for (int k = 0; k < world.city.nev; k++) if (world.city.ev[k].id == gcmd.event_id) evi = k;
                 g_dbg.race_error[0] = 0;
@@ -7636,6 +7781,7 @@ int main(int argc, char **argv) {
                 sim_reset = 1;
                 break;
             case GF_CMD_OPEN_MAIN:
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on); wm_from_pause=0;
                 if (g_career.active) {   /* M6: keep the free-roam pose; an unfinished race counts as aborted */
                     ch_suspend(&g_career, carpos[0], carpos[1], carpos[2], heading);
                     printf("career: suspended (stage %d bank %lld)\n", g_career.st.stage, (long long)g_career.st.bank);
@@ -11956,6 +12102,7 @@ int main(int argc, char **argv) {
         g_dbg.navopen = world.city.mode == MODE_RACE_EVENT ? world.city.navopen : NULL;
         g_dbg.race = &world.city.race;
         if (g_dbg.mode_request) {
+            wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
             g_dbg.mode_request = 0;g_dbg.race_ai_choice=-1;
             world_race_stop(&world);
             world_set_mode(&world, g_dbg.want_mode, g_dbg.want_event);
@@ -11976,6 +12123,7 @@ int main(int argc, char **argv) {
             int armed=evi>=0 && world_race_start_direction(&world,troot,evi,g_dbg.race_maxlaps_want,
                 race_options.reverse,g_dbg.race_error,sizeof g_dbg.race_error)>0;
             if (armed) {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 race_place_on_grid(&world,&scene,carpos,&heading);
                 race_prepare_pending=1;ai_race=1;nai=0;
                 race_state=0;racetimer=0;speed=vel[0]=vel[1]=0;g_ride_ready=0;
@@ -11997,6 +12145,8 @@ int main(int argc, char **argv) {
         /* GPS: solve a fresh route whenever the panel asks for a destination */
         {   static int gpath[8192];
             if (g_dbg.gps_request) {
+                if (!wm_owned_request) wm_destination_valid=0; /* any manual/debug replacement */
+                wm_owned_request=0;
                 g_dbg.gps_request = 0;
                 int s0 = world_nav_nearest(&world, carpos[0], carpos[1]);
                 int g0 = world_nav_nearest(&world, g_dbg.gps_want_x, g_dbg.gps_want_y);
@@ -12005,6 +12155,16 @@ int main(int argc, char **argv) {
                 g_dbg.gps_ms = (int)(SDL_GetTicks() - ta);
                 g_dbg.gps_path = gpath; g_dbg.gps_n = gn; g_dbg.gps_dist = gd;
                 printf("GPS route: %d nodes, %.0f m, %d ms\n", gn, gd, g_dbg.gps_ms);
+            }
+        }
+        if (wm_destination_valid) {
+            FeMapDestination canonical; int zone=-1;
+            if (!g_career.active || g_career.race>=0 || world.city.race.active || !gflow.launch.free_run ||
+                !wm_resolve(&g_career,wm_destination.kind,wm_destination.id,&canonical,&zone)) {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
+            } else if (fwm_zone_contains((const float (*)[2])g_career.cd.zone[zone].poly,carpos[0],carpos[1])) {
+                wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
+                printf("world map: destination zone reached kind=%d id=%08x route=%d marker=0\n",wm_destination.kind,wm_destination.id,g_dbg.gps_n);
             }
         }
         for (int i = 0; i < 4; i++) g_dbg.navbb[i] = world.city.navbb[i];
@@ -12028,6 +12188,7 @@ int main(int argc, char **argv) {
 
         if (hud && hud_dest_set) {      /* one-shot, same request a click makes */
             hud_dest_set = 0;
+            wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
             g_dbg.gps_want_x = hud_dest[0]; g_dbg.gps_want_y = hud_dest[1];
             g_dbg.gps_request = 1;
         }
@@ -12193,10 +12354,13 @@ int main(int argc, char **argv) {
                 }
                 hs.opponent_xy=rival_xy;hs.opponent_n=rivals;hs.opponent_heading=rival_head;
                 /* Event icons on the free-roam map (retail legend colours; kinds without one are not drawn). */
-                static HudMapIcon map_icons[256];
+                static HudMapIcon map_icons[FWM_MAX_ICONS+1];
                 hs.map_icons=map_icons;
-                hs.map_icon_n=g_career.active?ch_icons(&g_career,map_icons,256)   /* M6: career events only */
-                                             :hud_host_event_icons(map_icons,256,&world.city);
+                hs.map_icon_n=g_career.active?ch_icons(&g_career,map_icons,FWM_MAX_ICONS)   /* M6: career events only */
+                                             :hud_host_event_icons(map_icons,FWM_MAX_ICONS,&world.city);
+                if (wm_destination_valid && g_dbg.gps_n<=1) {
+                    map_icons[hs.map_icon_n++]=(HudMapIcon){wm_destination.x,wm_destination.y,0,HMI_GPS,0};
+                }
             }
             static char career_notice[96];
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
@@ -12231,13 +12395,13 @@ int main(int argc, char **argv) {
                     float tx = world.city.nav[pick*2], ty = world.city.nav[pick*2+1];
                     hs.nav_active = 1;
                     hs.nav_bearing = atan2f(ty - carpos[1], tx - carpos[0]);
-                    hs.nav_target_x = world.city.nav[last*2];
-                    hs.nav_target_y = world.city.nav[last*2+1];
+                    hs.nav_target_x = wm_destination_valid ? wm_destination.x : world.city.nav[last*2];
+                    hs.nav_target_y = wm_destination_valid ? wm_destination.y : world.city.nav[last*2+1];
                     hs.nav_dist_m = remain;
                     /* reached: clear guidance rather than spinning in place */
                     float ddx = hs.nav_target_x - carpos[0];
                     float ddy = hs.nav_target_y - carpos[1];
-                    if (ddx*ddx + ddy*ddy < 25.0f * 25.0f) {
+                    if (!wm_destination_valid && ddx*ddx + ddy*ddy < 25.0f * 25.0f) {
                         g_dbg.gps_n = 0; hs.nav_active = 0;
                         printf("HUD: destination reached\n");
                     }
@@ -13176,10 +13340,13 @@ int main(int argc, char **argv) {
                 else fprintf(stderr, "script: capture of %s failed\n", sp);
             }
             if (sf % 30 == 0) {
+                if (world_map_dev) printf("WM f=%ld active=%d kind=%d id=%08x route=%d marker=%d pos=(%.3f %.3f)\n",
+                    sf,wm_destination_valid,wm_destination.kind,wm_destination.id,g_dbg.gps_n,
+                    hud_active && wm_destination_valid,carpos[0],carpos[1]);
                 const char *scr_names[] = {"NONE","MAIN","QR_MODE","QR_TRACK","QR_OPTIONS","QR_CAR","LOADING",
-                                           "OPTIONS","PROFILE","CAREER","GARAGE","CAREER_LOT"};
+                                           "OPTIONS","PROFILE","CAREER","GARAGE","CAREER_LOT","WORLD_MAP"};
                 int scr = fem && fem_is_open(fem) ? (int)fem_screen(fem) : 0;
-                if (scr < 0 || scr > FEM_SCR_CAREER_LOT) scr = 0;
+                if (scr < 0 || scr > FEM_SCR_WORLD_MAP) scr = 0;
                 printf("SCRIPT f=%ld screen=%s rs=%d ract=%d ev=%d trk=%s car=%s spd=%.1f held=0x%x\n", sf,
                        pause_menu_is_open(pause_menu) ? "PAUSE" : scr_names[scr], race_state, world.city.race.active,
                        world.city.race.active && world.city.race.ev >= 0 ? world.city.ev[world.city.race.ev].id : 0,

@@ -202,3 +202,32 @@ legend/filter controls are not implemented. Generic icon tints, directional sele
 adaptations remain inferred; retail captures would help refine them. Decorative authored left
 rails remain inactive. No retail executable, native map fallback, production host-file edit,
 publishing or real user-config modification is part of this task.
+
+## Host integration follow-up
+
+[data] The production host now opens the map from career free-roam pause, validates
+stable destination identities, feeds the existing GPS solver and minimap icon
+contract, and clears guidance inside the selected zone. The frame/presentation
+order from the scene render-scale integration is preserved.
+
+[observed] Desktop build passes with24 warnings, identical to the prior normalized
+baseline list. GLES builds with29 warnings; the clean current integration iOS-host
+baseline also has29 and the same warning list. Direct current GLES baseline and
+modified iOS-host comparison remain pending at this checkpoint.
+
+[observed] A live isolated test career opens the map with18 icons. Selecting race
+41837a8a solves124 nodes/3295m; selecting Car Lot be4383fa solves35 nodes/833m.
+Both selections show the blue minimap destination marker and road guidance. Moving
+into each canonical zone clears active destination, route and marker. The eleven
+live captures were reviewed. The explicit --world-map-dev/F8 diagnostic moves XY;
+it does not establish physical driving fidelity, and existing fall recovery reset
+the test pose between the two legs. Ordinary map selection never moves the car.
+
+[observed] Reports are under reports/worldmap/s2 outside the repository: live.log,
+live-assert.status and live.txt; live-roam.png, live-pause.png, live-confirm.png,
+live-map-race.png, live-race-selected.png, live-race-route.png,
+live-race-arrived.png, live-map-shop.png, live-shop-selected.png,
+live-shop-route.png and live-shop-arrived.png. Four probe captures were also
+reviewed. Remaining build/tests, invariance and S7/S13 checks are still pending
+at this checkpoint. Device checks remain NOT RUN. Optional filters and race-return
+remain unimplemented; the earlier inferred input/colour choices remain inferred.
