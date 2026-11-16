@@ -2347,7 +2347,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--perf-csv", "--career-dev", "--career-ask", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
