@@ -2,7 +2,7 @@
 
 ## Applied host follow-up
 
-[data] The host integration is now applied to the integration tree based on760f585.
+[data] The host integration is now applied to the integration tree based on 760f585.
 The patches below retain the original task-S scratch proposal for reference; the
 production implementation in main.c and Makefile is authoritative.
 
@@ -11,7 +11,7 @@ hud.c and hud.h require no edits. With a solved route, nav_target_x/y carry the
 exact zone centre while the bearing still follows the next road node. Without a
 route, the host appends the exact GPS icon to the career icon list. Arrival checks
 the canonical zone polygon independently of HUD visibility, then clears both the
-route and destination. The icon array reserves space for all288 career icons and
+route and destination. The icon array reserves space for all 288 career icons and
 one destination. Scale-target/frame presentation order is preserved.
 
 [data] The explicit --world-map-dev diagnostic enables F8 to move the player to a
@@ -25,8 +25,8 @@ NOT RUN. Host validation results are recorded in WORLD-MAP.md.
 [data] The following exact patches were generated against base2037712; the real Main/Make/HUD
 files were not edited. [inferred] This implements navigation selection only, with no teleport,
 race launch or shop engagement. It uses the existing GPS route solver and guidance arrow.
-Gameplay integration remains NOT RUN until the owner verifies it; scratch build status is recorded
-separately in WORLD-MAP.md. Include fe_worldmap.c in every SRC-based build, including iOS.
+At that original handoff gameplay was NOT RUN. The applied follow-up above and
+current results in WORLD-MAP.md supersede that status. Include fe_worldmap.c in every SRC-based build, including iOS.
 
 ## Request and lifetime contract
 
@@ -411,7 +411,7 @@ Main/profile change or a different launch. Do not auto-engage or teleport.
 
 ## Build patch and verification
 
-[data] Apply the prepared Makefile patch below against base `2037712`; it adds the module to the normal sources, screen tests and a standalone pure-module target. [observed] These exact patches compile in both external scratch games. The synthetic and existing FE targets, including real-data GL/GLES screen checks, PASS; desktop warnings remain24 and GLES warnings remain30, matching their baselines. Live host GPS/arrival gameplay and device checks remain **NOT RUN**.
+[data] Apply the prepared Makefile patch below against base `2037712`; it adds the module to the normal sources, screen tests and a standalone pure-module target. [observed] These exact patches compile in both external scratch games. The synthetic and existing FE targets, including real-data GL/GLES screen checks, PASS; desktop warnings remain24 and GLES warnings remain30, matching their baselines. At that original handoff live host gameplay and device checks were **NOT RUN**; see the applied follow-up and WORLD-MAP.md for current host results.
 
 ```diff
 --- a/Makefile

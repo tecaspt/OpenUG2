@@ -135,7 +135,7 @@ preserving the numeric indexes currently used by Quick Race Car and PostRace. Th
 restricted to career free roam and is default-off. It copies the existing retail World Map entry
 and confirmation. The unsupported Garage action resumes; it no longer aliases World Map.
 
-## Checks and evidence
+## Task S checks and evidence (before host integration)
 
 | Requested check | Result |
 |---|---|
@@ -196,38 +196,89 @@ disabled-row traversal assumptions. The final source loads InGameCommon; pause c
 for dialog transitions and navigate by actual selected row. Failed earlier logs remain retained;
 only the final successful runs above support the PASS claims.
 
-[inferred] Host gameplay hooks (GPS, exact minimap marker and zone arrival) still need the owner to
-apply/review the integration document and run gameplay checks. Optional race-return and unproven
-legend/filter controls are not implemented. Generic icon tints, directional selection and touch
-adaptations remain inferred; retail captures would help refine them. Decorative authored left
-rails remain inactive. No retail executable, native map fallback, production host-file edit,
-publishing or real user-config modification is part of this task.
+[observed] Task S ended with host gameplay hooks awaiting integration; the follow-up
+below supersedes that handoff status. Task S itself did not edit production host
+files. Optional race-return and unproven legend/filter controls remain unimplemented.
+Generic icon tints, directional selection and touch adaptations remain inferred;
+retail captures would help refine them. Decorative authored left rails remain inactive.
 
 ## Host integration follow-up
 
 [data] The production host now opens the map from career free-roam pause, validates
 stable destination identities, feeds the existing GPS solver and minimap icon
 contract, and clears guidance inside the selected zone. The frame/presentation
-order from the scene render-scale integration is preserved.
+order from the scene render-scale integration is preserved. Integration base:
+760f585, merged by ea0ef0e; implementation checkpoint: d05a429.
 
-[observed] Desktop build passes with24 warnings, identical to the prior normalized
-baseline list. GLES builds with29 warnings; the clean current integration iOS-host
-baseline also has29 and the same warning list. Direct current GLES baseline and
-modified iOS-host comparison remain pending at this checkpoint.
+| S2 check | Result |
+|---|---|
+|1. Desktop / GLES / iOS-host builds|PASS: 24 / 29 / 29 warnings; normalized lists match clean baselines|
+|2. Original test commands|FAIL overall: 15 of 16 PASS; career-host-check cannot initialize LeakSanitizer under the execution environment's ptrace restrictions|
+|2. Separate sanitizer retry|PASS: career-host-check with ASAN_OPTIONS=detect_leaks=0, 107 checks / 0 failures; ASan/UBSan active, leak detection NOT RUN|
+|3. Historical reference PNGs|FAIL: both differ; L4RA 137,738 pixels, L4RB 68,200 pixels|
+|3. Fresh current integration control|PASS: both S2 PNG files byte-identical to clean 760f585 controls, 0 differing pixels|
+|4. Live race/shop GPS and arrival|PASS: 124 / 35-node routes, destination markers visible, both exact-zone arrivals clear guidance|
+|5. Career regressions|PASS: S7 career-start flow reaches persisted stage 1; S13 answers Yes and launches event 4311, 5 / 5 log rules pass|
 
-[observed] A live isolated test career opens the map with18 icons. Selecting race
-41837a8a solves124 nodes/3295m; selecting Car Lot be4383fa solves35 nodes/833m.
+[observed] The 16 original commands are fe-worldmap-test, fe-screen-test,
+fe-polish-test, gui-art-test, fe-garage-test, fe-lot-test, pause-menu-test,
+fe-binding-test, postrace-test, career-test, career-host-check, hud-minimap-test,
+hud-host-map-test, gps-marker-test, game-flow-test and fe-screens-check. The
+additional GLES fe-screens-check passes. Five map captures from each backend were
+reviewed. The default career-host-check runtime failure is retained in its log;
+the separate leak-disabled retry does not turn that original invocation into PASS.
+
+[observed] Current GLES baseline and treatment both have 29 warnings, with identical
+normalized text. The older 30-warning baseline had an unused rhi_gl.c parameter
+warning removed by the preceding renderer integration. iOS-host is 29 -> 29 and
+desktop 24 -> 24, also identical after line-number normalization.
+
+[observed] Historical reference comparisons differ by 137,738 pixels (44.84%, mean
+channel delta 1.0) on L4RA and 68,200 pixels (22.20%, mean 0.4) on L4RB. Unmodified
+current 760f585 produces exactly the same files as S2 in this environment. The GPU
+device directory is absent; an independent context probe reports Mesa llvmpipe,
+LLVM 19.1.7, GL 4.5 Compatibility. The historical reference log instead records the
+GL 3.3 compatibility request failing and falling back to an implicit context.
+[inferred] This is a pre-existing reference/environment mismatch; S2 introduces
+no image difference against the current control. The mandatory historical gate
+is still FAIL and needs a rerun with the original host GPU path. Reference PNGs
+were not changed. No device/system permission change was attempted.
+
+[observed] A live isolated test career opens the map with 18 icons. Selecting race
+41837a8a solves 124 nodes / 3295 m; selecting Car Lot be4383fa solves 35 nodes / 833 m.
 Both selections show the blue minimap destination marker and road guidance. Moving
 into each canonical zone clears active destination, route and marker. The eleven
 live captures were reviewed. The explicit --world-map-dev/F8 diagnostic moves XY;
 it does not establish physical driving fidelity, and existing fall recovery reset
 the test pose between the two legs. Ordinary map selection never moves the car.
 
-[observed] Reports are under reports/worldmap/s2 outside the repository: live.log,
-live-assert.status and live.txt; live-roam.png, live-pause.png, live-confirm.png,
-live-map-race.png, live-race-selected.png, live-race-route.png,
-live-race-arrived.png, live-map-shop.png, live-shop-selected.png,
-live-shop-route.png and live-shop-arrived.png. Four probe captures were also
-reviewed. Remaining build/tests, invariance and S7/S13 checks are still pending
-at this checkpoint. Device checks remain NOT RUN. Optional filters and race-return
-remain unimplemented; the earlier inferred input/colour choices remain inferred.
+[observed] S7 uses the original career-start inputs and automation, stopping at frame
+301 after the six-car lot, purchase, crib and stage-0 -> stage-1 transition. The
+save inspector confirms stage 1 / 240SX, 2 valid files and 0 refused. Its extended
+4201-frame race-completion loop was NOT RUN; the requested career-start flow stops
+in stage 1. S13 keeps the original Yes inputs at frames 1000 / 1010, then captures
+the active race at frame 1300 and quits at 1301. Both run at 640x480, with fresh
+isolated storage, offscreen video, dummy audio and bounded timeouts.
+
+[observed] Reports are under reports/worldmap/s2 outside the repository. Reviewed
+captures and evidence:
+
+- live.log, live-assert.status, live.txt: two opens, typed selections, routes, markers and arrival clears.
+- live-roam.png, live-pause.png, live-confirm.png.
+- live-map-race.png, live-race-selected.png, live-race-route.png, live-race-arrived.png.
+- live-map-shop.png, live-shop-selected.png, live-shop-route.png, live-shop-arrived.png.
+- probe-roam.png, probe-pause.png, probe-confirm.png, probe-map.png.
+- screens-gl/worldmap-control0.png through worldmap-control3.png, worldmap-destination.png.
+- screens-gles/worldmap-control0.png through worldmap-control3.png, worldmap-destination.png.
+- inv-STREAML4RA.png, inv-STREAML4RB.png: historical gate failures.
+- current-ref-STREAML4RA.png, current-ref-STREAML4RB.png: byte-identical current controls.
+- s7-lot.png, s7-roam.png, s7-stage1.png, s7-save-inspect.log.
+- s13-question.png, s13-yes.png, s13.log, career.status: Yes / engagement order, 5 rules / 0 failures.
+- builds.status, tests.status, current-reference.status, warnings-gles.status, warnings-ios.status and context.log.
+- career-host-check.log: original LSan failure; career-host-check-no-lsan.log: separate ASan/UBSan retry.
+
+[observed] Source integration and live navigation are complete. The default LSan
+and historical-reference gates remain FAIL; rerun both in the normal host execution
+context before treating the mandatory suite as fully green. Device checks remain
+NOT RUN. Optional filters and race-return remain unimplemented because the core
+suite is not fully green. Earlier inferred input/colour choices remain inferred.
