@@ -1620,6 +1620,22 @@ static CareerHost g_career;
 static int g_focus_override_set;
 static float g_focus_override[2];
 
+/* M6 car lot: the career's lot inventory into the FE Car Lot (CrLotCar and FeLotCar share a layout; copied
+ * member-wise). Logs "career: lot N cars: ...". Returns the car count. */
+static int career_open_lot(FeMenu *fem, int must_buy) {
+    static CrLotCar lot[FEL_MAX];
+    static FeLotCar fl[FEL_MAX];
+    char line[512];
+    int n = ch_lot_list(&g_career, lot, FEL_MAX);
+    for (int i = 0; i < n; i++) {
+        memcpy(fl[i].name, lot[i].name, sizeof fl[i].name);
+        fl[i].price = lot[i].price; fl[i].owned = lot[i].owned; fl[i].starter = lot[i].starter;
+    }
+    printf("%s\n", ch_lot_line(lot, n, line, (int)sizeof line));
+    fem_open_lot(fem, fl, n, must_buy, (long long)g_career.st.bank);
+    return n;
+}
+
 /* Career save present for the FE's current profile (drives Main > Career: continue vs new). */
 static int career_has_save(const FeMenu *fem) {
     static CareerState probe;
@@ -6603,6 +6619,9 @@ int main(int argc, char **argv) {
     int outrun_slot=-1;Uint32 outrun_until=0; /* free-roam outrun shown on the race HUD */
     int outrun_offer=-1,outrun_challenge=0;   /* challengeable rival; Enter Race pressed */
     int career_zone=-1,career_enter=0;        /* M6: available career event under the car; Enter Race pressed */
+    int career_shop=-1,shop_enter=0;          /* M6: car lot / crib under the car (race zones win); Enter pressed there */
+    int lot_pending=0,lot_must_buy=0,lot_dev_frames=0;   /* M6: open the lot once the launch runs; must-buy lot */
+    int crib_garage=0;                        /* M6: the FE Garage was opened at the crib */
     int career_reload=0,career_heading_set=0,career_dev_frames=0,career_save_shown=-1;
     float career_heading=0.0f;
     int career_place=0; GfLaunch career_launch; memset(&career_launch,0,sizeof career_launch);
@@ -6949,6 +6968,7 @@ int main(int argc, char **argv) {
                     if (pad_edge & ((1u<<CB_ACT_STEER_LEFT)|(1u<<CB_ACT_STEER_RIGHT))) { drag_change=(pad_edge&(1u<<CB_ACT_STEER_LEFT))?1:-1; continue; }
                 }
                 if ((pad_edge & (1u<<CB_ACT_ENTER_RACE)) && career_zone>=0) { career_enter=1; continue; }
+                if ((pad_edge & (1u<<CB_ACT_ENTER_RACE)) && career_shop>=0) { shop_enter=1; continue; }   /* M6 shop */
                 if ((pad_edge & (1u<<CB_ACT_ENTER_RACE)) && outrun_offer>=0) { outrun_challenge=1; continue; }
                 if ((pad_edge & (1u<<CB_ACT_CAMERA)) && race_state != 3) {
                     int drift_ev=world.city.race.active && world.city.race.kind==N2_RACE_DRIFT;
@@ -7034,6 +7054,10 @@ int main(int argc, char **argv) {
                 else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
                          career_zone >= 0) {
                     career_enter = 1;   /* Enter Race inside a career event zone (M6) */
+                }
+                else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
+                         career_shop >= 0) {
+                    shop_enter = 1;     /* Enter Race / Shop inside a car lot or crib zone (M6) */
                 }
                 else if (cx_key_is(&g_cx, (int)e.key.keysym.scancode, CB_ACT_ENTER_RACE) && !e.key.repeat &&
                          outrun_offer >= 0) {
@@ -7310,10 +7334,11 @@ int main(int argc, char **argv) {
                 const char *root = fem_profile_root(fem);
                 GfLaunch gl;
                 int prc = fp ? fem_persist_profile(fem) : ST_E_ARG;   /* [inferred] Career saves the profile first */
+                int begin = CH_BEGIN_FAIL;
                 if (!fp || !root || prc != ST_OK) {
                     fprintf(stderr, "career: no saved profile (%d); create one first\n", prc);
                     fem_open(fem, FEM_SCR_PROFILE);
-                } else if (!ch_begin(&g_career, frq.event_id, root, fp->name, frq.car[0] ? frq.car : carname, &gl)) {
+                } else if ((begin = ch_begin(&g_career, frq.event_id, root, fp->name, frq.car[0] ? frq.car : carname, &gl)) == CH_BEGIN_FAIL) {
                     fprintf(stderr, "%s\n", g_career.last[0] ? g_career.last : "career: start failed (save the profile first)");
                     fem_open(fem, FEM_SCR_PROFILE);
                 } else {
@@ -7322,6 +7347,62 @@ int main(int argc, char **argv) {
                     career_place = 1;
                     gf_start(&gflow, &gl);
                     career_launch = gl;
+                    crib_garage = 0; lot_pending = 0;
+                    /* M6: a new career (or a Stage 0 career without a car) opens the car lot at once, must buy.
+                       The lot opens when the free-roam launch runs (the launch's loading screen would replace it). */
+                    if (begin == CH_BEGIN_LOT) { lot_pending = 1; lot_must_buy = 1; }
+                }
+            }
+            /* M6 car lot / crib Garage requests. */
+            else if (frq.kind == FEM_REQ_LOT_BUY) {
+                GfLaunch gl;
+                int ok = ch_lot_buy(&g_career, frq.car, &gl);
+                printf("%s\n", g_career.last);
+                if (ok) {   /* free roam in the bought car at the lot marker */
+                    lot_must_buy = 0; lot_dev_frames = 0; career_dev_frames = 0;
+                    career_place = 1;
+                    gf_start(&gflow, &gl);
+                    career_launch = gl;
+                } else career_open_lot(fem, lot_must_buy);   /* refused: the menu unlocks on re-open */
+            }
+            else if (frq.kind == FEM_REQ_CAREER_ROAM) {
+                GfLaunch gl;
+                if (crib_garage && ch_crib_done(&g_career, &gl)) {   /* leaving the Garage at the crib */
+                    crib_garage = 0;
+                    printf("%s\n", g_career.last);
+                    career_dev_frames = 0;
+                    career_place = 1;
+                    gf_start(&gflow, &gl);
+                    career_launch = gl;
+                } else {   /* Back from the lot: resume roaming in the career car (the lot may have previewed another) */
+                    crib_garage = 0;
+                    fem_close(fem);
+                    if (g_career.st.car[0] && strcmp(carname, g_career.st.car)) {
+                        int idx = -1;
+                        for (int k = 0; k < ncars; k++) if (!strcmp(carlist[k], g_career.st.car)) idx = k;
+                        if (idx >= 0) pending_car = idx;
+                    }
+                    vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
+                    if (adev) SDL_PauseAudioDevice(adev, 0);
+                    sim_reset = 1;
+                    printf("career: back to free roam\n");
+                }
+            }
+            /* M6: the must-buy lot of a new career opens once its free-roam launch is running. */
+            if (lot_pending && g_career.active && gflow.state == GF_RUNNING && gflow.launch.free_run && !fem_is_open(fem)) {
+                lot_pending = 0; lot_dev_frames = 0;
+                career_open_lot(fem, lot_must_buy);
+                if (adev) SDL_PauseAudioDevice(adev, 1);
+            }
+            /* --career-dev: buy the first listed car on a must-buy lot with the player's keys (Return twice: choose, confirm). */
+            if (career_dev > 0 && lot_must_buy && fem_is_open(fem) && fem_screen(fem) == FEM_SCR_CAREER_LOT) {
+                int k = ++lot_dev_frames;
+                if (k == 60 || k == 90) {
+                    SDL_Event ke; memset(&ke, 0, sizeof ke);
+                    ke.type = SDL_KEYDOWN; ke.key.keysym.sym = SDLK_RETURN; ke.key.keysym.scancode = SDL_SCANCODE_RETURN;
+                    SDL_PushEvent(&ke);
+                    ke.type = SDL_KEYUP; SDL_PushEvent(&ke);
+                    if (k == 90) printf("career-dev: buy first lot car\n");
                 }
             }
             /* Career free roam: the available event under the car (Enter Race), or the developer automation. */
@@ -7329,8 +7410,31 @@ int main(int argc, char **argv) {
                               gflow.launch.free_run && !world.city.race.active && !fem_is_open(fem);
             career_zone = career_roam ? ch_zone(&g_career, carpos[0], carpos[1], PHYS_KMH(speed)) : -1;
             if (!career_roam) career_enter = 0;
+            /* M6 shops: the open shop under the car (ch->at_shop); Enter only at a car lot or the crib, and a race
+               zone overlapping a shop wins. Other shop types are not wired yet. */
+            {
+                int sh = career_roam ? ch_shop_zone(&g_career, carpos[0], carpos[1], PHYS_KMH(speed)) : -1;
+                if (career_roam) g_career.at_shop = sh;
+                int ty = sh >= 0 ? g_career.cd.shop[sh].type : -1;
+                career_shop = career_zone < 0 && (ty == CD_SHOP_CAR_LOT || ty == CD_SHOP_CRIB) ? sh : -1;
+                if (career_shop < 0) shop_enter = 0;
+            }
             float ce_x = carpos[0], ce_y = carpos[1], ce_kmh = PHYS_KMH(speed);
-            if (career_dev > 0 && career_roam && ++career_dev_frames > 90) {
+            if (career_dev > 0 && career_roam && g_career.st.stage == 0 && !lot_pending && g_career.st.nowned > 0 &&
+                ++career_dev_frames > 90) {
+                /* --career-dev Stage 0: the drive to the crib is skipped; leave the crib Garage at once (stage 0 -> 1). */
+                GfLaunch gl;
+                career_dev_frames = 0;
+                printf("career-dev: crib\n");
+                if (ch_crib_done(&g_career, &gl)) {
+                    printf("%s\n", g_career.last);
+                    career_place = 1;
+                    gf_start(&gflow, &gl);
+                    career_launch = gl;
+                    career_roam = 0; career_shop = -1;
+                }
+            }
+            else if (career_dev > 0 && career_roam && g_career.st.stage > 0 && ++career_dev_frames > 90) {
                 int list[CD_MAX_RACES];
                 if (cr_list(&g_career.st, &g_career.cd, list, CD_MAX_RACES) > 0) {
                     int z = cd_find_zone(&g_career.cd, g_career.cd.race[list[0]].locator_hash);
@@ -7361,6 +7465,42 @@ int main(int argc, char **argv) {
                 int answer = pause_menu_take_confirm(pause_menu);
                 printf("career: race question answered %s\n", answer == GD_RES_FIRST ? "Yes" : "No");
                 if (answer == GD_RES_FIRST && career_roam) { career_enter = 1; ce_x = ask_x; ce_y = ask_y; ce_kmh = ask_kmh; }
+            }
+            /* M6: Enter at a car lot asks the retail ASK_ENTER_CAR_LOT Yes / No question (same rules as the race question);
+               Yes opens the lot (must buy only when the player owns no car). The crib is the player's own Garage: no question. */
+            static int shop_ask_live, shop_ask_shop;
+            if (shop_enter && career_shop >= 0 && career_roam) {
+                int sh = career_shop;
+                shop_enter = 0;
+                if (g_career.cd.shop[sh].type == CD_SHOP_CRIB) {
+                    vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
+                    crib_garage = 1;
+                    fem_open_career_garage(fem);
+                    if (adev) SDL_PauseAudioDevice(adev, 1);
+                    printf("career: crib %s, Garage\n", g_career.cd.shop[sh].name);
+                } else if (career_dev && !career_ask) {
+                    vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
+                    lot_must_buy = g_career.st.nowned == 0;
+                    career_open_lot(fem, lot_must_buy);
+                    if (adev) SDL_PauseAudioDevice(adev, 1);
+                } else if (!shop_ask_live && !ask_live && pause_menu_confirm(PAUSE_MENU_READY, GD_ENGAGE_SHOP)) {
+                    shop_ask_live = 1; shop_ask_shop = sh;
+                    if (adev) SDL_PauseAudioDevice(adev, 1);
+                    printf("career: asking to enter %s\n", g_career.cd.shop[sh].name);
+                }
+            }
+            shop_enter = 0;
+            if (shop_ask_live && !pause_menu_is_open(pause_menu)) {
+                shop_ask_live = 0;
+                int answer = pause_menu_take_confirm(pause_menu);
+                printf("career: shop question answered %s\n", answer == GD_RES_FIRST ? "Yes" : "No");
+                if (answer == GD_RES_FIRST && career_roam && g_career.active) {
+                    g_career.at_shop = shop_ask_shop;
+                    vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
+                    lot_must_buy = g_career.st.nowned == 0;
+                    career_open_lot(fem, lot_must_buy);
+                    if (adev) SDL_PauseAudioDevice(adev, 1);
+                }
             }
             if (career_enter) {
                 career_enter = 0;
@@ -12042,7 +12182,7 @@ int main(int argc, char **argv) {
             }
             static char career_notice[96];
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
-                      !hs.racing && career_zone>=0 && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
+                      !hs.racing && (career_zone>=0 || career_shop>=0) && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
                                                                 pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL),   /* "Enter Race / Shop" */
                                                                 career_notice,sizeof career_notice)?career_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
@@ -13018,9 +13158,10 @@ int main(int argc, char **argv) {
                 else fprintf(stderr, "script: capture of %s failed\n", sp);
             }
             if (sf % 30 == 0) {
-                const char *scr_names[] = {"NONE","MAIN","QR_MODE","QR_TRACK","QR_OPTIONS","QR_CAR","LOADING"};
+                const char *scr_names[] = {"NONE","MAIN","QR_MODE","QR_TRACK","QR_OPTIONS","QR_CAR","LOADING",
+                                           "OPTIONS","PROFILE","CAREER","GARAGE","CAREER_LOT"};
                 int scr = fem && fem_is_open(fem) ? (int)fem_screen(fem) : 0;
-                if (scr < 0 || scr > 6) scr = 0;
+                if (scr < 0 || scr > FEM_SCR_CAREER_LOT) scr = 0;
                 printf("SCRIPT f=%ld screen=%s rs=%d ract=%d ev=%d trk=%s car=%s spd=%.1f held=0x%x\n", sf,
                        pause_menu_is_open(pause_menu) ? "PAUSE" : scr_names[scr], race_state, world.city.race.active,
                        world.city.race.active && world.city.race.ev >= 0 ? world.city.ev[world.city.race.ev].id : 0,
