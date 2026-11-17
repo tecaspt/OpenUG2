@@ -133,18 +133,22 @@ MILESTONE_RULES = (
      r"|^ui_sms|^ui_magazine|^ui_sponsor|^ui_rewardssponsor|^ui_cribreward|^ui_buyperformance"
      r"|^ui_startcareer|^demo_shopp|^ui_menu_asset",
      "M6 (career: world map, ENGAGE art, car lot, SMS, sponsors, shops, DVD/magazines)"),
-    (r"^ui_perf.*dyno|^ui_performancedyno|^ui_performancebrandselect|^ui_chooseperformance"
-     r"|^ui_buyperformanceparts", "M5 (performance tuning and the dyno)"),
+    (r"perfor[mn]ancetuning|dyno", "M5 (performance tuning and the dyno; the tuning screens live "
+                                   "in GLOBAL/InGamePerformanceTuning.bun, which the loader does "
+                                   "not scan, so they need --extra-bundle to be seen at all)"),
     (r"^ui_chooserimbrand$|^ui_choosespinner$|^ui_genericparts|^ui_rims",
      "M5 (customise: parts, rims, spinner pickers)"),
     (r"^hud_|^chyron_|^demo_minimap", "M9 (HUD parity: speedo, position/laps, drag/drift, map, "
                                       "chyron, captions)"),
     (r"^ui_ingame_|^ig_", "M7 (race-mode parity: in-world map and mode chrome)"),
-    (r"^genericdialog|^helpdialog|^ui_ingamedialog|^pc_contexthelp",
+    # Ahead of the ^ui_ catch-all: the dialog frames are named by their own prefix families, which
+    # that catch-all cannot reach, so they need their own row. PC_ContextHelp is listed here too -
+    # classified out of scope by content, but its milestone is still the options/pause help row.
+    (r"^genericdialog|^helpdialog|^ui_ingamedialog$|^pc_contexthelp$",
      "M1/M2 (shared dialog frames the options and pause screens already call)"),
-    (r"^ui_", "M4/M5 (front-end 3D scene and screen furniture)"),
     (r"^credits$|^ea_trax|^screenprintf$|^pc_loading$|^demo_",
      "unmapped (front-end package with no milestone row yet)"),
+    (r"^ui_", "M4/M5 (front-end 3D scene and screen furniture)"),
     (r"garage", "M5 (garage hub)"),
 )
 
