@@ -131,7 +131,7 @@ int main(int argc, char **argv)
     CHECK(lz >= 0 && lotidx >= 0 && !strcmp(ch.cd.shop[lotidx].name, "CC_CAR_LOT_1"), "lot zone hit");
     CHECK(fabsf(zx - lx) < 10.0f && fabsf(zy - ly) < 10.0f, "lot marker near its zone (%.1f %.1f vs %.1f %.1f)", lx, ly, zx, zy);
     CHECK(cribidx >= 0 && !strcmp(ch.cd.shop[cribidx].name, "CRIB_1"), "crib marker inside its zone");
-    CHECK(ch_shop_zone(&ch, cx, cy, 80.0f) < 0, "too fast for a shop");
+    CHECK(ch_shop_zone(&ch, cx, cy, 80.0f) == cribidx, "shop entry remains visible at speed");
     {
         char buf[96];
         CHECK(ch_prompt(&ch, cx, cy, 0.0f, NULL, buf, sizeof buf) && strstr(buf, "CRIB_1"), "crib prompt");
@@ -156,6 +156,44 @@ int main(int argc, char **argv)
     nshopicon = 0;
     for (int k = 0; k < nicon; k++) nshopicon += ic[k].kind == HMI_SHOP;
     CHECK(nicon - nshopicon == 5, "stage 1 event icons %d (want 5)", nicon - nshopicon);
+
+    CHECK(nshopicon == 8, "stage 1 open shop icons %d",nshopicon);
+    /* All retail stage boundaries, including the normally unreachable uniques shop. */
+    {
+        const int counts[]={2,8,13,15,20,23};
+        HudMapIcon all[CD_MAX_RACES+CD_MAX_SHOPS];
+        int saved_stage=ch.st.stage;
+        for(int stage=0;stage<6;stage++) {
+            ch.st.stage=(uint8_t)stage;
+            int total=ch_icons(&ch,all,CD_MAX_RACES+CD_MAX_SHOPS),shops=0;
+            for(int i=0;i<total;i++)if(all[i].kind==HMI_SHOP)shops++;
+            CHECK(shops==counts[stage],"stage %d shop icons %d expected %d",stage,shops,counts[stage]);
+            for(int shop=0;shop<ch.cd.nshop;shop++)if(cr_shop_open(&ch.st,&ch.cd,shop)) {
+                int zone=cd_find_zone(&ch.cd,ch.cd.shop[shop].zone_hash);
+                if(zone<0)continue;
+                const CdZone *q=&ch.cd.zone[zone];float x=0,y=0;
+                for(int j=0;j<4;j++){x+=q->poly[j][0]*.25f;y+=q->poly[j][1]*.25f;}
+                CHECK(ch_shop_zone(&ch,x,y,0)==shop,"stage %d enterable shop %s",stage,ch.cd.shop[shop].name);
+                CHECK(ch_shop_zone(&ch,x,y,80)==shop,"stage %d visible shop at speed %s",stage,ch.cd.shop[shop].name);
+                CHECK(ch_zone(&ch,x,y,0)<0,"stage %d shop %s not masked by race",stage,ch.cd.shop[shop].name);
+            }
+        }
+        ch.st.stage=(uint8_t)saved_stage;
+    }
+    int body = cd_find_shop(&ch.cd,cd_hash("CC_BODYSHOP_1"));
+    ch.at_shop = body;
+    GarageConfig installed = {0};installed.car.body_kit=1;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)==ST_OK,"body installation saved");
+    CHECK(ch_shop_install(&ch,"OTHER",&installed)==ST_E_ARG,"wrong car refused");
+    installed.car.parts[N2_PART_AUDIO]=1;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)==ST_E_ARG,"body cannot install specialty part");
+    CareerState loaded;
+    CHECK(cr_load_file(argv[2],"CAREERT",&loaded)==ST_OK&&loaded.config[0].car.body_kit==1,"installation survives load");
+    char saved_root[256];snprintf(saved_root,sizeof saved_root,"%s",ch.root);
+    snprintf(ch.root,sizeof ch.root,"%s/nonexistent",argv[2]);
+    installed=ch.st.config[0];installed.car.body_kit=2;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)!=ST_OK&&ch.st.config[0].car.body_kit==1,"save failure rolls back state");
+    snprintf(ch.root,sizeof ch.root,"%s",saved_root);
 
     int list[CD_MAX_RACES], n = cr_list(&ch.st, &ch.cd, list, CD_MAX_RACES), done = 0;
     CHECK(n == 5, "stage 1 available %d", n);

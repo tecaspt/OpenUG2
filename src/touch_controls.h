@@ -21,7 +21,7 @@ extern "C" {
 
 typedef enum { TC_STEER_L, TC_STEER_R, TC_GAS, TC_BRAKE, TC_NOS, TC_HANDBRAKE, TC_CAMERA, TC_PAUSE,
                TC_SHIFT_UP, TC_SHIFT_DOWN, TC_ENTER_RACE, TC_COUNT } TcButton;
-enum { TC_CTX_DRAG = 1, TC_CTX_OUTRUN = 2 };
+enum { TC_CTX_DRAG = 1, TC_CTX_OUTRUN = 2, TC_CTX_SHOP = 4 };
 
 #define TC_MAX_TOUCHES 10
 
@@ -60,6 +60,8 @@ uint32_t tc_event(TouchControls *t, const SDL_Event *e);
 /* CbAction bits of the buttons held now (PAUSE is never held). */
 uint32_t tc_held(const TouchControls *t);
 int tc_visible(const TouchControls *t);
+/* Shop entry stays discoverable before the first touch and after keyboard/pad input. */
+const char *tc_button_label(const TouchControls *t,int button);
 /* Circle of a button in height units (whatever the context). */
 void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r);
 /* Draws the overlay in a w x h pixel target (nothing when not visible). */

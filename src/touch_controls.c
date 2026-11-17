@@ -39,6 +39,8 @@ void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r) 
     if (btn < 0 || btn >= TC_COUNT) { if (cx) *cx = 0; if (cy) *cy = 0; if (r) *r = 0; return; }
     const TcSpec *s = &TC_SPEC[btn];
     float x = s->anchor == 0 ? inset + s->dx : s->anchor == 1 ? W - inset - s->dx : W * 0.5f + s->dx;
+    if (t && (t->ctx & TC_CTX_SHOP) && (btn == TC_PAUSE || btn == TC_CAMERA))
+        x = inset + (btn == TC_CAMERA ? 0.16f : 0.0f); /* keep the shop notice clear */
     if (cx) *cx = x;
     if (cy) *cy = s->y;
     if (r) *r = s->r;
@@ -46,11 +48,15 @@ void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r) 
 
 static int tc_btn_enabled(const TouchControls *t, int b) {
     if (b == TC_SHIFT_UP || b == TC_SHIFT_DOWN) return (t->ctx & TC_CTX_DRAG) != 0;
-    if (b == TC_ENTER_RACE) return (t->ctx & TC_CTX_OUTRUN) != 0;
+    if (b == TC_ENTER_RACE) return (t->ctx & (TC_CTX_OUTRUN | TC_CTX_SHOP)) != 0;
     return 1;
 }
 
-int tc_visible(const TouchControls *t) { return t->enabled && t->active && !t->suppressed; }
+int tc_visible(const TouchControls *t) { return t->enabled && (t->active || (t->ctx & TC_CTX_SHOP)) && !t->suppressed; }
+
+const char *tc_button_label(const TouchControls *t,int b) {
+    return t && b == TC_ENTER_RACE && (t->ctx & TC_CTX_SHOP) ? "ENTER" : NULL;
+}
 
 static void tc_release_all(TouchControls *t) { memset(t->touch, 0, sizeof t->touch); t->tap_max = 0; t->tap_spoiled = 1; }
 
@@ -238,15 +244,33 @@ static void tc_icon(UiFlat *uf, int b, float cx, float cy, float r) {
     }
 }
 
+/* Small platform-overlay label, drawn with the same primitives as the touch controls.
+ * E N T E R, five columns by seven rows; this is not part of the retail interface. */
+static void tc_enter_label(UiFlat *uf,float cx,float cy,float r) {
+    static const unsigned char letters[5][7]={
+        {31,16,16,30,16,16,31},{17,25,21,19,17,17,17},
+        {31,4,4,4,4,4,4},{31,16,16,30,16,16,31},{30,17,17,30,20,18,17}};
+    float pixel=floorf(r*1.75f/29.0f);if(pixel<1)pixel=1;
+    float x=cx-29*pixel*.5f,y=cy-7*pixel*.5f;
+    for(int c=0;c<5;c++)for(int row=0;row<7;row++)for(int col=0;col<5;col++)
+        if(letters[c][row]&(1u<<(4-col)))uf_rect(uf,x+(6*c+col)*pixel,y+row*pixel,pixel,pixel);
+}
+
 void tc_draw(const TouchControls *t, UiFlat *uf, int w, int h) {
     if (!t || !uf || w <= 0 || h <= 0 || !tc_visible(t)) return;
     uf_begin(uf, w, h);
     for (int b = 0; b < TC_COUNT; b++) {
         if (!tc_btn_enabled(t, b)) continue;
+        if (!t->active && b != TC_ENTER_RACE) continue; /* advertise entry without covering the HUD */
         float cx, cy, r;
         tc_layout(t, b, &cx, &cy, &r);
         float px = cx * (float)h, py = cy * (float)h, pr = r * (float)h;
         int held = tc_count(t, b) > 0;
+        if(tc_button_label(t,b)) {
+            uf_color(uf,0.03f,0.06f,0.04f,held?0.98f:0.88f);uf_circle(uf,px,py,pr);
+            uf_color(uf,0.85f,1.0f,0.55f,1);uf_ring(uf,px,py,pr,pr*.06f+1);
+            tc_enter_label(uf,px,py,pr);continue;
+        }
         /* Faint fill, solid rim and a light glyph: the HUD gauges under the thumbs stay readable. */
         uf_color(uf, 1.0f, 1.0f, 1.0f, held ? 0.30f : 0.08f);
         uf_circle(uf, px, py, pr);

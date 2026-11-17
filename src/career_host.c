@@ -284,7 +284,8 @@ int ch_take_spawn(CareerHost *ch, float spawn[4])
 
 int ch_shop_zone(const CareerHost *ch, float x, float y, float kmh)
 {
-    if (!ch || !ch->active || ch->race >= 0 || fabsf(kmh) > CH_ENGAGE_KMH) return -1;
+    (void)kmh; /* Shop entry remains discoverable while driving through the zone. */
+    if (!ch || !ch->active || ch->race >= 0) return -1;
     return cr_shop_hit(&ch->st, &ch->cd, x, y);
 }
 
@@ -351,4 +352,16 @@ int ch_crib_done(CareerHost *ch, GfLaunch *out)
     else
         snprintf(ch->last, sizeof ch->last, "career: garage left, stage %d", ch->st.stage);
     return 1;
+}
+
+int ch_shop_install(CareerHost *ch,const char *car,const GarageConfig *cfg)
+{
+    if (!ch || !ch->active || ch->race >= 0 || !car || strcmp(car,ch->st.car)) return ST_E_ARG;
+    CareerState before = ch->st;
+    int rc = cr_shop_install(&ch->st,&ch->cd,ch->at_shop,cfg);
+    if (rc == ST_OK) rc = cr_save_file(ch->root,ch->profile,&ch->st);
+    if (rc != ST_OK) ch->st = before;
+    snprintf(ch->last,sizeof ch->last,"career: installation %s car %s shop %d price 0",
+             rc == ST_OK ? "saved" : "refused",car,ch->at_shop);
+    return rc;
 }

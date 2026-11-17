@@ -13,7 +13,7 @@
 #include "hud_minimap.h"
 
 #define CH_CITY_TRACK   "STREAML4RA"   /* [data] career free roam city (race locators live in ROUTESL4RA) */
-#define CH_ENGAGE_KMH   30.0f          /* [inferred] Enter Race only accepted below this speed */
+#define CH_ENGAGE_KMH   30.0f          /* [inferred] race engagement speed limit; shops have no speed gate */
 #define CH_MAX_INST     64
 
 /* ch_begin results */
@@ -61,7 +61,8 @@ int  ch_icons(const CareerHost *ch, HudMapIcon *out, int cap);
 /* Notice text when the player is in an engageable race zone ("<label>: <name>  $purse") or open shop zone
  * ("<label>: <shop name>"), else NULL. */
 const char *ch_prompt(const CareerHost *ch, float x, float y, float kmh, const char *label, char *buf, int cap);
-/* Open shop (index into ch->cd.shop) whose zone contains (x, y), engageable at this speed, not while racing; else -1. */
+/* Open shop (index into ch->cd.shop) whose zone contains (x, y), not while racing; else -1.
+ * Speed does not hide shop entry; kmh is retained for caller compatibility. */
 int  ch_shop_zone(const CareerHost *ch, float x, float y, float kmh);
 /* Lot inventory (cr_lot_list over the installed cars). Count. ch is const, so the log line comes from ch_lot_line. */
 int  ch_lot_list(const CareerHost *ch, CrLotCar *out, int cap);
@@ -74,6 +75,8 @@ int  ch_lot_buy(CareerHost *ch, const char *car, GfLaunch *out);
 /* Leaving the career Garage at the crib: completes a crib objective (Stage 0: DDAY_EVENT_B -> stage 1, logs
  * "career: stage 0 -> 1"), saves, and fills a free roam at the crib marker in the career car. 1 ok, 0 no career. */
 int  ch_crib_done(CareerHost *ch, GfLaunch *out);
+/* Renderer-acknowledged career installation; rolls state back if the save fails. */
+int ch_shop_install(CareerHost *,const char *car,const GarageConfig *);
 /* Takes a pending spawn (1) and clears it. */
 int  ch_take_spawn(CareerHost *ch, float spawn[4]);
 #endif

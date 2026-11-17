@@ -1189,3 +1189,14 @@ rear-mirror-gl-test: tools/rear_mirror_test.c src/rear_mirror.c src/rear_mirror.
 	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gl_test
 	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -DREAR_MIRROR_GL_TEST -DN2_GLES -Isrc $(SDL_CFLAGS) tools/rear_mirror_test.c src/rear_mirror.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o build/rear_mirror_gles_test $(SDL_LIBS) -lGLESv2 -lm
 	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gles_test
+
+# Isolated career shop fixture for scripted host captures (data required at invocation).
+career-shop-fixture: tools/career_shop_fixture.c $(CAREER_CORE) src/career.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_shop_fixture.c $(CAREER_CORE) -o build/career_shop_fixture -lm
+.PHONY: career-shop-fixture
+career-shop-dialog-test: tools/career_shop_dialog_test.c src/gui_dialog.c src/gui_dialog.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Werror -Isrc tools/career_shop_dialog_test.c src/gui_dialog.c -o build/career_shop_dialog_test
+	./build/career_shop_dialog_test
+.PHONY: career-shop-dialog-test
