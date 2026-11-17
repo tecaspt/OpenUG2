@@ -113,3 +113,46 @@ question/stop flow. Race engagement retains its separate speed restriction.
 Before touch input, only the advertised Enter control is drawn in a shop
 zone. Once touch driving is active, the normal controls are drawn, with
 pause/camera moved to the upper-left to keep the shop notice readable.
+
+## Verification
+
+[observed] Final desktop/GLES/iOS-host builds exit 0 with 24/29/29 warnings.
+All nine requested test targets pass: career 816 checks, career-data 14396,
+career-host 362, car-lot 29, game-flow 252 and touch-controls 313, all zero
+failures; garage, frontend garage and frontend screen targets also pass.
+Additional shop-dialog checks pass 35/35 and pause-menu regressions pass.
+Host address/undefined sanitizers run with leak scanning disabled because
+this environment's ptrace setup prevents LeakSanitizer startup; leak checking
+is NOT RUN.
+
+[observed] Every open shop-zone centre across stages 0..5 resolves at both
+0 and 80 km/h and is not masked by an available race at that centre.
+Shop-icon counts are 2/8/13/15/20/23. Both INV captures, with rear mirror off
+and fresh user directories on the host GPU, are byte-identical to references.
+
+[observed] All four new shop types pass touch entry, question/Yes, matching
+page and Back to roam. Body saves KIT01; specialties saves engine-cover
+STYLE01 (selector 102). Both use schema 3 and create no Quick Race garage
+file. Paint and performance have no installable choices: their purchase
+checks are NOT IMPLEMENTED, not passes. Overall retail customization parity
+therefore remains partial.
+
+[observed] Car-lot re-entry and crib entry/Back pass. S7 completes all 4201
+frames with exit 0, including purchase and stage 0 -> 1 at the crib. That
+career-start proof precedes the final drawing-only layout adjustment;
+final S7S captures cover the revised lot layout.
+
+[observed] iOS-host at 1170x643, scene scale .75 and the normal rear-mirror
+setting shows a labelled Enter button before touch input, then active
+controls clear of the readable notice. A real touch Enter event opens the
+question, Yes opens the body page, Back returns to roam, and the world map
+shows 13 icons including all eight stage-1 shops. Physical-device testing
+is NOT RUN. Temporary data-discovery links are removed after the host run.
+
+[observed] Reviewed 42 PNGs: 39 final-layout shots and three S7 logic-reference
+shots. Local evidence outside the versioned tree: reports/parity/shops/
+(build-*-v3.log, tests-v3.log, capture-v3-results.log,
+regression-v3-results.log, touch-extra-v3-results.log, save-check.txt,
+final-image-manifest.tsv and review-final/). Raw placement is a zone-input
+fixture; its height can leave the car above the road. These captures prove
+entry/UI/state transitions, not original shop interiors or cameras.
