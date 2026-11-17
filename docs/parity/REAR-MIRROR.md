@@ -38,3 +38,36 @@ art. The scene is horizontally reflected during composition.
 post-race, race presentation, orbit/free-camera and diagnostic passes. These
 visibility rules are conservative runtime policy; the language table establishes
 the toggle, not the complete visibility state machine.
+
+[data] Searching printable names in the decoded InGame and Global bundles also
+finds `ENGAGE_TIPS_MIRROR` in GlobalB, plus `_RIGHT_SIDE_MIRROR` and
+`_LEFT_SIDE_MIRROR`. An attribute record named `MIRROR` at decoded GlobalB
+0x41a0 (tag 0x00135200, payload 160 bytes) sits between METPAINT_9 and MOLDINGS,
+with other paint/material records nearby. [inferred] This is material data,
+not a camera/layout definition; its numeric fields are deliberately not treated
+as camera parameters. No named mirror texture/frame was recovered by these
+searches. Unnamed/hashed assets remain an open limitation.
+
+## Implementation
+
+[inferred] The target is RGBA8 plus depth/stencil, 256 by 40 pixels (10,240
+shaded pixels before overdraw). The rear camera is at the car roof plus 0.3 m,
+faces against car heading and pitches slightly down. Vertical FOV is 0.30 rad;
+far plane and scenery AABB gate are 220 m. Opaque/cutout scenery is frustum
+culled; translucent scenery, extra lighting/reflection/shadow/effect passes
+are omitted. Vehicles within 120 m use body-mounted opaque geometry without
+separate wheels/glass/material detail. This deliberately reduced detail is
+visible at close range; it is not an authored retail LOD selection.
+
+The pass runs before the main scene target, then composites after main upscale.
+RHI command state and scene shader parameters are saved independently. Scale
+1 retains the main target bypass. The existing profiler's scene GPU span
+includes the rear pass; CPU time is charged to world_draw. Off/hidden frames
+never allocate, select or draw the mirror target. Resources live until shutdown.
+If target/shader creation fails, the mirror disables for the session.
+
+The existing profile Gameplay option is connected in pause as well as front-end;
+a direct-track launch without a loaded profile uses session-only settings.
+The extra mouse-look row remains available in pause. CLI override takes priority
+until restart. GPU tests check horizontal reversal, rectangle placement, state
+restoration and composition with main scales 1, 0.5 and 0.75 on GL and GLES.

@@ -66,6 +66,8 @@ SRC += src/fe_worldmap.c
 HDRS += src/fe_worldmap.h
 SRC += src/render_target.c   # Task L scene target and upscale
 HDRS += src/render_target.h
+SRC += src/rear_mirror.c
+HDRS += src/rear_mirror.h
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
 HDRS += src/fe_lot.h
@@ -1173,3 +1175,17 @@ fe-worldmap-test: tools/fe_worldmap_test.c src/fe_worldmap.c src/fe_worldmap.h
 	@mkdir -p build
 	$(CC) -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_worldmap_test.c src/fe_worldmap.c -Wl,--gc-sections -lm -o build/fe_worldmap_test
 	./build/fe_worldmap_test
+
+.PHONY: rear-mirror-test
+rear-mirror-test: tools/rear_mirror_test.c src/rear_mirror.h
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -Wextra -Werror -Isrc tools/rear_mirror_test.c -lm -o build/rear_mirror_test
+	./build/rear_mirror_test
+
+.PHONY: rear-mirror-gl-test
+rear-mirror-gl-test: tools/rear_mirror_test.c src/rear_mirror.c src/rear_mirror.h
+	@mkdir -p build
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -DREAR_MIRROR_GL_TEST -Isrc $(SDL_CFLAGS) tools/rear_mirror_test.c src/rear_mirror.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o build/rear_mirror_gl_test $(SDL_LIBS) -lGL -lm
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gl_test
+	$(CC) -std=c99 -O2 -Wall -Wextra -Werror -DREAR_MIRROR_GL_TEST -DN2_GLES -Isrc $(SDL_CFLAGS) tools/rear_mirror_test.c src/rear_mirror.c src/render_target.c src/rhi_gl.c src/rhi_gl_state.c -o build/rear_mirror_gles_test $(SDL_LIBS) -lGLESv2 -lm
+	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gles_test

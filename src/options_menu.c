@@ -256,6 +256,10 @@ static void build_profile_page(OptionsMenu *m) {
         r->gfx=i;r->min=0;r->max=audio_page?(i<7?100:1):player_page?(i==9?4:1):((i==2 || i==3)?2:1);
         r->vt=OM_VT_ONOFF;
     }
+    if(m->screen==OM_SCREEN_GAMEPLAY && m->cfg.mouse_look) {
+        OmRow *r=add_row(m,OM_ROW_CHOICE,OM_ID_MOUSE_LOOK,0,"Right mouse look");
+        r->vt=OM_VT_ONOFF;
+    }
 }
 static void enter_screen(OptionsMenu *m, OmScreen screen) {
     m->screen = screen;

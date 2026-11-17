@@ -29,6 +29,7 @@
 #include "car_mod.h"
 #include "render.h"
 #include "render_target.h"
+#include "rear_mirror.h"
 #include "rhi.h"
 #include "physics.h"
 #include "drive_stage1.h"
@@ -2425,7 +2426,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--gps-marker", "--hud-nav-arrow-2d", "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--world-map-dev", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--rear-mirror", "--perf-csv", "--career-dev", "--career-ask", "--world-map-dev", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2472,6 +2473,7 @@ int main(int argc, char **argv) {
                           The bundles overlap as route/event supersets; ALL is
                           not a supported playable open-world composition.
          --circuit PATH   circuit Paths .bin under TRACKS/ (default ROUTESL4RF/Paths4602.bin)
+         --rear-mirror on|off override the saved Gameplay mirror setting (default on)
          --shot out.png   render one frame and exit
          --pause-shot     include authored pause UI in --shot (requires genuine UI resources)
          --pause-ui-ms T  UI-only elapsed phase for capture (default 800 ms)
@@ -2613,6 +2615,8 @@ int main(int argc, char **argv) {
     float render_scale=1.0f;     /* --render-scale X: scene-only scale, UI stays at drawable size */
 #endif
     RenderTarget scene_target={0};
+    RearMirror rear_mirror={0};
+    int rear_mirror_override=-1;
     int world_cull_off = 0; /* diagnostic A/B, never changes loading or shadows */
     int perf_still = 0;           /* --perf-still: no --shot auto-throttle */
     int collision_source = WCOLLISION_BUN;
@@ -2877,6 +2881,11 @@ int main(int argc, char **argv) {
             ai_drive_audit = argv[++i];
         }
         else if (!strcmp(argv[i], "--follow-roam-ai")) follow_roam_ai = 1;
+        else if (!strcmp(argv[i], "--rear-mirror")) {
+            if(i+1>=argc || !rear_mirror_parse(argv[++i],&rear_mirror_override)) {
+                fprintf(stderr,"--rear-mirror expects on or off\n");return 1;
+            }
+        }
         else if (!strcmp(argv[i], "--perf-csv") && i+1 < argc) perf_csv = argv[++i];
         else if (!strcmp(argv[i], "--render-scale")) {
             if(i+1>=argc || !render_target_parse_scale(argv[++i],&render_scale)) {
@@ -6729,6 +6738,7 @@ int main(int argc, char **argv) {
     const char *outrun_notice=NULL;Uint32 outrun_notice_until=0;
     /* Retail front end (M1 Phase 3): catalogue, menu, launch state machine, touch overlay. */
     FeMenu *fem = NULL;
+    StProfile mirror_session_profile;st_profile_defaults(&mirror_session_profile,0);
     GameFlow gflow;
     UiFlat *uflat = uf_create();
     if (fe_enabled) {
@@ -7330,6 +7340,14 @@ int main(int argc, char **argv) {
             }
         }
 
+        if(pause_menu) {
+            OptionsMenu *mirror_options=pause_menu_options(pause_menu);
+            if(mirror_options) {
+                const StProfile *profile=fem?fem_current_profile(fem):NULL;
+                mirror_options->cfg.profile=profile?(StProfile *)profile:&mirror_session_profile;
+                if(om_take_profile_request(mirror_options) && profile)fem_persist_profile(fem);
+            }
+        }
         FeAction pause_action = pause_menu_update(pause_menu, (float)fmin(frame_seconds, .1));
         if(gc.settings.mouse_look!=saved_mouse_look){
             gamecam_save(&gc);saved_mouse_look=gc.settings.mouse_look;
@@ -10305,11 +10323,73 @@ int main(int argc, char **argv) {
             continue;
         }
         int W = frame.width, H = frame.height;
+        pf_mark(PF_CAMERA); pf_gpu(pf_frame,0);
+        /* Rear scene precedes the main target: no nested target selection and
+         * no change to the scale-1 bypass. Uniform storage needs its own save. */
+        const StProfile *mirror_profile=fem?fem_current_profile(fem):NULL;
+        int mirror_enabled=rear_mirror_override>=0?rear_mirror_override:
+            mirror_profile?mirror_profile->gameplay.rearview_mirror:mirror_session_profile.gameplay.rearview_mirror;
+        int mirror_draws=0;
+        int mirror_draw=rear_mirror_visible(mirror_enabled,
+            pause_frame || pause_menu_is_open(pause_menu) || pr_is_open(post) || (fem && fem_is_open(fem)),
+            race_state==3 || race_state==2,free_active || orbit_active,passmode!=0 || g_debug_mode);
+        if(mirror_draw && rear_mirror_begin(&rear_mirror)) {
+            UG2Params saved=*rp.p;
+            float eye[3],dir[3],mp[16],mv[16],mmvp[16];
+            rear_mirror_camera(render_player.pos,render_player.head,car_body_ride+carbb[5],eye,dir);
+            mat_persp(.30f,(float)REAR_MIRROR_WIDTH/REAR_MIRROR_HEIGHT,.2f,REAR_MIRROR_DISTANCE,mp);
+            mat_lookat(eye,dir,mv);mat_mul(mp,mv,mmvp);
+            rhi_cmd_clear_main((float[]){g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b,1},1);
+            memset(rp.p,0,sizeof *rp.p);
+            rp.p->uAlpha=1;rp.p->uAmbient=g_dbg.ambient;rp.p->uDiffuse=g_dbg.diffuse;
+            rp.p->uFogDensity=g_dbg.fog_density;rp.p->uVColor=g_dbg.vcolor;
+            ug2_vec3(rp.p->uFogColor,g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b);
+            ug2_vec3(rp.p->uLight,N2_SUN_X,N2_SUN_Y,N2_SUN_Z);
+            ug2_copy(rp.p->uCamPos,eye,3);ug2_copy(rp.p->uMVP,mmvp,16);
+            render_model(&rp,NULL);rhi_cmd_bind_pipeline(wpipe.opaque);
+            /* Low-detail rear pass: opaque/cutout scenery within 220 metres;
+             * no wet-road reflections, shadows, particles or glow passes. */
+            for(int k=0;g_dbg.show_track && k<nbatch;k++) {
+                N2Batch *b=&wbatch[k];
+                if(b->unresolved || b->drawmode==N2_DRAW_BLEND || b->drawmode==N2_DRAW_ADD)continue;
+                float d2=0;
+                for(int a=0;a<3;a++){
+                    float d=fmaxf(b->bbox_min[a]-eye[a],fmaxf(eye[a]-b->bbox_max[a],0));d2+=d*d;
+                }
+                if(d2>REAR_MIRROR_DISTANCE*REAR_MIRROR_DISTANCE || !render_batch_in_view(b,mmvp))continue;
+                rp.p->uUseTex=b->tex.id?1:0;rp.p->uAlphaTest=b->drawmode==N2_DRAW_CUTOUT;
+                ug2_vec3(rp.p->uColor,.28f,.29f,.31f);
+                if(b->tex.id)rhi_cmd_bind_texture(0,b->tex);
+                render_draw_batch(b);mirror_draws++;
+            }
+            rp.p->uVColor=0;rp.p->uAlphaTest=0;
+            rhi_cmd_bind_pipeline(cpipe.opaque[RHI_CULL_NONE]);
+            for(int k=0;k<draw_nai;k++){
+                if(!ai_actor_present_rules(k,ai_race,nai,traffic_routes,race_drivers))continue;
+                float dx=render_ais[k].pos[0]-eye[0],dy=render_ais[k].pos[1]-eye[1];
+                if(dx*dx+dy*dy>120.f*120.f)continue;
+                int visual=ai_actor_visual(k,ai_race,nai,world.city.race.active);
+                const CarSwitchCandidate *tv=(!ai_race || world.city.race.active) && traffic[visual].gpu?&traffic[visual]:NULL;
+                const N2Scene *cs=tv?&tv->scene:&opponent_car;
+                GpuMesh *gpu=tv?tv->gpu:opponent_cgm;
+                int count=tv?tv->nmesh:opponent_ncar;
+                float model[16],mvp[16];
+                float ride=tv?ai_body_ride(&tv->profile,tv->body_floor,&tv->wheel,1):
+                    ai_body_ride(&opponent_profile,opponent_floor,&opponent_wheel,1);
+                mat_car(render_ais[k].pos,render_ais[k].head,(float[]){0,0,1},ride,model);
+                mat_mul(mmvp,model,mvp);ug2_copy(rp.p->uMVP,mvp,16);render_model(&rp,model);
+                rp.p->uUseTex=0;ug2_vec3(rp.p->uColor,.45f,.45f,.48f);
+                for(int i=0;i<count;i++){
+                    if(cs->meshes[i].car_mount!=N2_MOUNT_BODY || gpu[i].cat==N2_CAR_GLASS)continue;
+                    render_draw_gpumesh(&gpu[i]);mirror_draws++;
+                }
+            }
+            *rp.p=saved;rear_mirror_finish(&rear_mirror);
+        } else mirror_draw=0;
         /* scene-only scaled target (Task L): W/H stay the drawable size for camera and UI */
         render_target_begin(&scene_target,W,H,render_scale);
         if(frame.frame_index==0)printf("render scale: requested=%.3f effective=%.3f drawable=%dx%d scene=%dx%d\n",
             render_scale,scene_target.effective_scale,W,H,scene_target.scene_w,scene_target.scene_h);
-        pf_mark(PF_CAMERA); pf_gpu(pf_frame,0);
         /* the sky is cleared to the fog colour: distant geometry dissolves
            into exactly what the horizon shows */
         rhi_cmd_clear_main((const float[4]){g_dbg.fog_r, g_dbg.fog_g, g_dbg.fog_b, 1}, 1.0f);
@@ -10467,7 +10547,7 @@ int main(int argc, char **argv) {
         /* M132-R: ONE reset for the whole frame, before any pass. The old reset
            sat between the vista and world passes and silently discarded every
            sky and vista draw from the total. */
-        g_dbg.drawn = environment_draws>0?environment_draws:0;
+        g_dbg.drawn = (environment_draws>0?environment_draws:0)+mirror_draws;
         int skydraws = 0, vistadraws = 0, districtdraws = 0;
         /* Authored sky: SKYDOME is a world-space shell split by its proven
            0x134B02 material ranges into an opaque dome and alpha cap. Draw it
@@ -11903,6 +11983,7 @@ int main(int argc, char **argv) {
             (const float (*)[4])world.neighborhood.mbb,obstsrc,nobst,
             g_dbg.freecam?cam:render_player.pos,render_player.pos,MVP);
         render_target_present(&scene_target);   /* upscale; HUD/FE/pause/touch below draw on the physical drawable */
+        if(mirror_draw)rear_mirror_draw(&rear_mirror,W,H);
 
         if(!hud && (world.city.race.active || (ai_race && race_state!=3))) {
             hud=hud_init(dataroot);
@@ -13486,6 +13567,7 @@ int main(int argc, char **argv) {
     free_headlight_shadows(&headlight_shadows);
     clear_car_vinyl();
     tex_override_shutdown();   /* frees the index only; no-op when off */
+    rear_mirror_destroy(&rear_mirror);
     render_target_destroy(&scene_target);
     rhi_device_destroy(); SDL_DestroyWindow(win); SDL_Quit();
     return final_status;
