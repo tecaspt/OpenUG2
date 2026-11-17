@@ -282,3 +282,33 @@ and historical-reference gates remain FAIL; rerun both in the normal host execut
 context before treating the mandatory suite as fully green. Device checks remain
 NOT RUN. Optional filters and race-return remain unimplemented because the core
 suite is not fully green. Earlier inferred input/colour choices remain inferred.
+
+## GPS presentation follow-up
+
+[data] Normal guidance uses the 3D retail marker and minimap guidance. The old
+2D arrow/distance is opt-in through --hud-nav-arrow-2d. Runtime pose calibration
+uses --gps-marker ahead,height,pitch_deg,scale. Current race/pause/front-end state
+suppresses the 3D marker before scene presentation.
+
+[observed] The owner-supplied Focus still is fitted at 1280x720: retail bounds
+115x79 pixels centred (637.5,201.5); final engine bounds 116x79 centred (640,200.5).
+The side-by-side is reports/worldmap/s3/gps-straight-side-by-side.png. Engine
+capture is parked; reference speed is 173 km/h. Final defaults are ahead 30 m,
+height 12.919865 m, pitch +0.45 degrees and scale 3.905761.
+[inferred] Metric distance/scale, turn placement, material interpretation and
+bob remain partly inferred. Position follows car heading while orientation
+follows the route; the opaque core preserves genuine vertex blue, with the
+additive rim drawn first. Turn/bob calibration awaits moving retail captures.
+
+[observed] Builds pass with 24/29/29 warnings with unchanged normalized lists; all nine
+requested tests pass, including 104 GPS checks in desktop/GLES and 107 career-host
+checks with leak detection disabled only after LSan startup fails. Both live
+race/shop legs preserve routes, hide through pause/map, restore on Back and clear
+at arrival. GLES half-scale capture confirms scene placement and full-resolution
+HUD. All final proof PNGs were reviewed.
+
+[observed] Historical reference shots still FAIL in this software-GL environment;
+both shots are byte-identical to current S2 controls. No reference was replaced.
+Device checks remain NOT RUN. GPS-ARROW.md contains exact parameters, proof paths,
+limitations and requested captures. This supersedes S2 guidance presentation;
+routing/arrival behaviour is retained.

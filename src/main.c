@@ -2423,7 +2423,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--camera", "--projection", "--chase", "--devui", "--collision-walls", "--collision-source", "--tier",
         "--tex-overrides", "--no-tex-overrides", "--tex-override-budget", "--traffic-cull-off", "--traffic",
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
-        "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
+        "--gps-marker", "--hud-nav-arrow-2d", "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
         "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--world-map-dev", "--debug-sink",
     };
@@ -2530,6 +2530,8 @@ int main(int argc, char **argv) {
                           half a texel (default off; set 8 G6 samples edge to edge)
          --hud-dest X,Y   set a navigation destination at startup (headless
                           equivalent of clicking the minimap)
+         --gps-marker A,H,P,S 3D GPS pose: ahead/height metres, pitch degrees, scale
+         --hud-nav-arrow-2d debug-only 2D guidance arrow and distance (off by default)
          --hud-preview    --hud plus labelled sample values for readouts with
                           no live system yet: career free-roam Bank balance,
                           pending message (top-left widget mail/highlight) and
@@ -2560,6 +2562,7 @@ int main(int argc, char **argv) {
        overlay toggle, and it replaces the diagnostic overlay rather than
        stacking on top of it. --hud-preview additionally fills the readouts
        that have no live system with clearly-labelled sample values. */
+    GpsMarkerPose gps_pose=gps_marker_defaults();
     int hud_opt = 1, hud_preview_opt = 0, hud_dest_set = 0;   /* --no-hud turns it off */
     int drivetrain_explicit = 0, drivetrain_off = 0;          /* --drivetrain / --no-drivetrain */
     int route_arrow_diag = 0;   /* --route-arrow-diag: diagnostic arrow, off by default */
@@ -2917,6 +2920,12 @@ int main(int argc, char **argv) {
             b02probe = argv[++i]; fbcensus = 1; n2_m102 = 1; }
         else if (!strcmp(argv[i], "--drivetrain")) { g_stage1_requested = 1; drivetrain_explicit = 1; }
         else if (!strcmp(argv[i], "--no-drivetrain")) drivetrain_off = 1;
+        else if (!strcmp(argv[i], "--gps-marker")) {
+            if (i+1>=argc || !gps_marker_parse(argv[++i],&gps_pose)) {
+                fprintf(stderr,"--gps-marker expects ahead,height,pitch_deg,scale (finite; ahead0..1000,height-1000..1000,pitch-180..180,scale>0..100)\n");return 2;
+            }
+        }
+        else if (!strcmp(argv[i], "--hud-nav-arrow-2d")) SDL_setenv("OPENUG2_HUD_NAV_ARROW_2D","1",1);
         else if (!strcmp(argv[i], "--no-hud")) hud_opt = -1;
         else if (!strcmp(argv[i], "--drivetrain-trace")) {
             if(i+1>=argc || !argv[i+1][0] || argv[i+1][0]=='-') {
@@ -6786,7 +6795,7 @@ int main(int argc, char **argv) {
        the arcade ribbons above remain only for the legacy physics path. */
     tm_init(&g_tm,128);memset(&g_tm_player,0,sizeof g_tm_player);g_tm_frame=0;
     tm_load_textures(dataroot);
-    GpsMarker *gps_marker = gps_marker_load(dataroot);   /* M9: 3D GPS arrow; NULL keeps the 2D arrow only */
+    GpsMarker *gps_marker = gps_marker_load(dataroot);   /* M9: 3D GPS arrow; NULL omits the solid, retaining the minimap destination */
     FeMapDestination wm_destination={0};
     int wm_destination_valid=0, wm_from_pause=0, wm_owned_request=0;
     int gps_marker_on = 0; float gps_marker_bearing = 0.0f;   /* last frame's HUD guidance */
@@ -11870,8 +11879,25 @@ int main(int argc, char **argv) {
                 g_dbg.rain_intensity*lens,g_dbg.weather_quality,(float)W/fmaxf(H,1));
         }
 
-        if (gps_marker && gps_marker_on && passmode == 0)   /* world camera still bound */
-            gps_marker_draw(gps_marker, &rp, MVP, render_player.pos, gps_marker_bearing, SDL_GetTicks());
+        int gps_draw=gps_marker && passmode==0 && gps_marker_visible(gps_marker_on,
+            world.city.race.active || (ai_race && race_state!=3),
+            pause_frame || pause_menu_is_open(pause_menu) || pr_is_open(post),
+            fem && fem_is_open(fem));
+        if (gps_draw) {   /* scene camera/target still bound; before upscale and HUD */
+            gps_marker_draw(gps_marker,&rp,MVP,render_player.pos,render_player.head,gps_marker_bearing,SDL_GetTicks(),&gps_pose);
+            if (world_map_dev && sf%30==0) {
+                float model[16],box[4];
+                gps_marker_transform(&gps_pose,render_player.pos,render_player.head,gps_marker_bearing,0,model);
+                if (gps_marker_project_bounds(&gps_marker->geom,model,MVP,W,H,box))
+                    printf("GPSPOSE f=%ld box=%.2f,%.2f,%.2f,%.2f config=%.3f,%.3f,%.3f,%.3f cam=%.4f,%.4f,%.4f look=%.4f,%.4f,%.4f heading=%.5f bearing=%.5f\n",sf,
+                        box[0],box[1],box[2],box[3],gps_pose.ahead_m,gps_pose.height_m,gps_pose.pitch_deg,gps_pose.scale,
+                        cam[0],cam[1],cam[2],look[0],look[1],look[2],render_player.head,gps_marker_bearing);
+            }
+        }
+        if (world_map_dev && sf%30==0 && gps_marker_on)
+            printf("GPSVIS f=%ld draw=%d racing=%d paused=%d frontend=%d\n",sf,gps_draw,
+                world.city.race.active || (ai_race && race_state!=3),pause_frame,
+                fem && fem_is_open(fem));
         gps_marker_on = 0;
         collision_debug_draw(&rp,&wall_debug_vbo,&scene,
             (const float (*)[4])world.neighborhood.mbb,obstsrc,nobst,

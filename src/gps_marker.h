@@ -6,14 +6,16 @@
  * dark-blue core and a light-blue shell, both wearing texture key 0x1e232d55
  * (a 64x64 horizontal light band) whose record is authored additive
  * (usage 2, blend 2) [data]. The vertex stream carries the blue as prelight
- * [data]; the texture only shades it, so the draw is MODULATE2X of texel and
- * vertex colour, added to the frame (the tire-mark shading law, additive).
+ * [data]. The solid has opaque vertex alpha [data]; the owner still shows an
+ * opaque dark-blue core [observed]. The core uses its authored prelight with
+ * depth writes; the rim keeps the additive band [inferred]. Adding both
+ * faces washes the core out; applying the band opaquely produces black stripes.
  *
  * The solid is authored pointing DOWN (tip at -Z of its own frame, the flat
- * faces along +-Y) [data]. Laid flat so the tip leads along the guidance
- * bearing [inferred]: model +X -> right of travel, +Y -> world up, -Z ->
- * forward. Placement ahead of / above the car and the bob are [inferred]
- * named constants below, to be calibrated against owner captures.
+ * faces along +-Y) [data]. The fitted pose raises it far above/ahead of the
+ * car; local-X pitch adjusts tilt. The straight still constrains screen bounds
+ * [observed], but cannot identify unique metric placement or bob [inferred].
+ * See GPS-ARROW.md for the calibration assumptions and remaining captures.
  *
  * Header-only, static functions. The GPU half needs render.h (SDL/RHI); a GL-
  * free tool defines GPS_MARKER_NO_GPU before including this and gets the
@@ -23,17 +25,20 @@
 
 #include "nfsu2.h"
 #include <math.h>
+#include <errno.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define GPS_MARKER_BUNDLE        "GLOBAL/InGameCommon.bun"
 #define GPS_MARKER_SOLID         "MARKER_GPS_AID"     /* [data] */
-#define GPS_MARKER_AHEAD_M       6.0f   /* [inferred] centre ahead of the car along the bearing */
-#define GPS_MARKER_HEIGHT_M      2.5f   /* [inferred] centre above the road (car contact point) */
+#define GPS_MARKER_AHEAD_M       30.0f  /* [inferred] metric gauge for the observed straight-view fit */
+#define GPS_MARKER_HEIGHT_M      12.919865f /* [observed] straight-view fit; world height remains inferred */
+#define GPS_MARKER_PITCH_DEG      0.45f  /* [observed] fitted tilt for that camera, not turn/animation evidence */
 #define GPS_MARKER_BOB_M         0.15f  /* [inferred] vertical bob amplitude */
 #define GPS_MARKER_BOB_PERIOD_MS 1600u  /* [inferred] bob period */
-#define GPS_MARKER_SCALE         1.0f   /* authored size is used as-is (3.2 m x 1.9 m) [data] */
+#define GPS_MARKER_SCALE         3.905761f /* [observed] fitted screen size; metric scale remains inferred */
 /* Untextured fallback: a 1x1 texel of 128 makes MODULATE2X pass the authored
    vertex blue through unchanged. */
 #define GPS_MARKER_FLAT_TEXEL    128
@@ -96,6 +101,24 @@ static int gps_marker_geom_from_bundle(const unsigned char *data, long len, GpsM
     return g->tris;
 }
 
+/* [inferred] Two-range material identity: the darker prelight range is the
+   blue core, the brighter one its rim. Reject absent/ambiguous source colours. */
+static int gps_marker_core_range(const GpsMarkerGeom *g) {
+    if(!g || g->scene.count!=2 || !g->scene.meshes)return -1;
+    double light[2]={0};
+    for(int i=0;i<2;i++) {
+        const N2Mesh *m=g->scene.meshes+i;
+        if(!m->vcol || !m->idx || m->nidx<=0 || m->nverts<=0)return -1;
+        for(int j=0;j<m->nidx;j++) {
+            int n=m->idx[j];if(n>=m->nverts)return -1;
+            for(int a=0;a<3;a++)light[i]+=m->vcol[n*4+a];
+        }
+        light[i]/=m->nidx;
+    }
+    if(fabs(light[0]-light[1])<1e-6)return -1;
+    return light[0]<light[1]?0:1;
+}
+
 /* Reads <dataroot>/GLOBAL/InGameCommon.bun. Returns the triangle count; 0 and
    a reason on stderr when the bundle or the solid is missing. *bundle (may be
    NULL) receives the bytes for texture decoding; the caller frees them. */
@@ -115,31 +138,94 @@ static int gps_marker_geom_load(const char *dataroot, GpsMarkerGeom *g,
     return tris;
 }
 
-/* Pose: centre GPS_MARKER_AHEAD_M along the bearing from the car, raised
-   GPS_MARKER_HEIGHT_M plus a sine bob. bearing uses HudState.nav_bearing's
-   convention: radians, atan2(dy, dx) in world XY (0 = +X, counter-clockwise).
-   yaw = bearing. */
-static void gps_marker_pose(const float car[3], float bearing, unsigned t_ms,
-                            float pos[3], float *yaw) {
-    float phase = (float)(t_ms % GPS_MARKER_BOB_PERIOD_MS) / (float)GPS_MARKER_BOB_PERIOD_MS;
-    pos[0] = car[0] + GPS_MARKER_AHEAD_M * cosf(bearing);
-    pos[1] = car[1] + GPS_MARKER_AHEAD_M * sinf(bearing);
-    pos[2] = car[2] + GPS_MARKER_HEIGHT_M + GPS_MARKER_BOB_M * sinf(6.28318531f * phase);
-    *yaw = bearing;
+/* [inferred] World-space fit parameters. Positive pitch raises the authored tip;
+   negative pitch lowers it. Pitch is about the marker's local right axis. */
+typedef struct GpsMarkerPose { float ahead_m,height_m,pitch_deg,scale; } GpsMarkerPose;
+static GpsMarkerPose gps_marker_defaults(void) {
+    return (GpsMarkerPose){GPS_MARKER_AHEAD_M,GPS_MARKER_HEIGHT_M,GPS_MARKER_PITCH_DEG,GPS_MARKER_SCALE};
 }
 
-/* Column-major model matrix (render.h convention): model +X -> right of the
-   heading, +Y -> world up, +Z -> backwards, so the authored -Z tip leads.
-   A proper rotation (det = +1) times GPS_MARKER_SCALE. */
-static void gps_marker_model(const float pos[3], float yaw, float m[16]) {
-    float c = cosf(yaw), s = sinf(yaw), k = GPS_MARKER_SCALE;
-    float out[16] = {
-         s * k, -c * k, 0,     0,    /* model X: right   = (sin, -cos, 0) */
-         0,      0,     k,     0,    /* model Y: up      = (0, 0, 1)      */
-        -c * k, -s * k, 0,     0,    /* model Z: back    = -(cos, sin, 0) */
-         pos[0], pos[1], pos[2], 1
-    };
-    memcpy(m, out, sizeof out);
+/* Atomic strict parser: exactly four finite comma-separated values. Bounds are
+   calibration safeguards [inferred], not retail limits. */
+static int gps_marker_parse(const char *text,GpsMarkerPose *out) {
+    if (!text || !out) return 0;
+    float v[4]; const char *p=text;
+    for (int i=0;i<4;i++) {
+        char *end; errno=0; v[i]=strtof(p,&end);
+        if (end==p || errno==ERANGE || !isfinite(v[i])) return 0;
+        p=end; while (isspace((unsigned char)*p)) p++;
+        if (i<3) { if (*p!=',') return 0; p++; }
+        else if (*p) return 0;
+    }
+    if (v[0]<0 || v[0]>1000 || v[1]<-1000 || v[1]>1000 ||
+        v[2]<-180 || v[2]>180 || v[3]<=0 || v[3]>100) return 0;
+    *out=(GpsMarkerPose){v[0],v[1],v[2],v[3]};return 1;
+}
+static int gps_marker_visible(int guidance,int racing,int paused,int frontend) {
+    return guidance && !racing && !paused && !frontend;
+}
+
+/* Bearing: atan2(dy,dx), radians in world XY. Bob retains its uncalibrated
+   amplitude/period until moving retail references establish them [inferred]. */
+static void gps_marker_pose_configured(const GpsMarkerPose *cfg,const float car[3],
+        float bearing,unsigned t_ms,float pos[3],float *yaw) {
+    GpsMarkerPose d=gps_marker_defaults(); if (!cfg) cfg=&d;
+    float phase=(float)(t_ms%GPS_MARKER_BOB_PERIOD_MS)/(float)GPS_MARKER_BOB_PERIOD_MS;
+    pos[0]=car[0]+cfg->ahead_m*cosf(bearing);
+    pos[1]=car[1]+cfg->ahead_m*sinf(bearing);
+    pos[2]=car[2]+cfg->height_m+GPS_MARKER_BOB_M*sinf(6.28318531f*phase);
+    *yaw=bearing;
+}
+static void gps_marker_pose(const float car[3],float bearing,unsigned t_ms,float pos[3],float *yaw) {
+    gps_marker_pose_configured(NULL,car,bearing,t_ms,pos,yaw);
+}
+
+/* Column-major proper rotation, followed by uniform positive scale. At pitch0:
+   model X=right, Y=up, Z=back, and the authored -Z tip leads [inferred]. */
+static void gps_marker_model_configured(const GpsMarkerPose *cfg,const float pos[3],float yaw,float m[16]) {
+    GpsMarkerPose d=gps_marker_defaults(); if (!cfg) cfg=&d;
+    float c=cosf(yaw),s=sinf(yaw),k=cfg->scale;
+    float p=cfg->pitch_deg*0.017453292519943295f,cp=cosf(p),sp=sinf(p);
+    float out[16]={s*k,-c*k,0,0,
+        -c*sp*k,-s*sp*k,cp*k,0,
+        -c*cp*k,-s*cp*k,-sp*k,0,
+        pos[0],pos[1],pos[2],1};
+    memcpy(m,out,sizeof out);
+}
+static void gps_marker_model(const float pos[3],float yaw,float m[16]) {
+    gps_marker_model_configured(NULL,pos,yaw,m);
+}
+
+/* [inferred] Placement follows the car so a turning route cannot move the
+   whole guide outside the view. Orientation independently follows the route. */
+static void gps_marker_transform(const GpsMarkerPose *cfg,const float car[3],
+        float heading,float bearing,unsigned t_ms,float model[16]) {
+    float pos[3],anchor_yaw;
+    gps_marker_pose_configured(cfg,car,heading,t_ms,pos,&anchor_yaw);
+    gps_marker_model_configured(cfg,pos,bearing,model);
+}
+
+/* Calibration diagnostic: projected geometry bounds in drawable pixels; no
+   clipping or occlusion claim. Returns0 if any vertex is behind the camera. */
+static int gps_marker_project_bounds(const GpsMarkerGeom *g,const float model[16],
+        const float vp[16],int w,int h,float box[4]) {
+    if (!g || !model || !vp || !box || w<=0 || h<=0) return 0;
+    float lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};int count=0;
+    for (int i=0;i<g->scene.count;i++) {
+        const N2Mesh *mesh=g->scene.meshes+i;
+        for (int j=0;j<mesh->nidx;j++) {
+            const float *p=mesh->verts+(size_t)mesh->idx[j]*5;
+            float world[4],clip[4];
+            for (int a=0;a<4;a++) world[a]=model[a]*p[0]+model[4+a]*p[1]+model[8+a]*p[2]+model[12+a];
+            for (int a=0;a<4;a++) clip[a]=vp[a]*world[0]+vp[4+a]*world[1]+vp[8+a]*world[2]+vp[12+a]*world[3];
+            if (!isfinite(clip[3]) || clip[3]<=1e-6f) return 0;
+            float q[2]={(clip[0]/clip[3]+1)*.5f*w,(1-clip[1]/clip[3])*.5f*h};
+            for(int a=0;a<2;a++){if(!isfinite(q[a]))return 0;if(q[a]<lo[a])lo[a]=q[a];if(q[a]>hi[a])hi[a]=q[a];}
+            count++;
+        }
+    }
+    if(!count)return 0;
+    box[0]=lo[0];box[1]=lo[1];box[2]=hi[0];box[3]=hi[1];return 1;
 }
 
 #ifndef GPS_MARKER_NO_GPU
@@ -148,16 +234,20 @@ static void gps_marker_model(const float pos[3], float yaw, float m[16]) {
 typedef struct GpsMarker {
     GpsMarkerGeom geom;
     GpuMesh      *gpu;
-    RhiTexture    tex;        /* authored band, or the flat fallback */
+    RhiTexture    tex;        /* authored rim band, or the flat fallback */
+    RhiTexture    core_tex;   /* neutral multiplier: preserves source core prelight */
+    int           core;
     int           textured;   /* 1 = authored texture decoded */
     uint32_t      shader;     /* shader the pipeline below belongs to */
-    RhiPipeline   add;        /* src-alpha + one, depth tested, no write */
+    RhiPipeline   halo;       /* additive band on the bright rim */
+    RhiPipeline   solid;      /* [inferred] opaque/depth-writing, matched to the captured solid */
 } GpsMarker;
 
 static void gps_marker_free(GpsMarker *m) {
     if (!m) return;
     free_scene_gpu(m->gpu, m->geom.scene.count);
     if (m->tex.id) rhi_texture_destroy(m->tex);
+    if (m->core_tex.id) rhi_texture_destroy(m->core_tex);
     gps_marker_geom_free(&m->geom);
     free(m);
 }
@@ -168,10 +258,15 @@ static GpsMarker *gps_marker_load(const char *dataroot) {
     if (!m) return NULL;
     unsigned char *data = NULL; long len = 0;
     if (!gps_marker_geom_load(dataroot, &m->geom, &data, &len)) { free(m); return NULL; }
+    m->core=gps_marker_core_range(&m->geom);
+    if(m->core<0){fprintf(stderr,"gps_marker: unsupported material ranges\n");free(data);gps_marker_free(m);return NULL;}
+    N2Tex neutral={0};unsigned char neutral_rgb[3]={128,128,128};
+    neutral.w=neutral.h=1;neutral.rgb=neutral_rgb;m->core_tex=upload_tex(&neutral);
+    if(!m->core_tex.id){free(data);gps_marker_free(m);return NULL;}
     m->gpu = upload_scene(&m->geom.scene);
     if (!m->gpu) {
         fprintf(stderr, "gps_marker: GPU upload failed\n");
-        free(data); gps_marker_geom_free(&m->geom); free(m); return NULL;
+        free(data); gps_marker_free(m); return NULL;
     }
     if (m->geom.texkey) {
         N2Tpk tpk = n2_tpk_open(data, len);
@@ -196,26 +291,30 @@ static GpsMarker *gps_marker_load(const char *dataroot) {
 
 /* Draw with the world camera bound: rp is main's program, mvp the world
    view-projection (main.c `MVP`). Leaves uModel at identity and the shading
-   switches as found (render_mark_end); the bound pipeline is the additive one. */
+   switches as found (render_mark_end); the bound pipeline is the opaque solid pass. */
 static void gps_marker_draw(GpsMarker *m, const RProg *rp, const float mvp[16],
-                            const float car_pos[3], float bearing, unsigned t_ms) {
+                            const float car_pos[3], float heading, float bearing, unsigned t_ms,const GpsMarkerPose *cfg) {
     if (!m || !rp || !mvp || !car_pos) return;
-    if (m->shader != rp->shader.id || !m->add.id) {
+    if (m->shader != rp->shader.id || !m->solid.id || !m->halo.id) {
         UG2CarPipelines cp;
         render_car_pipelines(rp, &cp);
-        m->add = cp.halo; m->shader = rp->shader.id;
+        m->solid = cp.opaque[RHI_CULL_NONE]; m->halo=cp.halo; m->shader = rp->shader.id;
     }
-    float pos[3], yaw, model[16], mv[16];
-    gps_marker_pose(car_pos, bearing, t_ms, pos, &yaw);
-    gps_marker_model(pos, yaw, model);
+    float model[16], mv[16];
+    gps_marker_transform(cfg,car_pos,heading,bearing,t_ms,model);
     mat_mul(mvp, model, mv);
     RMarkSaved saved;
     render_mark_begin(rp, &saved);          /* unlit, clamp(2*texel*vertex), fog */
-    rhi_cmd_bind_pipeline(m->add);          /* authored additive (blend 2) */
-    render_model(rp, model);                /* fog distance from world position */
+    render_model(rp, model);
     ug2_copy(rp->p->uMVP, mv, 16);
-    rhi_cmd_bind_texture(0, m->tex);
-    for (int i = 0; i < m->geom.scene.count; i++) render_draw_gpumesh(&m->gpu[i]);
+    /* [inferred] Paint the opaque core after the additive shell, so front
+       shell faces cannot wash its captured dark-blue fill out. */
+    rhi_cmd_bind_pipeline(m->halo);
+    rhi_cmd_bind_texture(0,m->tex);
+    for(int i=0;i<m->geom.scene.count;i++)if(i!=m->core)render_draw_gpumesh(&m->gpu[i]);
+    rhi_cmd_bind_pipeline(m->solid);
+    rhi_cmd_bind_texture(0,m->core_tex);
+    render_draw_gpumesh(&m->gpu[m->core]);
     render_model(rp, NULL);
     render_mark_end(rp, &saved);
 }
