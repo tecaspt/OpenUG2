@@ -5,8 +5,9 @@
 #ifndef OPENUG2_CAREER_H
 #define OPENUG2_CAREER_H
 #include "career_data.h"
+#include "garage.h"
 
-#define CR_SCHEMA       2u            /* 2: + TLV 5 OWNED (schema 1 saves migrate on load) */
+#define CR_SCHEMA       3u            /* 3: + TLV 6 per-owned-car configurations; old saves migrate to stock */
 #define CR_MAGIC        0x5243554Fu   /* 'OUCR' little-endian */
 #define CR_FILE_NAME    "openug2_career.bin"
 #define CR_HIDE_WON     1             /* [inferred] won races disappear from the map */
@@ -25,6 +26,7 @@ typedef struct CareerState {
     uint8_t  extra[4096]; uint32_t nextra;   /* unknown TLVs from a newer writer, written back verbatim */
     /* schema 2 */
     uint8_t  nowned, active, region;     /* owned cars, index of the driven one, unlock column 0 = A, 1 = B */
+    GarageConfig config[CR_MAX_OWNED]; /* schema 3: career-only installed configurations */
     char     owned[CR_MAX_OWNED][32];    /* car folder names */
 } CareerState;
 
@@ -71,10 +73,18 @@ int  cr_objective(const CareerState *s, const CareerData *cd);
  * (CR_REC_WON | CR_REC_PAID, no reward, not counted in won/entered), then advances stages like cr_apply.
  * 1 when an objective was completed. out (may be NULL) gets first_win=1 and stage_before/after. */
 int  cr_objective_done(CareerState *s, const CareerData *cd, int shop, CrOutcome *out);
-/* [inferred] shop open = open_stage <= s->stage, and (M6 scope) only car lots and the crib work. */
+/* [inferred] shop open = supported type and open_stage <= s->stage. */
 int  cr_shop_open(const CareerState *s, const CareerData *cd, int shop);
 /* Open shop whose zone contains (x, y), or -1. */
 int  cr_shop_hit(const CareerState *s, const CareerData *cd, float x, float y);
+
+/* Supported geometry categories, independent of yet-undecoded retail unlock tiers. */
+int cr_shop_slot(int type, int slot);
+int32_t cr_rule_part_price(const CareerData *, int shop, int slot, int value);
+/* Validates shop availability and changed categories before updating the active owned car.
+ * Returns ST_OK / ST_E_ARG; the host saves transactionally after renderer acknowledgement. */
+int cr_shop_install(CareerState *, const CareerData *, int shop, const GarageConfig *);
+const GarageConfig *cr_car_config(const CareerState *);
 
 /* ---- car lot ---- */
 typedef struct CrLotCar { char name[32]; int32_t price; uint8_t owned, starter; } CrLotCar;

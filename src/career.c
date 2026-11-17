@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define CR_BUF_MAX 16384u
-#define CR_B_MAX   (8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
+#define CR_B_MAX   (8u + 88u * CR_MAX_OWNED + 8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
 
 /* ---- lookups (static; no dependency on career_data.c) ---- */
 static int find_race(const CareerData *cd, uint32_t hash)
@@ -288,7 +288,7 @@ int cr_objective_done(CareerState *s, const CareerData *cd, int shop, CrOutcome 
 }
 
 /* [inferred] M6 scope: only car lots and the crib (Garage hub) have a working screen. */
-static int rule_shop_works(const CdShop *p) { return p->type == CD_SHOP_CAR_LOT || p->type == CD_SHOP_CRIB; }
+static int rule_shop_works(const CdShop *p) { return p->type <= CD_SHOP_UNIQUES; }
 
 int cr_shop_open(const CareerState *s, const CareerData *cd, int shop)
 {
@@ -306,6 +306,49 @@ int cr_shop_hit(const CareerState *s, const CareerData *cd, float x, float y)
         if (z >= 0 && point_in_quad(cd->zone[z].poly, x, y)) return i;
     }
     return -1;
+}
+
+/* Geometry availability is separate from retail stage unlocks, which remain undecoded. */
+int cr_shop_slot(int type, int slot)
+{
+    if (slot < 0 || slot > GARAGE_RIM) return 0;
+    if (type == CD_SHOP_CRIB) return 1;
+    if (type == CD_SHOP_SPECIALTY) return slot == N2_PART_ENGINE || slot == N2_PART_AUDIO;
+    return type == CD_SHOP_BODY && slot != N2_PART_ENGINE && slot != N2_PART_AUDIO;
+}
+int32_t cr_rule_part_price(const CareerData *cd, int shop, int slot, int value)
+{
+    (void)cd; (void)shop; (void)slot; (void)value;
+    return 0; /* [inferred] no decoded price table */
+}
+const GarageConfig *cr_car_config(const CareerState *s)
+{
+    return s && s->nowned && s->active < s->nowned ? &s->config[s->active] : NULL;
+}
+static int config_valid(const GarageConfig *c)
+{
+    if (!c || c->car.body_kit < 0 || c->car.body_kit > 99 ||
+        c->car.hood_style < 0 || c->car.hood_style > 5999 ||
+        c->car.spoiler_style < 0 || c->car.spoiler_style > 5999 ||
+        c->car.wheel_style_id < 0 || c->car.wheel_style_id > 5999 ||
+        !memchr(c->rim_brand, 0, sizeof c->rim_brand) || c->rim_style < 0 || c->rim_style > 99) return 0;
+    for (int i = 0; i < N2_PART_COUNT; i++) if (c->car.parts[i] < 0 || c->car.parts[i] > 5999) return 0;
+    return 1;
+}
+int cr_shop_install(CareerState *s, const CareerData *cd, int shop, const GarageConfig *c)
+{
+    const GarageConfig *old = cr_car_config(s);
+    if (!old || !config_valid(c) || !cr_shop_open(s, cd, shop)) return ST_E_ARG;
+    int type = cd->shop[shop].type;
+    if (!cr_shop_slot(type, GARAGE_KIT) && old->car.body_kit != c->car.body_kit) return ST_E_ARG;
+    if (!cr_shop_slot(type, N2_PART_HOOD) && old->car.hood_style != c->car.hood_style) return ST_E_ARG;
+    if (!cr_shop_slot(type, N2_PART_SPOILER) && old->car.spoiler_style != c->car.spoiler_style) return ST_E_ARG;
+    if (!cr_shop_slot(type, GARAGE_RIM) && (old->car.wheel_style_id != c->car.wheel_style_id ||
+        strcmp(old->rim_brand, c->rim_brand) || old->rim_style != c->rim_style)) return ST_E_ARG;
+    for (int i = 0; i < N2_PART_COUNT; i++)
+        if (!cr_shop_slot(type, i) && old->car.parts[i] != c->car.parts[i]) return ST_E_ARG;
+    s->config[s->active] = *c;
+    return ST_OK;
 }
 
 /* ---- car lot ---- */
@@ -368,7 +411,7 @@ int cr_lot_buy(CareerState *s, const CareerData *cd, const char *const *inst, in
     if (price > 0 && s->bank < price) return CR_LOT_E_FUNDS;
     s->bank -= price;
     memset(s->owned, 0, sizeof s->owned);
-    set_name(s->owned[0], car); s->nowned = 1; s->active = 0;   /* Defaults: 1 car slot */
+    set_name(s->owned[0], car); s->nowned = 1; s->active = 0; memset(s->config, 0, sizeof s->config);   /* Defaults: 1 car slot */
     set_name(s->car, car);
     if (s->region >= 2) s->region = (uint8_t)col;
     memset(&o, 0, sizeof o);
@@ -422,6 +465,16 @@ size_t cr_serialize(const CareerState *s, uint8_t *out, size_t cap)
         for (l = 0; l < 31 && s->owned[i][l]; l++) {}
         memset(p, 0, 32); memcpy(p, s->owned[i], l);
     }
+    p = tlv(p, 6, 88u * s->nowned);
+    for (i = 0; i < s->nowned; i++, p += 88) {
+        const GarageConfig *c = &s->config[i];
+        if (!config_valid(c)) return 0;
+        p32(p, c->car.body_kit); p32(p + 4, c->car.hood_style);
+        p32(p + 8, c->car.spoiler_style); p32(p + 12, c->car.wheel_style_id);
+        for (int j = 0; j < N2_PART_COUNT; j++) p32(p + 16 + 4*j, c->car.parts[j]);
+        memset(p + 60, 0, 24); memcpy(p + 60, c->rim_brand, strlen(c->rim_brand));
+        p32(p + 84, c->rim_style);
+    }
     memcpy(p, s->extra, s->nextra); p += s->nextra;
     n = st_container_build(out, cap, a, 8, b, (uint32_t)(p - b));
     return n;
@@ -433,7 +486,7 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
     CareerState t;
     uint32_t schema;
     size_t pos = 0;
-    int have_owned = 0;
+    int have_owned = 0, config_count = -1;
     int rc = st_container_parse(buf, len, &v);
     if (rc != ST_OK) return ST_E_CORRUPT;
     if (v.size_a < 8 || g32(v.a) != CR_MAGIC) return ST_E_CORRUPT;
@@ -485,6 +538,19 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
                 have_owned = 1;
             }
             break;
+        case 6:
+            if (schema < 3) break;
+            if (config_count >= 0 || l % 88 || l / 88 > CR_MAX_OWNED) return ST_E_CORRUPT;
+            config_count = (int)(l / 88);
+            for (int i = 0; i < config_count; i++) {
+                const uint8_t *q = d + 88*i; GarageConfig *c = &t.config[i];
+                c->car.body_kit = (int32_t)g32(q); c->car.hood_style = (int32_t)g32(q + 4);
+                c->car.spoiler_style = (int32_t)g32(q + 8); c->car.wheel_style_id = (int32_t)g32(q + 12);
+                for (int j = 0; j < N2_PART_COUNT; j++) c->car.parts[j] = (int32_t)g32(q + 16 + 4*j);
+                memcpy(c->rim_brand, q + 60, 24); c->rim_style = (int32_t)g32(q + 84);
+                if (!config_valid(c)) return ST_E_CORRUPT;
+            }
+            break;
         default:
             if (8u + l > sizeof t.extra - t.nextra) return ST_E_CORRUPT;
             memcpy(t.extra + t.nextra, v.b + pos, 8u + l);
@@ -497,6 +563,7 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
         t.region = CR_REGION_UNKNOWN; t.active = 0; t.nowned = 0;
         if (t.car[0]) { set_name(t.owned[0], t.car); t.nowned = 1; }
     }
+    if (config_count >= 0 && config_count != t.nowned) return ST_E_CORRUPT;
     *dst = t;
     return ST_OK;
 }

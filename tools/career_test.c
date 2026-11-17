@@ -123,10 +123,10 @@ static void test_lot(void)
     CHECK(cr_objective(&s, &cd) == 1);
     n = cr_list(&s, &cd, list, CD_MAX_RACES);
     CHECK(n == 1 && list[0] == 0);                   /* SCRIPTED optional race in stage 0; DDAY events never listed */
-    CHECK(cr_shop_open(&s, &cd, 0) && cr_shop_open(&s, &cd, 1) && !cr_shop_open(&s, &cd, 2) && !cr_shop_open(&s, &cd, 3));
+    CHECK(cr_shop_open(&s, &cd, 0) && cr_shop_open(&s, &cd, 1) && !cr_shop_open(&s, &cd, 2) && cr_shop_open(&s, &cd, 3));
     CHECK(!cr_shop_open(&s, &cd, -1) && !cr_shop_open(&s, &cd, 9));
     CHECK(cr_shop_hit(&s, &cd, 105, 5) == 0 && cr_shop_hit(&s, &cd, 220, 20) == 1);
-    CHECK(cr_shop_hit(&s, &cd, 305, 5) == -1 && cr_shop_hit(&s, &cd, 405, 5) == -1 && cr_shop_hit(&s, &cd, 50, 50) == -1);
+    CHECK(cr_shop_hit(&s, &cd, 305, 5) == -1 && cr_shop_hit(&s, &cd, 405, 5) == 3 && cr_shop_hit(&s, &cd, 50, 50) == -1);
     /* lot inventory, region A */
     n = cr_lot_list(&s, &cd, inst, 4, lot, 16);
     CHECK(n == 2 && !strcmp(lot[0].name, "STARTER1") && !strcmp(lot[1].name, "CAR_V"));
@@ -195,7 +195,7 @@ static void test_save2(void)
     s.stage = 0; s.bank = 12345;
     len = cr_serialize(&s, buf, sizeof buf);
     CHECK(len > 0);
-    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.size_a == 8 && v.a[4] == 2);
+    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.size_a == 8 && v.a[4] == CR_SCHEMA);
     memset(&t, 0x33, sizeof t);
     CHECK(cr_parse(&t, buf, len) == ST_OK && state_eq(&s, &t));
     for (i = 0; i < len; i++) CHECK(cr_parse(&u, buf, i) != ST_OK);
@@ -219,12 +219,12 @@ static void test_save2(void)
     CHECK(t.nowned == 1 && !strcmp(t.owned[0], "OLDCAR") && t.active == 0 && t.region == CR_REGION_UNKNOWN);
     len = cr_serialize(&t, buf, sizeof buf);       /* re-saved as schema 2 */
     CHECK(len > 0 && cr_parse(&u, buf, len) == ST_OK && state_eq(&t, &u));
-    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.a[4] == 2);
+    CHECK(st_container_parse(buf, len, &v) == ST_OK && v.a[4] == CR_SCHEMA);
     /* schema 1 without a car: owns nothing */
     tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 32);
     CHECK(cr_parse(&t, tmp, tl) == ST_OK && t.nowned == 0 && t.region == CR_REGION_UNKNOWN);
     /* schema 3 refused */
-    a[4] = 3;
+    a[4] = CR_SCHEMA + 1;
     tl = st_container_build(tmp, sizeof tmp, a, 8, blk, 32);
     CHECK(cr_parse(&t, tmp, tl) == ST_E_INCOMPATIBLE);
     /* malformed OWNED TLVs (schema 2) */
@@ -370,7 +370,7 @@ int main(void)
         /* schema 2 */
         {
             uint8_t a2[8];
-            memcpy(a2, v.a, 8); a2[4] = 3;   /* schema 3: newer than this build */
+            memcpy(a2, v.a, 8); a2[4] = CR_SCHEMA + 1;   /* schema 3: newer than this build */
             tl = st_container_build(tmp, sizeof tmp, a2, 8, v.b, v.size_b);
             CHECK(cr_parse(&s3, tmp, tl) == ST_E_INCOMPATIBLE);
             a2[4] = 0;
@@ -453,6 +453,27 @@ int main(void)
 
     test_lot();
     test_save2();
+    build_lot_data();
+    cr_new(&s, &cd, "STARTER1");
+    cd.shop[3].type = CD_SHOP_BODY;
+    GarageConfig cfg = {0}; cfg.car.body_kit = 1;
+    CHECK(cr_shop_install(&s, &cd, 3, &cfg) == ST_OK);
+    CHECK(cr_car_config(&s)->car.body_kit == 1 && s.bank == 0);
+    cfg.car.parts[N2_PART_AUDIO] = 101;
+    CHECK(cr_shop_install(&s, &cd, 3, &cfg) == ST_E_ARG);
+    cd.shop[3].type = CD_SHOP_SPECIALTY;
+    CHECK(cr_shop_install(&s, &cd, 3, &cfg) == ST_OK);
+    cfg.car.body_kit = 2;
+    CHECK(cr_shop_install(&s, &cd, 3, &cfg) == ST_E_ARG);
+    CHECK(!cr_shop_slot(CD_SHOP_PERF, N2_PART_ENGINE));
+    CHECK(!cr_shop_slot(CD_SHOP_PAINT, GARAGE_KIT));
+    CHECK(!cr_shop_slot(CD_SHOP_BODY, -1));
+    CHECK(cr_rule_part_price(&cd, 3, N2_PART_AUDIO, 101) == 0);
+    len = cr_serialize(&s, buf, sizeof buf);
+    CHECK(len && cr_parse(&s2, buf, len) == ST_OK);
+    CHECK(s2.config[0].car.body_kit == 1 && s2.config[0].car.parts[N2_PART_AUDIO] == 101);
+    cd.shop[3].open_stage = 2;
+    CHECK(cr_shop_install(&s, &cd, 3, &cfg) == ST_E_ARG);
     printf("career_test: %d checks, %d failures\n", checks, fails);
     printf(fails ? "FAIL\n" : "PASS\n");
     return fails != 0;
