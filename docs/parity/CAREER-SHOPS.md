@@ -31,8 +31,24 @@ Package existence alone does not establish the shop's category population.
 [data] English.bin contains questions at 0x0AAB553E (car lot), 0x78DAD861
 (body), 0x85D2ED13 (graphics), 0x15D6B438 (generic shop), and 0x72988DBE
 (garage). MINIMAP_PERFORMANCE, MINIMAP_BODY and MINIMAP_GRAPHICS resolve
-to readable shop labels. Exact label identifiers for other questions need
-hash verification; the text/hash pairs themselves are present in the data.
+to readable shop labels. Labels.bin identifies the body/graphics question entries as
+SHOP_BLURB_PARTS_SHOP_1 and SHOP_BLURB_PAINT_SHOP_1, and the generic
+question as ENGAGE_ENTER_SHOP_GENERIC. Their use as entry confirmations
+is an application inference, not a recovered control-flow fact.
+
+[data] Labels.bin + English.bin identify these ASK_ENTER keys:
+
+| Type | Header | Message / title |
+| --- | --- | --- |
+| Crib | ASK_ENTER_CRIB_HEADER | ASK_ENTER_CRIB (garage question) |
+| Body | ASK_ENTER_BODY_SHOP_HEADER | ASK_ENTER_BODY_SHOP (Body Shop title) |
+| Performance | ASK_ENTER_PERF_SHOP_HEADER | no per-type ASK_ENTER question in Labels.bin |
+| Graphics | ASK_ENTER_PAINT_SHOP_HEADER | no per-type ASK_ENTER question in Labels.bin |
+| Specialties | ASK_ENTER_ICE_SHOP_HEADER | no per-type ASK_ENTER question in Labels.bin |
+| Car lot | ASK_ENTER_CAR_LOT_HEADER | ASK_ENTER_CAR_LOT (car lot question) |
+
+[data] ASK_ENTER_ICE_SHOP_HEADER resolves to Car Specialties Shop. Thus
+ICE is a data-backed specialty alias; it is not a performance category.
 
 [data] The 0x34A15 table has 30 records of 380 bytes, with header domains
 0..9, 1..3 and 1..4 and four possible 92-byte descriptors. Other undecoded
