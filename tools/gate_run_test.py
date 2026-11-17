@@ -192,7 +192,7 @@ class Gate(unittest.TestCase):
 
     def test_list_runs_nothing(self):
         marker = os.path.join(self.dir, "marker")
-        gate = self.gate(self.sh("a", "open(%r, 'w')" % marker))
+        gate = self.gate(self.sh("a", "open(%r, 'w').close()" % marker))
         argv = RUN + [gate, "--repo", self.repo, "--out", self.out, "--list"]
         p = subprocess.run(argv, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -540,7 +540,7 @@ class Gate(unittest.TestCase):
         gate = self.gate(step, env_required=["OPENUG2_TEST_PATH"])
         code, out, _ = self.run_main(gate, env={"OPENUG2_TEST_PATH": "/tmp/data"})
         self.assertEqual(code, 0, out)
-        self.assertEqual(open(os.path.join(self.out, "g", "seen.txt")).read(), "/tmp/data")
+        self.assertEqual(read(os.path.join(self.out, "g", "seen.txt")), "/tmp/data")
 
     def test_dollar_var_unset_fails_the_step(self):
         """A step that runs with an empty path is worse than one that does not run."""
@@ -564,45 +564,102 @@ class Gate(unittest.TestCase):
     # ------------------------------------------------------------------ memory guard
 
     def test_low_memory_fails_after_waiting(self):
+        """A board with no headroom waits its 10 minutes and then FAILs - never passes quietly."""
         gate = self.gate({"id": "g", "kind": "game", "binary": "true", "args": []})
-        calls = []
-
-        def fake_mem(path="/proc/meminfo"):
-            return 100            # far below the 2500 MiB floor, forever
-
-        real_avail, real_wait, real_poll = (gate_run.mem_available_mib, gate_run.MEM_WAIT_S,
-                                            gate_run.MEM_POLL_S)
-        gate_run.mem_available_mib = fake_mem
-        gate_run.MEM_WAIT_S, gate_run.MEM_POLL_S = 60, 30
         slept = []
-        runner = gate_run.Runner(gate_run.load_gate(gate), self.repo, self.out,
-                                 env=dict(os.environ), sleep=slept.append)
+        restore = self.fake_memory(100)
         try:
+            runner = gate_run.Runner(gate_run.load_gate(gate), self.repo, self.out,
+                                     env=dict(os.environ), sleep=slept.append)
             verdict = runner.run()
         finally:
-            gate_run.mem_available_mib, gate_run.MEM_WAIT_S, gate_run.MEM_POLL_S = (
-                real_avail, real_wait, real_poll)
+            restore()
         self.assertEqual(verdict["exit"], 1)
         self.assertIn("low memory", verdict["steps"][0]["detail"])
-        self.assertEqual(slept, [30, 30], "it should poll twice over a 60 s wait")
+        self.assertIn("need 2500 MiB", verdict["steps"][0]["detail"])
+        self.assertEqual(slept, [30] * 20, "a 600 s wait polls every 30 s")
+
+    def test_tight_board_starts_after_waiting_with_a_note(self):
+        """Below the floor for the whole wait, but far from empty: start, and say so.
+
+        The board is shared and a game run holds over a gig. A step that would pass while swapping
+        has passed; refusing it is a verdict nobody asked for. The note is the record that it ran
+        under pressure.
+        """
+        restore = self.fake_memory(2000)      # under the 2500 floor, well over the 1200 risk line
+        try:
+            runner = self.runner_with_no_sleep()
+            self.assertIsNone(runner.wait_for_memory())
+        finally:
+            restore()
+        printed = io.StringIO()
+        keep = sys.stdout
+        sys.stdout = printed
+        try:
+            restore = self.fake_memory(2000)
+            try:
+                self.assertIsNone(self.runner_with_no_sleep().wait_for_memory())
+            finally:
+                restore()
+        finally:
+            sys.stdout = keep
+        self.assertIn("below the 2500 MiB floor", printed.getvalue())
+
+    def test_genuinely_empty_board_fails_without_a_note(self):
+        """Under the risk line there is no polite way to start: the honest answer is the failure."""
+        restore = self.fake_memory(300)
+        try:
+            runner = self.runner_with_no_sleep()
+            reason = runner.wait_for_memory()
+        finally:
+            restore()
+        self.assertIsNotNone(reason)
+        self.assertIn("need 2500 MiB", reason)
 
     def test_memory_check_lets_a_healthy_board_through(self):
         gate = self.gate({"id": "g", "kind": "game", "binary": "true", "args": []})
-        runner = gate_run.Runner(gate_run.load_gate(gate), self.repo, self.out,
-                                 env=dict(os.environ), sleep=lambda s: None)
-        self.assertIsNone(runner.wait_for_memory())
+        restore = self.fake_memory(8000)
+        try:
+            runner = gate_run.Runner(gate_run.load_gate(gate), self.repo, self.out,
+                                     env=dict(os.environ), sleep=lambda s: None)
+            self.assertIsNone(runner.wait_for_memory())
+        finally:
+            restore()
 
     def test_memory_recovery_continues(self):
+        """Low, then recovered: the step runs, and the wait is what bought the difference."""
         readings = iter([100, 100, 4000])
         real = gate_run.mem_available_mib
         gate_run.mem_available_mib = lambda path="/proc/meminfo": next(readings)
         try:
-            runner = gate_run.Runner({"name": "t", "env_required": [], "steps": []},
-                                     self.repo, self.out, env=dict(os.environ),
-                                     sleep=lambda s: None)
-            self.assertIsNone(runner.wait_for_memory())   # recovered, so no failure
+            self.assertIsNone(self.runner_with_no_sleep().wait_for_memory())
         finally:
             gate_run.mem_available_mib = real
+
+    def test_mem_available_mib_reads_proc(self):
+        """The guard is only as good as its reading of /proc/meminfo."""
+        sample = self.write(self.dir, "meminfo",
+                            "MemTotal:       8253440 kB\nMemFree:    1234 kB\n"
+                            "MemAvailable:   3145728 kB\n")
+        self.assertEqual(gate_run.mem_available_mib(sample), 3072)
+        self.assertIsNone(gate_run.mem_available_mib(self.dir + "/absent"))
+        junk = self.write(self.dir, "junk-meminfo", "MemTotal: nonsense\n")
+        self.assertIsNone(gate_run.mem_available_mib(junk))
+        # the real board: this is the file the guard actually reads, and it must yield a number
+        self.assertIsInstance(gate_run.mem_available_mib(), int)
+
+    def fake_memory(self, available):
+        """Pin what the guard reads; returns the undo."""
+        real = gate_run.mem_available_mib
+        gate_run.mem_available_mib = lambda path="/proc/meminfo": available
+        def restore():
+            gate_run.mem_available_mib = real
+        return restore
+
+    def runner_with_no_sleep(self):
+        """A runner that does not actually wait, so the memory paths run at test speed."""
+        return gate_run.Runner({"name": "t", "env_required": [], "steps": []},
+                               self.repo, self.out, env=dict(os.environ), sleep=lambda s: None)
 
     # ------------------------------------------------------------------ heavy wrapping
 

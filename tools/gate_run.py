@@ -39,11 +39,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_TIMEOUT = 900.0
 DEFAULT_JOBS = 2
+# Memory guard for the heavy steps: wait while MemAvailable is under MEM_MIN_MIB, polling every
+# MEM_POLL_S for up to MEM_WAIT_S. See wait_for_memory for what happens when the wait runs out.
 MEM_MIN_MIB = 2500      # below this, a heavy step waits instead of swapping the board away
 MEM_WAIT_S = 600.0      # ... for up to 10 minutes,
-MEM_POLL_S = 30.0       # ... polling every 30 s, then it fails with "low memory"
+MEM_RISK_MIB = 1200     # ... and if it never clears, starts anyway above this (see wait_for_memory)
+MEM_POLL_S = 30.0
 TERM_GRACE_S = 5.0      # signal the process group TERM, then KILL after this
 KILL_WAIT_S = 5.0       # how long to wait for each of the two to take effect
+POLL_S = 0.2            # how often a running step is checked; bounds timeout overshoot
 
 VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 WARN_TEXT = "warning:"
@@ -267,7 +271,11 @@ def count_shots(directory):
 
 
 def mem_available_mib(path="/proc/meminfo"):
-    """MemAvailable in MiB, or None when the kernel does not tell us (never a reason to skip the check)."""
+    """MemAvailable in MiB, or None when the kernel does not say.
+
+    The one place the guard reads, so the self-test can drive the whole waiting path by patching
+    it. None means "cannot tell", which is never a reason to skip the check or to fail a step.
+    """
     try:
         with open(path, "r") as fh:
             for line in fh:
@@ -304,30 +312,34 @@ class Proc:
         self.group = self.proc.pid
 
     def wait(self, timeout=None):
-        """Return the exit status, or None after the timeout has killed the group.
+        """Return the exit status, or None after the timeout, with the group killed by the caller.
 
-        The child runs with stderr merged into the log file, so poll() cannot deadlock on a full
-        pipe the way communicate() can when a step is killed mid-write.
+        poll() rather than wait(timeout): Popen.wait enforces its own deadline and raises at exactly
+        `timeout`, which would fire before this loop ever noticed and skip the kill entirely. The
+        poll interval is also what bounds the real-world overshoot of a step timeout.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
-            try:
-                return self.proc.wait(0.2)
-            except subprocess.TimeoutExpired:
-                pass
+            rc = self.proc.poll()
+            if rc is not None:
+                return rc
             if deadline is not None and time.monotonic() >= deadline:
-                self.kill()
                 return None
+            time.sleep(POLL_S)
 
     def kill(self):
+        """TERM the process group, then KILL if it is still there after the grace period.
+
+        The group, not just the pid: the gate's children are `flock`/`nice` wrappers around the
+        game, and the game has its own children. A kill of the direct child alone would leave the
+        race running and holding the GPU.
+        """
         if self.group is None:
             return
         for sig, grace in ((signal.SIGTERM, TERM_GRACE_S), (signal.SIGKILL, KILL_WAIT_S)):
             try:
                 os.killpg(self.group, sig)
-            except ProcessLookupError:
-                return
-            except OSError:
+            except OSError:                 # already gone, or no permission: nothing more to do
                 return
             end = time.monotonic() + grace
             while self.proc.poll() is None and time.monotonic() < end:
@@ -413,34 +425,57 @@ class Runner:
         return ["nice", "-n", "10"]
 
     def wait_for_memory(self):
-        """MemAvailable >= MEM_MIN_MIB, waiting up to MEM_WAIT_S; returns None or a failure reason."""
+        """Wait for headroom before a heavy step; returns None to go ahead, or a failure reason.
+
+        This board is shared - another agent's build and whoever's desktop is on it - and a game run
+        holds over a gig of it, so low memory is normal and usually means someone else's step is
+        finishing. Waiting fixes it far more often than failing does.
+
+        If the floor is not reached inside MEM_WAIT_S, the step starts anyway above MEM_RISK_MIB.
+        That is a deliberate risk, not a shrug: the board has 8 GiB and 8 GiB of swap, the steps
+        that need the most are already running `nice`, and a swap-bound step that comes back PASS
+        did pass - whereas refusing a run the board would have served is a verdict nobody asked for.
+        Below MEM_RISK_MIB the note is not offered: there the honest answer is the failure, with the
+        number it saw.
+        """
         available = mem_available_mib()
-        if available is None:
+        if available is None or available >= MEM_MIN_MIB:
             return None
-        if available >= MEM_MIN_MIB:
-            return None
-        waited = 0.0
+        low, waited = available, 0.0
         while waited < MEM_WAIT_S:
             self.sleep(MEM_POLL_S)
             waited += MEM_POLL_S
             available = mem_available_mib()
-            if available is None or available >= MEM_MIN_MIB:
+            if available is None:
                 return None
-        return "low memory: MemAvailable %d MiB, need %d MiB (waited %.0f s)" % (
-            available, MEM_MIN_MIB, waited)
+            low = min(low, available)
+            if available >= MEM_MIN_MIB:
+                self.say("note: waited %.0f s for memory (%d MiB available, floor %d MiB)"
+                         % (waited, available, MEM_MIN_MIB))
+                return None
+        if available >= MEM_RISK_MIB:
+            self.say("note: starting after %.0f s at %d MiB available, below the %d MiB floor - "
+                     "the board is tight and this step may be slow"
+                     % (waited, available, MEM_MIN_MIB))
+            return None
+        return "low memory: MemAvailable %d MiB (lowest seen %d), need %d MiB, waited %.0f s" % (
+            available, low, MEM_MIN_MIB, waited)
 
     # ------------------------------------------------------------------ process run
 
     def spawn(self, argv, cwd, env, log_path, timeout, append=False):
+        """Run one step to completion. Returns (status, killed, seconds), status None if timed out."""
         mode = "ab" if append else "wb"
         with open(log_path, mode) as log:
             proc = Proc(argv, cwd=cwd, env=env, stdout=log)
             started = time.monotonic()
             rc = proc.wait(timeout)
+            killed = rc is None
+            if killed:
+                proc.kill()
+                rc = proc.proc.poll()      # what the kill actually produced, for the failure detail
             elapsed = time.monotonic() - started
-        if rc is None:
-            return None, elapsed
-        return rc, elapsed
+        return rc, killed, elapsed
 
     def tail_log(self, log_path, lines=1):
         """The last few lines of a step's log, for a failure detail that needs the child's own words.
@@ -499,8 +534,8 @@ class Runner:
             timeout = budget
             if step["target_timeout"] is not None:
                 timeout = min(budget, step["target_timeout"])
-            rc, _ = self.spawn(argv, cwd, env, log_path, timeout, append=index > 0)
-            if rc is None:
+            rc, killed, _ = self.spawn(argv, cwd, env, log_path, timeout, append=index > 0)
+            if killed:
                 problems.append("'%s' timed out after %.0f s; killed the process group"
                                 % (target, timeout))
                 break
@@ -613,9 +648,9 @@ class Runner:
         env["SDL_VIDEODRIVER"] = "offscreen"
         env["XDG_CONFIG_HOME"], env["XDG_DATA_HOME"] = cfg, data
         argv = self.heavy_prefix() + self.game_argv(step, cwd, missing, base)
-        rc, elapsed = self.spawn(argv, cwd, env, self.log_path(step), step["timeout"])
+        rc, killed, elapsed = self.spawn(argv, cwd, env, self.log_path(step), step["timeout"])
         log_text = self.read_log(self.log_path(step))
-        if rc is None:
+        if killed:
             return FAIL, "timeout after %.0f s; killed the process group" % step["timeout"], elapsed
         problems, notes = [], []
         if rc != step["exit"]:
@@ -648,8 +683,8 @@ class Runner:
             cfg, data = self.xdg_dirs(step)
             env["XDG_CONFIG_HOME"], env["XDG_DATA_HOME"] = cfg, data
         argv = (self.heavy_prefix() if step["heavy"] else []) + [expand(a, missing, base) for a in step["cmd"]]
-        rc, elapsed = self.spawn(argv, cwd, env, self.log_path(step), step["timeout"])
-        if rc is None:
+        rc, killed, elapsed = self.spawn(argv, cwd, env, self.log_path(step), step["timeout"])
+        if killed:
             return FAIL, "timeout after %.0f s; killed the process group" % step["timeout"], elapsed
         problems = []
         if rc != step["exit"]:
