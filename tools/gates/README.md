@@ -98,9 +98,25 @@ screenshot, which is why this exists at all.
     flock "$OPENUG2_HEAVY_LOCK" nice -n 10 <command>
 
 so two agents on this board cannot build or race at the same time. Without `OPENUG2_HEAVY_LOCK` there
-is no `flock`, and the runner says so once. Before each heavy step `MemAvailable` from
-`/proc/meminfo` is checked: below 2500 MiB the runner waits up to 10 minutes, polling every 30 s, and
-then FAILs the step with `low memory`.
+is no `flock`, and the runner says so once. The lock is the caller's to set and to *share*:
+serialising only works if every caller names the same path, and the runner cannot see who else is
+running, so it warns rather than pretending. `tools/gates/run.sh` exports one.
+
+Before each heavy step `MemAvailable` from `/proc/meminfo` is checked: below 2500 MiB the runner waits
+up to 10 minutes, polling every 30 s. If the wait runs out it still starts above 1200 MiB, with a note
+in the output saying the step ran under pressure - a step that passes while swapping has passed, and
+refusing a run this board would have served is a verdict nobody asked for. Below 1200 MiB it FAILs the
+step with the numbers it saw.
+
+## Running it
+
+    python3 -I tools/gate_run.py tools/gates/m1.json
+
+That is the contract: stop at the first FAIL and mark the rest `NOT RUN`. Add `--keep-going` for a
+full diagnostic of a branch, where every step reports its own verdict; the two produce different
+summary counts, so say which one a set of results came from. A whole-gate run takes an hour or two on
+this board, most of it in the two builds and the scripted races - run it detached, not in a shell
+that can die with your session.
 
 ## Adding a gate
 

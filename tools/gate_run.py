@@ -677,7 +677,7 @@ class Runner:
         log, so the evidence for every step stays in one place.
         """
         cwd = self.repo
-        self.step_dir(step)
+        os.makedirs(os.path.dirname(self.log_path(step)), exist_ok=True)   # the log lives here
         env = self.step_env(step, missing, base)
         if step.get("xdg"):
             cfg, data = self.xdg_dirs(step)
