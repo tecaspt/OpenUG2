@@ -89,8 +89,8 @@ and bob phase introduce a few pixels of uncertainty.
 |Scale|3.905761 [observed screen fit; inferred physical scale]|
 
 [data] Existing bob remains 0.15 m amplitude / 1600 ms period, both inferred.
-[inferred] Turning placement fidelity, slope handling, material interpretation
-and animation remain uncalibrated. The fit establishes straight-view framing.
+[inferred] At S3 close, turning placement, slope handling, material interpretation
+and animation remained uncalibrated. S4 below adds the supplied turn still.
 
 ## S3 checks and evidence
 
@@ -151,7 +151,7 @@ pose-checks.status, final-captures.status, comparison-metrics.json,
 live-assert.json and invariance.status. Private run scripts retain exact commands.
 No retail executable, decompiled material, real user save or system setting is used.
 
-## Reproduction and remaining captures
+## Earlier S3 reproduction and missing captures
 
 [data] The existing game target omits gps_marker.h from HDRS. A header-only
 change can leave a previous backend binary marked up-to-date. Validation touches
@@ -172,8 +172,9 @@ refinement. Omitting the data-root argument exits77. No substitute geometry is u
 
 [observed] The source video is https://m.youtube.com/watch?v=W5LGI6tr2GY.
 The browser could not open it and the downloader failed DNS resolution.
-Straight calibration uses the owner-supplied still. Turn/bob calibration and
-device checks are NOT RUN.
+Straight calibration used the owner-supplied still. At S3 close, turn/bob
+calibration and device checks were NOT RUN. S4 below adds still-based turn work;
+moving animation and device checks remain NOT RUN.
 [inferred] Further references needed: unscaled 1280x720 recordings at known
 30/60 fps, default FAR chase and identified car, with HUD visible; 6–10 seconds
 on a straight road at steady speed and 6–10 seconds through left/right turns.
@@ -204,10 +205,101 @@ They were fitted from the sampled regions, not extracted from executable code.
 The opaque atlas and authored light band provide the spatial detail and face
 contrast. This supersedes the S3 neutral multiplier and rim-before-core order.
 
-[observed] Final builds complete with unchanged 24/29/29 warnings. All five
-requested test targets pass; GPS has 149 checks in desktop and strict GLES
-configurations. Historical invariance still fails on both tracks, while both
-files are byte-identical to S3 controls. Final comparison figures and colour
-measurements are pending a clear turn capture: an initial camera position lets
-a building occlude the guide. Earlier procedural-material experiments,
-stale-binary captures and obstructed views are excluded from final proof.
+[observed] The final proof uses native-size full frames with region annotations:
+
+- reports/worldmap/s4/gps-straight-side-by-side.png (2560x950).
+- reports/worldmap/s4/gps-turn-side-by-side.png (2340x873).
+
+[observed] Both figures were reviewed by eye. Engine views use default FAR chase
+and Hor+ projection, without camera overrides, at the reference resolutions.
+The Focus is stationary versus the 173 km/h straight reference; both turn views
+show a stationary 350Z. Logged engine turn heading is 118 degrees and guidance
+bearing about 44.075 degrees: a right-relative bearing of -73.925 degrees.
+The fitted pitch is then about +0.0345 degrees, versus +0.45 straight. A thin
+foreground cable crosses the upper turn outline; the body and measured regions
+remain legible. Obstruction behaviour is unchanged.
+
+[observed] Visible bounds use the same blue/rim threshold as S3 in bounded ROIs:
+
+| View | Retail size / centre, px | Engine size / centre, px |
+|---|---|---|
+|Straight|115x79 / (637.5,201.5)|115x78 / (639.5,200.0)|
+|Right turn|185x61 / (639.5,161.5)|180x57 / (633.0,162.5)|
+
+[observed] Straight framing remains within 2 px horizontally and 1.5 px
+vertically; its visible height differs by 1 px. The turn is 5 px narrower,
+4 px shorter, 6.5 px left and 1 px lower. This is an approximate still fit,
+not a recovered retail matrix. The broader top face and sideways tip are visible.
+A later camera-position probe put the car on a different road/suspension tilt,
+changing chase inclination and lowering the marker; it is excluded from the fit.
+
+[observed] RGB values below are regional medians of decoded screenshot bytes,
+without gamma conversion. Core rectangles and masked bright-rim rectangles are
+shown in the figures. The lit-face/band sample selects the three rows around the
+highest mean green row inside a bounded feature ROI. Rim samples require
+R>100, G>170, B>200. The source atlas grain and the additive background mean
+single-pixel values vary. Exact ROIs/counts are retained in comparison-metrics.json.
+The before-turn frame is the S3 material rendered with the 350Z; separate visible
+regions avoid its foreground tree. No retail texture bytes are altered.
+
+| View / region | S3 before RGB | S4 after RGB | Retail RGB |
+|---|---|---|---|
+|Straight core|9,73,161|15,45,174|20,44,171|
+|Straight lit face/band|9,95,161|166,255,255|116,240,255|
+|Straight rim|157,255,255|174,255,255|202,245,252|
+|Turn core|9,68,161|15,42,174|23,37,172|
+|Turn lit face/band|9,95,161|150,255,252|145,240,254|
+|Turn rim|143,255,255|186,255,255|205,243,250|
+
+[observed] Core medians now differ by at most 8 per channel. The straight band
+peak remains 50 red and 15 green levels brighter; turn band differences are
++5,+15,-2. Rim medians remain 19..28 red levels lower and 10..12 green levels
+higher. Full colour/bloom fidelity is not established. The additive rim includes
+scene background, which differs strongly between the retail sky and engine view.
+[inferred] Channel gains, material response, bloom/tonemapping, metric offsets,
+intermediate turning poses and animation remain assumptions. The two stills
+constrain appearance at their views; they do not establish a unique lighting law.
+
+## S4 final checks
+
+| Check | Result |
+|---|---|
+|1. nfsu2 / gles / ios-host|PASS: 24 / 29 / 29 warnings; normalized lists unchanged from S3|
+|2. Requested five test targets|PASS: gps-marker-test, hud-race-test, hud-minimap-test, fe-worldmap-test, game-flow-test|
+|2. GPS desktop / strict GLES|PASS: 149 checks, zero failures in each; strict GLES build uses -Werror|
+|3. Historical gint reference files|FAIL: L4RA 137,738 pixels differ; L4RB 68,200 differ|
+|3. Current S3 controls|PASS: both PNG files byte-identical, zero changed pixels|
+|4. Annotated straight / turn figures|PASS: rendered, sampled and reviewed by eye|
+|4. GL and GLES screen captures|PASS: straight and turn guidance visible, no normal 2D arrow/distance|
+|Moving bob / device checks|NOT RUN|
+
+[observed] Historical-reference failure is unchanged from S2/S3 in software GL;
+reference files were never replaced. The original host/GPU context is still
+needed for that gate. This does not count as a historical invariance pass.
+
+[observed] The three final build commands each returned zero before the private
+runner encountered an epilogue parse error caused by editing its file while it
+ran. Their logs, archived binaries and warning comparison independently verify
+the builds; the runner's failure is retained. Earlier terminated/cancelled builds,
+procedural-palette experiments, stale binaries and obstructed captures are excluded.
+Final code checksums match the tested source. No source changed during final capture
+review. All compiles/runs used the shared lock, nice priority, memory gate and
+bounded isolated headless runs. Memory waits were honoured without lowering the
+2500 MB threshold. No leak-sanitizer exception was needed for this five-target set.
+
+[observed] Final reviewed evidence under reports/worldmap/s4:
+
+- straight.png, turn-clear-gl.png, gles-straight.png, turn-clear-gles.png.
+- inv-STREAML4RA.png, inv-STREAML4RB.png.
+- gps-straight-side-by-side.png, gps-turn-side-by-side.png.
+- build-gl.log, build-gles.log, build-ios.log, build-warning-check.json.
+- gps-marker-test.log, gps-marker-gles-test.log and the other requested test logs.
+- validation.status, turn-clear.status, comparison-metrics.json, invariance.json, source.sha256.
+
+[data] No host wiring, new SRC entry or shader file is required: the marker's
+private material compiles through the existing header. The earlier recommendation
+to add gps_marker.h to Makefile HDRS still applies to the build owner. This task
+changes only the GPS header, its test and this document. The rear-view mirror
+remains out of scope. Moving straight/left/right clips are still needed to constrain
+bob, temporal turning and obstruction; no retail executable or decompiled code
+was consulted.
