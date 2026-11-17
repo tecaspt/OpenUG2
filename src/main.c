@@ -7580,7 +7580,8 @@ int main(int argc, char **argv) {
             else if (frq.kind == FEM_REQ_LOT_BUY) {
                 GfLaunch gl;
                 int ok = ch_lot_buy(&g_career, frq.car, &gl);
-                printf("%s\n", g_career.last);
+                /* Keep the purchase record whole when stdout and stderr share a log. */
+                fflush(stdout); printf("%s\n", g_career.last); fflush(stdout);
                 if (ok) {   /* free roam in the bought car at the lot marker */
                     garage_reload_pending = 1; garage_load_failed = 0;
                     lot_must_buy = 0; lot_dev_frames = 0; career_dev_frames = 0;
