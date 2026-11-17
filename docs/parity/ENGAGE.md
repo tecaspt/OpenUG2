@@ -11,8 +11,9 @@ and the upper highlight is enabled. The authored d-pad centre texture is used
 for this state.
 
 Nearby open shops and available races have camera-facing world signs using the
-same catalog textures. Their position, scale and orientation are inferred, and
-this implementation does not reconstruct an authored three-dimensional solid.
+same catalog textures. They use the named marker position where available,
+falling back to the zone centre. Height, scale and camera-facing orientation
+are inferred; this does not reconstruct an authored three-dimensional solid.
 The retail shop still shows a floating wrench; the signs need comparison at
 matching locations and poses before claiming visual parity.
 
