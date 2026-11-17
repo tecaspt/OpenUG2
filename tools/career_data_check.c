@@ -79,19 +79,111 @@ static void check_lot(const CareerData *cd, const char *root) {
     }
 }
 
+/* `--sms FILE` writes the parsed 0x34A17 table as a JSON array, one object per record, for diffing against
+ * career_dump.py --section sms --json. Every value is a field the parser fills in, nothing recomputed here. */
+static void dump_sms(const char *path, const CareerData *cd) {
+    FILE *f = fopen(path, "w");
+    int i;
+    if (!f) { fprintf(stderr, "cannot write %s\n", path); exit(1); }
+    fputs("[\n", f);
+    for (i = 0; i < cd->nsms; i++) {
+        const CdSms *q = &cd->sms[i];
+        fprintf(f, "  {\"idx\": %d, \"name\": \"%s\", \"name_off\": %u, \"trigger\": %u, \"cls\": %u,"
+                  " \"flag\": %u, \"kind\": %u, \"arg\": %u, \"weight\": %u, \"sender\": %u}%s\n",
+                i, q->name, (unsigned)(q->raw[0] | (q->raw[1] << 8)), q->trigger, q->cls, q->flag, q->kind,
+                q->arg, q->weight, q->sender, i + 1 < cd->nsms ? "," : "");
+    }
+    fputs("]\n", f);
+    fclose(f);
+}
+
+/* [data]: +0x03 and +0x05 are in exact 1:1 correspondence over the 167 retail records, so one mapping table is
+ * enough to state the pairing: tips 02<->09, blurbs 03<->03, messages 04<->01, part notices 05<->05. */
+static int cls_matches_kind(const CdSms *q) {
+    static const unsigned char pair[6] = { 0, 0, 9, 3, 1, 5 };   /* +0x03 value -> +0x05 value */
+    return q->cls <= 5 && q->cls >= 2 && q->kind == pair[q->cls];
+}
+
+/* docs/parity/SMS-TABLE.md: the 167 records of the retail career table, decoded. */
+static void check_sms(const CareerData *cd) {
+    int k, kind[4] = { 0, 0, 0, 0 }, self = 0, flagged = 0, weighted = 0, i;
+    EXPECT(cd->nsms == 167, "nsms %d != 167", cd->nsms);       /* the 280-byte demo table must not be read */
+    for (i = 0; i < cd->nsms; i++) {
+        const CdSms *q = &cd->sms[i];
+        EXPECT(q->name[0] && q->name_hash == cd_hash(q->name), "sms %d name '%s'", i, q->name);
+        EXPECT(q->raw[6] == 0x88 && q->raw[7] == 0 && q->raw[0x0E] == 0 && q->raw[0x0F] == 0, "sms %d constants", i);
+        EXPECT(q->sender, "sms %d %s sender 0", i, q->name);
+        EXPECT(q->trigger, "sms %d %s trigger 0", i, q->name);
+        if (q->kind == CD_SMS_TIP) kind[3]++;
+        else if (q->kind == CD_SMS_UNLOCK) kind[2]++;
+        else if (q->kind == CD_SMS_MAG) kind[1]++;
+        else if (q->kind == CD_SMS_MSG) kind[0]++;
+        if (q->arg == cd_hash(q->name)) self++;
+        flagged += q->flag;
+        weighted += q->weight != 0;
+        EXPECT(cls_matches_kind(q), "sms %d %s class %u kind %u", i, q->name, q->cls, q->kind);
+        /* [data]: only tips (kind 9) carry a weight, and only 0 / 25 / 50 occur */
+        EXPECT(q->weight == 0 || (q->kind == 9 && (q->weight == 25 || q->weight == 50)),
+               "sms %d %s weight %u kind %u", i, q->name, q->weight, q->kind);
+    }
+    EXPECT(self == 42, "self-hash args %d != 42", self);       /* the 42 tips name themselves */
+    EXPECT(flagged == 31, "flagged %d != 31", flagged);
+    EXPECT(weighted == 42, "weighted %d != 42", weighted);
+    EXPECT(kind[0] == 34 && kind[1] == 38 && kind[2] == 53 && kind[3] == 42,
+           "kinds msg %d mag %d unlock %d tip %d", kind[0], kind[1], kind[2], kind[3]);
+    /* [data]: the first tip is ENGAGE_TIPS_AUDIO (idx 125), the last is a career-progress tip (idx 166) */
+    EXPECT(!strcmp(cd->sms[125].name, "ENGAGE_TIPS_AUDIO") && cd->sms[125].kind == CD_SMS_TIP, "sms[125] %s",
+           cd->sms[125].name);
+    EXPECT(cd->sms[166].kind == CD_SMS_TIP, "sms[166] kind %u", cd->sms[166].kind);
+    {   /* [data]: the 4 records whose u32 arg names an entity in another table rather than a pair of u16 args */
+        static const struct { const char *sms, *ent; } X[4] = { { "SMS_GPS_INTRO", "CAR_LOT_1" },
+            { "SMS_LOC_GO_TO_GARAGE", "CAR_LOT_1" }, { "SMS_LOC_EVENTS_OUT_THERE", "CRIB_1" },
+            { "SMS_END_OF_GAME_MESSAGE", "S5_CIRCUIT_36" } };
+        for (i = 0; i < 4; i++) {
+            k = cd_find_sms(cd, hs(X[i].sms));
+            EXPECT(k >= 0 && cd->sms[k].arg == hs(X[i].ent), "%s arg %08x want %s %08x", X[i].sms,
+                   k >= 0 ? cd->sms[k].arg : 0, X[i].ent, hs(X[i].ent));
+        }
+    }
+    k = cd_find_sms(cd, hs("SMS_GPS_INTRO"));                  /* the only record flagged in the docs' example */
+    EXPECT(k == 7 && cd->sms[k].trigger == 2 && cd->sms[k].flag == 1 && cd->sms[k].kind == CD_SMS_MSG &&
+           cd->sms[k].sender == hs("RACHEL"), "SMS_GPS_INTRO fields");
+    EXPECT(!strcmp(cd->sms[k].name, "SMS_GPS_INTRO"), "cd_find_sms name");
+    EXPECT(cd_find_sms(cd, hs("NOT_A_MESSAGE")) == -1, "cd_find_sms miss");
+    EXPECT(cd_find_sms(cd, cd_hash("")) == -1 && cd_find_sms(cd, 0) == -1, "cd_find_sms degenerate");
+    {   /* [data]: the low u16 counts unlocks (1..30) and the high u16 names the stage it happened in (2..5 for the
+         * car notices, 1..4 for the part notices). No record has a zero half except the 4 entity-hash ones above. */
+        int n = 0, lo, hi;
+        for (i = 0; i < cd->nsms; i++) {
+            const CdSms *q = &cd->sms[i];
+            if (q->kind != CD_SMS_UNLOCK) continue;
+            lo = CD_SMS_ARG_LO(q->arg); hi = CD_SMS_ARG_HI(q->arg);
+            if (lo && hi) n++;
+            EXPECT(lo >= 1 && lo <= 30 && hi >= 1 && hi <= 5, "unlock %s args %d/%d", q->name, lo, hi);
+        }
+        EXPECT(n == 53, "unlock paired args %d != 53", n);
+    }
+}
+
 int main(int argc, char **argv) {
     static CareerData cd;
     static const int want_req[6] = { 1, 5, 16, 28, 40, 47 };
     static const int want_spon[6] = { 0, 0, 5, 5, 5, 5 };
     struct stat st;
     int i, s, nz = 0, cnt[CD_MAX_STAGES] = { 0 };
-    if (argc < 2) { fprintf(stderr, "usage: career_data_check DATAROOT\n"); return 2; }
+    if (argc < 2 || argc > 4) { fprintf(stderr, "usage: career_data_check DATAROOT [--sms FILE]\n"); return 2; }
     {
         char p[1024];
         snprintf(p, sizeof p, "%s/GLOBAL", argv[1]);
         if (stat(p, &st) != 0) { printf("data dir missing: %s\n", argv[1]); return 77; }
     }
     if (!cd_load(&cd, argv[1])) { printf("cd_load failed: %s\n", cd.error); return 1; }
+    if (argc == 4 && !strcmp(argv[2], "--sms")) {   /* the agreement dump: JSON only, no other output */
+        check_sms(&cd);
+        dump_sms(argv[3], &cd);
+        printf(fails ? "career_data_check: %d failures\n" : "career_data_check: OK\n", fails);
+        return fails ? 1 : 0;
+    }
     printf("races %d stages %d zones %d markers %d\n", cd.nrace, cd.nstage, cd.nzone, cd.nmarker);
     EXPECT(cd.nrace == 224, "nrace %d != 224", cd.nrace);
     EXPECT(cd.nstage == 6, "nstage %d != 6", cd.nstage);
@@ -177,6 +269,7 @@ int main(int argc, char **argv) {
         }
         check_lot(&cd, argv[1]);
     }
+    check_sms(&cd);
     printf(fails ? "career_data_check: %d failures\n" : "career_data_check: OK\n", fails);
     return fails ? 1 : 0;
 }
