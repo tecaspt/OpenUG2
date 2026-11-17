@@ -1674,8 +1674,8 @@ where distant geometry is culled.
 The 500 m minimap window shows only 45 texels of the retail image, which is
 what made it blurry at modern resolutions. `src/map_bake.h` rebuilds the map at
 load time from the road meshes, the navigation links and the retail colours;
-nothing is shipped. It is opt-in: the game shows the retail 512 maps unless
-`--map-detail 1024|2048|4096` asks for a bake. The detail setting does not change
+nothing is shipped. Desktop defaults to the original 512 maps; iOS defaults to
+a 2048 bake. `--map-detail 512|1024|2048|4096` selects either path explicitly. The graphics detail setting does not change
 it. A baked map replaces TRACKMAP4000 in free roam, on L4RA only, because that
 image covers that bundle.
 

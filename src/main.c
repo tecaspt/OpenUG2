@@ -2541,7 +2541,8 @@ int main(int argc, char **argv) {
                           the selected event route (src/route_guide.c); not
                           retail UI, no retail arrow asset is matched
          --no-drivetrain  use the classic physics instead of the stock drivetrain (on by default)
-         --map-detail N   minimap size: 512 (retail, default), 1024, 2048 or 4096
+         --map-detail N   minimap size: 512 (retail), 1024, 2048 or 4096
+                          default: 512 on desktop, 2048 on iOS
          --no-map-cache   bake minimaps every run; ignore OpenUG2Cache
          --lighting MODE  original (projected headlight pool, as the original
                           game) or modern; default follows Level Of Detail 1-2
