@@ -25,3 +25,9 @@ references byte for byte. Reviewed prompt and active overlays before and
 after at 1170x643 and 2048x1536: ENTER clears the car and the point-sized
 controls no longer grow with frame height. These host captures have a 1x
 logical/drawable ratio; they do not establish physical-device behavior.
+
+[observed] The full 4201-frame S7 career-start regression exits successfully
+and passes all 11 rules in s7_carlot.spec. Line-buffered stdout/stderr are
+required for reliable combined-log assertions: an initial run split the
+purchase message with stderr output and failed two rules. That failed run
+is excluded from passes.
