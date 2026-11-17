@@ -180,7 +180,7 @@ static int n2_mesh_same_content(const N2Mesh *a, const N2Mesh *b) {
  * that is 255 everywhere is freed, so an opaque asset uploads as GL_RGB and
  * renders exactly as it did before alpha was decoded at all. Sources, all of
  * them world as well as car:
- *   P8    palette entries are RGBA; channel 3 is the alpha.
+ *   P8    palette entries are BGRA; channel 3 is the alpha.
  *   DXT1  one-bit transparency, and ONLY in the c0 <= c1 block mode, where
  *         palette index 3 means transparent. The c0 > c1 mode is fully opaque.
  *   DXT3  the block's 4-bit explicit alpha plane.
@@ -3986,7 +3986,7 @@ static int n2_tpk_decode(const unsigned char *d, long len, N2Tpk t, uint32_t has
                 tex->order = d[i+0x45]; tex->usage = d[i+0x49];
                 tex->blend = d[i+0x4a]; tex->wz    = d[i+0x4b];
             }
-            /* M132-R2: alpha is DECODED, not discarded. The palettes are RGBA
+            /* M132-R2: alpha is DECODED, not discarded. The palettes are BGRA
                and the DXT blocks carry real alpha; throwing it away was why a
                panorama sheet rendered as an opaque black-edged slab. It is only
                RETAINED when it says something -- an all-255 plane is freed, so
@@ -4004,9 +4004,9 @@ static int n2_tpk_decode(const unsigned char *d, long len, N2Tpk t, uint32_t has
                     free(tex->rgb); free(alf); continue;
                 }
                 const unsigned char *pal = d + dbase + paloff, *ix = d + dbase + off;
-                for (long p = 0; p < (long)w*hh; p++) {   /* P8: index -> RGBA palette */
+                for (long p = 0; p < (long)w*hh; p++) {   /* P8: BGRA palette -> RGB */
                     const unsigned char *c = pal + (long)ix[p]*4;
-                    tex->rgb[p*3]=c[0]; tex->rgb[p*3+1]=c[1]; tex->rgb[p*3+2]=c[2];
+                    tex->rgb[p*3]=c[2]; tex->rgb[p*3+1]=c[1]; tex->rgb[p*3+2]=c[0];
                     if (alf) alf[p] = c[3];
                 }
                 tex->afmt = 8;                      /* P8 */
