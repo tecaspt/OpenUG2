@@ -15,7 +15,7 @@ line-for-line port of OpenUG2's own reader, in the order that reader touches the
   src/race.h         n2_race_name -> KIND_NAME (the mode name a race `type` maps to)
 
   python3 -I tools/career_dump.py --data "$OPENUG2_DATA" [--json OUT.json]
-      [--section races|stages|zones|shops|unlocks|all]
+      [--section races|stages|zones|shops|unlocks|sms|all]
   python3 -I tools/career_dump.py --data "$OPENUG2_DATA" --race STAGE_1_DRAG_1
 
 Data files and the required/optional split are the C loader's: GLOBAL/GLOBALB.BUN (chunk 0x80034A10,
@@ -67,6 +67,7 @@ ID_STAGES = 0x00034A18
 ID_STRINGS = 0x00034A1D
 ID_SHOPS = 0x00034A12
 ID_UNLOCKS = 0x00034A1F
+ID_SMS = 0x00034A17
 ID_ZONES = 0x0003414A
 ID_MARKERS = 0x00034146
 ID_ZONES_IN = 0x80034147          # the container 0x3414A may be nested in (cd_parse_zones)
@@ -78,10 +79,12 @@ MAX_ZONES = 192
 MAX_MARKERS = 64
 MAX_SHOPS = 32
 MAX_UNLOCKS = 48
+MAX_SMS = 192
 RACE_BYTES = 136
 STAGE_BYTES = 80
 SHOP_BYTES = 160
 UNLOCK_BYTES = 12
+SMS_BYTES = 20
 RACE_ZONE_MAX = 20.0
 SHOP_ZONE_MAX = 32.0
 MAX_FILE = 256 * 1024 * 1024      # CD_MAX_FILE
@@ -93,11 +96,21 @@ SHOP_TYPE = {0: "crib", 1: "paint", 2: "body", 3: "perf", 4: "car lot", 5: "spec
              6: "uniques"}
 TYPE_SCRIPTED = 3
 # kind_from_type (src/career_data.c) into n2_race_name (src/race.h).
+# CD_SMS_* (+0x05), and the +0x03 class that pairs with it 1:1 on retail, src/career_data.h and
+# docs/parity/SMS-TABLE.md.
+SMS_KIND = {1: "message", 3: "magazine", 5: "unlock", 9: "tip"}
+SMS_CLASS_OF_KIND = {1: 4, 3: 3, 5: 5, 9: 2}
+# The 11 sender keys the retail table uses (docs/parity/SMS-TABLE.md 2.5): language key -> Labels.bin name.
+SMS_SENDER = {0x770af86e: "Rachel", 0x02902eed: "Chuck", 0x1b4a3984: "Kristian", 0x03aee1cc: "Scott",
+              0x79b0b11d: "Serena", 0x7ab90260: "Stefan", 0xc9e0946b: "Bayview Body Shop",
+              0x3194b26f: "Bayview Car Specialties Shop", 0xf779c04a: "Bayview Performance Shop",
+              0x7aca0a4e: "Bayview Graphics Shop", 0x34a89700: "Rachel"}
+
 TYPE_TO_KIND = {0: 1, 1: 2, 2: 5, 4: 3, 5: 4}
 KIND_NAME = {0: "Unknown", 1: "Circuit", 2: "Sprint", 3: "Drag", 4: "Drift", 5: "Street X",
              6: "URL"}
 
-SECTIONS = ("races", "stages", "zones", "shops", "unlocks", "all")
+SECTIONS = ("races", "stages", "zones", "shops", "unlocks", "sms", "all")
 GLOBALB = os.path.join("GLOBAL", "GLOBALB.BUN")
 PATHS = os.path.join("TRACKS", "ROUTESL4RA", "PathsFreeRoam.bin")
 MARKERS = os.path.join("TRACKS", "ROUTESL4RA", "TrackPosMarkersFreeRoam.bin")
@@ -178,6 +191,7 @@ class Career:
         self.markers = []
         self.shops = []
         self.unlocks = []
+        self.sms = []
         self.error = ""
 
     # cd_find / cd_find_zone / cd_find_marker / cd_find_shop: first match wins.
@@ -205,10 +219,19 @@ class Career:
                 return shop
         return None
 
+    def sms_by_hash(self, name_hash):
+        """cd_find_sms: first match wins, and the empty name's hash never matches."""
+        if name_hash == 0xFFFFFFFF:
+            return None
+        for msg in self.sms:
+            if msg["name_hash"] == name_hash:
+                return msg
+        return None
+
     def counts(self):
         return {"races": len(self.races), "stages": len(self.stages), "zones": len(self.zones),
                 "markers": len(self.markers), "shops": len(self.shops),
-                "unlocks": len(self.unlocks)}
+                "unlocks": len(self.unlocks), "sms": len(self.sms)}
 
 
 def kind_of(race_type):
@@ -248,11 +271,45 @@ def parse_unlocks(cd, buf, co, cs):
         cd.unlocks.append({"car_hash": rd32(rec, 0), "race": [rd32(rec, 4), rd32(rec, 8)]})
 
 
+def parse_sms(cd, buf, co, cs, bo, bs):
+    """Port of parse_sms: 0x34A17, 20-byte records. Missing or malformed -> no records, never an error.
+
+    A record whose name offset is out of range keeps its other fields and an empty name, so the index stays equal
+    to the record index in the table. name_off and raw_hex are dump-only views of the raw bytes the C parser keeps
+    (CdSms.raw), for the C-vs-Python agreement check in docs/parity/SMS-TABLE.md."""
+    cd.sms = []
+    got = find_chunk(buf, co, co + cs, ID_SMS)
+    if not got or got[1] % SMS_BYTES:
+        return
+    off, size = got
+    for i in range(min(size // SMS_BYTES, MAX_SMS)):
+        rec = buf[off + i * SMS_BYTES: off + (i + 1) * SMS_BYTES]
+        name_off = rd16(rec, 0)
+        ok, name = blob_str(buf[bo:], bs, name_off, 40)
+        arg = rd32(rec, 0x08)
+        cd.sms.append({
+            "index": i,
+            "name": name,
+            "name_hash": lang_key_audit.ug_hash_upper(name),
+            "name_off": name_off,
+            "trigger": rec[0x02],
+            "cls": rec[0x03],
+            "flag": rec[0x04],
+            "kind": rec[0x05],
+            "arg": arg,
+            "arg_lo": arg & 0xFFFF,
+            "arg_hi": (arg >> 16) & 0xFFFF,
+            "weight": rd16(rec, 0x0C),
+            "sender": rd32(rec, 0x10),
+            "raw_hex": rec.hex(),
+        })
+
+
 def parse_globalb(cd, buf):
     """Port of cd_parse_globalb: races, stages, shops and unlocks out of GLOBALB.BUN.
 
     Returns (nrace, error), like the C function's return value plus cd->error."""
-    cd.races, cd.stages, cd.shops, cd.unlocks, cd.error = [], [], [], [], ""
+    cd.races, cd.stages, cd.shops, cd.unlocks, cd.sms, cd.error = [], [], [], [], [], ""
     if buf is None:
         return 0, "null buffer"
     career = find_chunk(buf, 0, len(buf), ID_CAREER)
@@ -332,6 +389,7 @@ def parse_globalb(cd, buf):
         })
     parse_shops(cd, buf, co, cs)
     parse_unlocks(cd, buf, co, cs)
+    parse_sms(cd, buf, co, cs, bo, bs)
     return nr, ""
 
 
@@ -480,7 +538,8 @@ def car_names(dataroot):
 
 class Names:
     """Resolves the hashes the dump prints, and nothing else: races by name hash, shops by hash,
-    unlock cars by CARS folder name. Unknown hashes stay hex."""
+    unlock cars by CARS folder name, and the SMS records' NAME_BODY / NAME_SUBJECT text. Unknown hashes stay
+    hex."""
 
     def __init__(self, cd, dataroot):
         self.races = dict((r["name_hash"], r["name"]) for r in cd.races)
@@ -492,6 +551,7 @@ class Names:
         self.shop_zones = {}
         for shop in cd.shops:
             self.shop_zones.setdefault(shop["zone_hash"], set()).add(shop["name"])
+        self.text, _ = english_table(dataroot)   # the sms table resolves senders and text through it
 
     def race(self, name_hash):
         if not name_hash:
@@ -509,27 +569,63 @@ class Names:
     def hexonly(self, value):
         return "%08x" % value if value else "-"
 
+    def hash_ref(self, cd, value):
+        """What an sms +0x08 u32 points at, printed the way the other tables print a hash: a race or shop name
+        where one carries that hash, else nothing, so the hex stands alone. The tips' self-hash case never comes
+        here (the caller prints `self` for it) and sms names are deliberately not resolved - the u16 pair halves
+        collide with them, see docs/parity/SMS-TABLE.md 2.3."""
+        if value in self.races:
+            return "(%s)" % self.races[value]
+        if value in self.shops:
+            return "(%s)" % self.shops[value]
+        return ""
 
-def language_report(cd):
+    def sms_pair(self, name):
+        """(body, subject) retail text for one sms name, or (None, None). Keys are NAME_BODY / NAME_SUBJECT."""
+        if not self.text:
+            return None, None
+        body = self.text.get(lang_key_audit.ug_hash_upper(name + "_BODY"))
+        subject = self.text.get(lang_key_audit.ug_hash_upper(name + "_SUBJECT"))
+        return body, subject
+
+    def sms_text(self, name):
+        """Short label for the table: which of the two keys the record's name resolves to."""
+        body, subject = self.sms_pair(name)
+        if body and subject:
+            return "body+subject"
+        return "body" if body else ("subject" if subject else None)
+
+
+def english_table(dataroot):
+    """(table, note) for LANGUAGES/English.bin, keyed by ug_hash_upper of a label. Empty table plus a note when
+    the file or its chunk cannot be read; the dump keeps working either way, as language_report always did."""
+    path = os.path.join(dataroot, "LANGUAGES", "English.bin")
+    try:
+        with open(path, "rb") as handle:
+            buf = handle.read()
+    except OSError as exc:
+        return {}, "cannot read %s: %s" % (path, exc)
+    offsets = lang_key_audit.strtab_offsets(buf)
+    if not offsets:
+        return {}, "no string table chunk (0x%08x) in %s" % (
+            lang_key_audit.STRTAB_CHUNK_ID, path)
+    try:
+        _, _, table = lang_key_audit.load_string_table(buf, offsets[0], os.path.basename(path))
+    except lang_key_audit.StrTabError as exc:
+        return {}, str(exc)
+    return table, ""
+
+
+def language_report(cd, table=None):
     """(lookups, hits) against LANGUAGES/English.bin for every hash this dump prints.
 
     The check is a lookup of the raw hash: the table is keyed by ug_hash_upper of a label, and every
     hash career_data.c reads is such a hash (cd_hash), so a hit means that field doubles as a
     language key and its retail text is shown. 0 hits is the honest answer for this data."""
-    path = os.path.join(cd.dataroot, "LANGUAGES", "English.bin")
-    try:
-        with open(path, "rb") as handle:
-            buf = handle.read()
-    except OSError as exc:
-        return 0, [], "cannot read %s: %s" % (path, exc)
-    offsets = lang_key_audit.strtab_offsets(buf)
-    if not offsets:
-        return 0, [], "no string table chunk (0x%08x) in %s" % (
-            lang_key_audit.STRTAB_CHUNK_ID, path)
-    try:
-        _, _, table = lang_key_audit.load_string_table(buf, offsets[0], os.path.basename(path))
-    except lang_key_audit.StrTabError as exc:
-        return 0, [], str(exc)
+    if table is None:
+        table, note = english_table(cd.dataroot)
+        if not table:
+            return 0, [], note
     fields = []
     for race in cd.races:
         fields += [("race %s name" % race["index"], race["name_hash"]),
@@ -655,8 +751,36 @@ def section_unlocks(cd, names):
                     for u in cd.unlocks]
 
 
+def section_sms(cd, names):
+    """0x34A17, one row per record. `arg` prints the reading that applies to the record, because one u32 carries
+    three (docs/parity/SMS-TABLE.md 2.3): `self` where +0x08 repeats the record's own name hash (the 42 tips),
+    hex plus the name it resolves to where the value only makes sense as a hash (the 4 entity records - their low
+    u16 is a 16-bit truncation of the same hash, which is why the hash is what gets printed), `lo,hi` where both
+    halves are small enough to be the documented pair (the 53 unlock notices, the car and location notices: a
+    count and a stage), and the plain number otherwise (4 tutorial indices, the 10 DVD-cover numbers, and 0).
+    The raw u32 and both halves are in the JSON as arg / arg_lo / arg_hi."""
+    header = ["idx", "name", "kind", "trg", "cls", "flag", "arg", "wt", "sender", "text"]
+    rows = []
+    for msg in cd.sms:
+        kind = SMS_KIND.get(msg["kind"], "?%d" % msg["kind"])
+        small = msg["arg_lo"] <= 0x20 and msg["arg_hi"] <= 0x20   # [data] every pair half is <= 30
+        if msg["arg"] == msg["name_hash"]:
+            arg = "self"    # a tip naming itself
+        elif msg["arg"] > 0xFFFF and not small:
+            arg = "%08x %s" % (msg["arg"], names.hash_ref(cd, msg["arg"]))   # an entity hash
+        elif msg["arg_hi"]:
+            arg = "%d,%d" % (msg["arg_lo"], msg["arg_hi"])                   # the u16 pair: count, stage
+        else:
+            arg = "%d" % msg["arg_lo"]                                       # a plain index, or 0
+        rows.append([str(msg["index"]), msg["name"], "%d %s" % (msg["kind"], kind), str(msg["trigger"]),
+                     str(msg["cls"]), str(msg["flag"]), arg, str(msg["weight"]),
+                     SMS_SENDER.get(msg["sender"], "%08x" % msg["sender"]),
+                     names.sms_text(msg["name"]) or "-"])
+    return header, rows
+
+
 SECTIONS_F = {"races": section_races, "stages": section_stages, "zones": section_zones,
-              "shops": section_shops, "unlocks": section_unlocks}
+              "shops": section_shops, "unlocks": section_unlocks, "sms": section_sms}
 
 
 def races_per_stage(cd):
@@ -674,9 +798,9 @@ def races_per_stage(cd):
 def print_summary(cd, names):
     counts = cd.counts()
     print("career data in %s" % cd.dataroot)
-    print("races %d stages %d zones %d markers %d shops %d unlocks %d"
+    print("races %d stages %d zones %d markers %d shops %d unlocks %d sms %d"
           % (counts["races"], counts["stages"], counts["zones"], counts["markers"],
-             counts["shops"], counts["unlocks"]))
+             counts["shops"], counts["unlocks"], counts["sms"]))
     per_stage, loose = races_per_stage(cd)
     print("races per stage: %s%s" % (" ".join("%d=%d" % (i, n) for i, n in enumerate(per_stage)),
                                      "" if not loose else
@@ -794,6 +918,15 @@ def json_rows(cd, names):
         row["race_index"] = [cd.races.index(r) if r else None
                              for r in (cd.race_by_hash(h) for h in unlock["race"])]
         unlocks.append(row)
+    sms = []
+    for msg in cd.sms:
+        row = dict(msg)
+        row["kind_name"] = SMS_KIND.get(msg["kind"], None)
+        row["class_matches_kind"] = SMS_CLASS_OF_KIND.get(msg["kind"]) == msg["cls"]
+        row["self_hash"] = msg["arg"] == msg["name_hash"]
+        row["sender_name"] = SMS_SENDER.get(msg["sender"], None)
+        row["body"], row["subject"] = names.sms_pair(msg["name"])
+        sms.append(row)
     markers = []
     for marker in cd.markers:
         row = dict(marker)
@@ -802,16 +935,44 @@ def json_rows(cd, names):
     per_stage, loose = races_per_stage(cd)
     lookups, hits, note = language_report(cd)
     return {"counts": cd.counts(), "races": races, "stages": stages, "zones": zones, "shops": shops,
-            "unlocks": unlocks, "markers": markers,
+            "unlocks": unlocks, "sms": sms, "markers": markers,
             "races_per_stage": {"counts": per_stage, "stage_byte_out_of_range": loose},
             "language": {"file": "LANGUAGES/English.bin", "lookups": lookups, "hits": hits,
                          "note": note or None}}
+
+
+def sms_cd_rows(cd):
+    """The sms records with only the fields career_data.c's CdSms has, for the C-vs-Python agreement check:
+    `career_dump.py --cd-sms A` and `career_data_check DATAROOT --sms A` write the same layout, so `diff A A`
+    being empty says the two readers took the same values out of the same bytes. The C side writes the u16 it
+    reads at +0x00 (CdSms.raw's first two bytes) where this writes name_off, and compares names by string, so
+    the shared proof covers every byte the C parser exposes bar the raw copy itself."""
+    rows = []
+    for msg in cd.sms:
+        rows.append({"idx": msg["index"], "name": msg["name"], "name_off": msg["name_off"],
+                     "trigger": msg["trigger"], "cls": msg["cls"], "flag": msg["flag"], "kind": msg["kind"],
+                     "arg": msg["arg"], "weight": msg["weight"], "sender": msg["sender"]})
+    return rows
 
 
 def write_json(path, payload):
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=1)
         handle.write("\n")
+
+
+def write_cd_json(path, cd):
+    """Writes sms_cd_rows in career_data_check's exact layout (one object per line, no indent) for that diff."""
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("[\n")
+        for i, row in enumerate(sms_cd_rows(cd)):
+            handle.write("  {\"idx\": %d, \"name\": \"%s\", \"name_off\": %d, \"trigger\": %d, "
+                         "\"cls\": %d, \"flag\": %d, \"kind\": %d, \"arg\": %d, \"weight\": %d, "
+                         "\"sender\": %d}%s\n" % (row["idx"], row["name"], row["name_off"], row["trigger"],
+                                                     row["cls"], row["flag"], row["kind"], row["arg"],
+                                                     row["weight"], row["sender"],
+                                                     "," if i + 1 < len(sms_cd_rows(cd)) else ""))
+        handle.write("]\n")
 
 
 # --------------------------------------------------------------------------- CLI
@@ -825,6 +986,9 @@ def main(argv=None):
                     help="tables to print (default all)")
     ap.add_argument("--race", help="dump one race by name instead of the tables")
     ap.add_argument("--json", dest="json_out", help="also write the same data as JSON here")
+    ap.add_argument("--cd-sms", dest="cd_sms", metavar="FILE",
+                    help="write the sms table in career_data_check --sms's layout to FILE, so the two readers can "
+                         "be diffed; name_off stands for CdSms.raw's first two bytes")
     args = ap.parse_args(argv)
     if args.race and any(a == "--section" or a.startswith("--section=") for a in argv):
         sys.stderr.write("usage error: --race dumps one race; drop --section\n")
@@ -836,6 +1000,14 @@ def main(argv=None):
     if error:
         sys.stderr.write("data error: %s\n" % error)
         return 2
+    if args.cd_sms:
+        try:
+            write_cd_json(args.cd_sms, cd)
+        except OSError as exc:
+            sys.stderr.write("data error: cannot write %s: %s\n" % (args.cd_sms, exc))
+            return 2
+        if not args.json_out:
+            return 0
     names = Names(cd, args.data)
 
     if args.race:

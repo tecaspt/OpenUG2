@@ -257,8 +257,23 @@ an error, exactly like the shop and unlock tables. A record whose name offset is
 out of range keeps its raw bytes and its other fields with an empty `name`, so
 the array index always equals the record index in the table. `name_hash` is
 `cd_hash(name)` (the record itself carries no name hash), and
-`cd_find_sms(cd, name_hash)` returns the first index or -1 (0 is never a valid
-key, so `cd_find_sms(cd, 0)` is -1). `tools/career_dump.py --section sms` prints
-one row per record and `--json` writes the same fields; `tools/career_data_check.c
---sms DATAROOT` dumps the C records as TSV for the byte-for-byte agreement check
-against the Python JSON.
+`cd_find_sms(cd, name_hash)` returns the first index or -1. The sentinel for "no
+such record" is -1 and the guard inside is against `cd_hash("")`, not 0: a record
+whose name offset failed to decode ends up with an empty name, which hashes to
+`0xFFFFFFFF`, so asking for that hash must not find it (no non-empty name used in
+these tables hashes there - the only other `0xFFFFFFFF` producers would be
+one- to three-character names, and the blob has none).
+
+### 6.1 Printing it
+
+`tools/career_dump.py --section sms` prints one row per record (name, kind, the
+classification bytes, the applicable reading of `+0x08`, weight, the sender's
+display text, and whether `NAME_BODY` / `NAME_SUBJECT` resolve); `--json` writes
+every field, including both `arg` halves and the resolved body/subject text.
+`tools/career_data_check.c DATAROOT --sms FILE` writes the C parser's records as
+JSON and `career_dump.py --cd-sms FILE` writes the same layout from the Python
+port, so `diff` between the two is the agreement check: on retail it is empty
+(167 records x 10 fields). `career_data_check DATAROOT` alone asserts the counts
+this document states - `nsms == 167`, the 34/38/53/42 kind split, 42 tip
+self-hash args, 31 flagged records, 42 weighted ones, and the 4 entity-hash
+records by name.
