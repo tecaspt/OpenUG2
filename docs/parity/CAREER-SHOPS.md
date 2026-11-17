@@ -96,3 +96,13 @@ must state that no installable choices are available; a successful entry
 is not a successful paint or performance purchase. There is no claim of
 complete retail customization parity until those choices and effects are
 implemented and visually verified.
+
+## Touch entry adaptation
+
+[inferred] An engageable career shop sets TC_CTX_SHOP. The enabled overlay
+stays visible in that context before the first finger input and after keyboard
+or pad input; menus and questions suppress it. Its existing Enter hit circle
+uses a dark backing, bright border and explicit ENTER label instead of a
+triangle-only icon. This is a platform adaptation, not retail artwork.
+The uppercase shop notice and stage-gated minimap/world-map icons identify
+the destination. An explicit --no-touch still disables the overlay.

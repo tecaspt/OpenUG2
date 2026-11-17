@@ -56,6 +56,20 @@ static void fresh(TouchControls *t, unsigned ctx) {
 int main(void) {
     TouchControls t;
 
+    /* A shop must advertise entry before the first touch and after pad/keyboard use. */
+    fresh(&t,TC_CTX_SHOP);
+    CHECK(tc_visible(&t)&&!t.active);
+    CHECK(tc_button_label(&t,TC_ENTER_RACE)&&!strcmp(tc_button_label(&t,TC_ENTER_RACE),"ENTER"));
+    CHECK(!tc_button_label(&t,TC_GAS));
+    CHECK(down(&t,1,TC_ENTER_RACE)==BIT(CB_ACT_ENTER_RACE));
+    up(&t,1,TC_ENTER_RACE,0);
+    SDL_Event keyboard;memset(&keyboard,0,sizeof keyboard);keyboard.type=SDL_KEYDOWN;
+    tc_event(&t,&keyboard);CHECK(!t.active&&tc_visible(&t)&&!tc_held(&t));
+    uf_calls=0;tc_draw(&t,(UiFlat *)1,1170,643);CHECK(uf_calls>80); /* includes the label pixels */
+    tc_set_frame(&t,1,TC_CTX_SHOP,1170.0f/643);CHECK(!tc_visible(&t));
+    tc_set_frame(&t,0,0,1170.0f/643);CHECK(!tc_visible(&t)&&!tc_button_label(&t,TC_ENTER_RACE));
+    tc_init(&t,0,0,0);tc_set_frame(&t,0,TC_CTX_SHOP,2);CHECK(!tc_visible(&t));
+
     /* held bits per button */
     static const struct { int b, act; unsigned ctx; } map[] = {
         { TC_GAS, CB_ACT_THROTTLE, 0 }, { TC_BRAKE, CB_ACT_BRAKE, 0 }, { TC_STEER_L, CB_ACT_STEER_LEFT, 0 },

@@ -7035,6 +7035,7 @@ int main(int argc, char **argv) {
             unsigned tctx = 0;
             if (world.city.race.active && world.city.race.kind == N2_RACE_DRAG) tctx |= TC_CTX_DRAG;
             if (outrun_offer >= 0 || career_zone >= 0 || career_shop >= 0) tctx |= TC_CTX_OUTRUN;   /* M6: Enter Race in a career event, car lot or crib zone too */
+            if (career_shop >= 0) tctx |= TC_CTX_SHOP;   /* visible, labelled entry even before the first touch */
             tc_set_window_size(&g_touch, ww0, wh0);
             tc_set_frame(&g_touch, pause_frame, tctx, th > 0 ? (float)tw / (float)th : 1.0f);
             if (script_spec) {

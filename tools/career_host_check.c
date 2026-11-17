@@ -158,6 +158,19 @@ int main(int argc, char **argv)
     CHECK(nicon - nshopicon == 5, "stage 1 event icons %d (want 5)", nicon - nshopicon);
 
     CHECK(nshopicon == 8, "stage 1 open shop icons %d",nshopicon);
+    /* All retail stage boundaries, including the normally unreachable uniques shop. */
+    {
+        const int counts[]={2,8,13,15,20,23};
+        HudMapIcon all[CD_MAX_RACES+CD_MAX_SHOPS];
+        int saved_stage=ch.st.stage;
+        for(int stage=0;stage<6;stage++) {
+            ch.st.stage=(uint8_t)stage;
+            int total=ch_icons(&ch,all,CD_MAX_RACES+CD_MAX_SHOPS),shops=0;
+            for(int i=0;i<total;i++)if(all[i].kind==HMI_SHOP)shops++;
+            CHECK(shops==counts[stage],"stage %d shop icons %d expected %d",stage,shops,counts[stage]);
+        }
+        ch.st.stage=(uint8_t)saved_stage;
+    }
     int body = cd_find_shop(&ch.cd,cd_hash("CC_BODYSHOP_1"));
     ch.at_shop = body;
     GarageConfig installed = {0};installed.car.body_kit=1;
