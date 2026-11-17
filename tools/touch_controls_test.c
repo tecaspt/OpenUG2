@@ -247,13 +247,20 @@ int main(void) {
             }
         }
         tc_set_frame(&t, 0, 0, 16.0f / 9.0f);
-        float cx, cy, r, in = 0.05f * 16.0f / 9.0f;
-        tc_layout(&t, TC_GAS, &cx, &cy, &r);
-        CHECK(fabsf(cx - (16.0f / 9.0f - in - 0.15f)) < 1e-5f && cy == 0.80f && r == 0.14f);
-        tc_layout(&t, TC_STEER_R, &cx, &cy, &r);
-        CHECK(fabsf(cx - (in + 0.45f)) < 1e-5f && cy == 0.80f && r == 0.13f);
-        tc_layout(&t, TC_PAUSE, &cx, &cy, &r);
-        CHECK(fabsf(cx - 16.0f / 18.0f) < 1e-5f && cy == 0.07f);
+        float cx, cy, r;
+        /* Equal logical heights retain physical size across backing scales. */
+        const int heights[] = {321, 643, 768, 1536};
+        for (int i = 0; i < 4; ++i) {
+            tc_set_window_size(&t, heights[i] * 2, heights[i]);
+            for (int b = 0; b < TC_COUNT; ++b) {
+                tc_layout(&t, b, &cx, &cy, &r);
+                CHECK(2 * r * heights[i] >= 44.0f - 1e-4f);
+                CHECK(2 * r * heights[i] <= 56.0f + 1e-4f);
+            }
+            tc_layout(&t, TC_ENTER_RACE, &cx, &cy, &r);
+            CHECK(cx > t.aspect * .75f);
+            CHECK(fabsf((1 - cy) * heights[i] - 220) < 1e-3f);
+        }
     }
 
     /* two-finger tap = pause: off the buttons, fingers in different frames, quick, still */

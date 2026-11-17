@@ -2,7 +2,8 @@
  * Pure logic over SDL events plus a draw through ui_flat. Held and edge masks are CbAction bit sets
  * (bit `a` = action a), the form CxInput.virt_held and the host's pad-edge mask use.
  *
- * Geometry is in "height units": y in 0..1 down the frame, x in 0..aspect, so a unit is the frame height in
+ * Layout sizes are logical window points (44-point minimum diameter), converted to
+ * "height units": y in 0..1 down the frame, x in 0..aspect, so a unit is the frame height in
  * pixels. Finger events (normalised 0..1) are scaled by the aspect; mouse events (pixels, accepted only with
  * accept_mouse_touch) are normalised by the window size (looked up from the event's window, then the mouse
  * focus, then tc_set_window_size). */
@@ -42,7 +43,7 @@ typedef struct TouchControls {
     int suppressed;
     unsigned ctx;
     float aspect;
-    int win_w, win_h;                /* fallback pixel size for mouse events */
+    int win_w, win_h;                /* logical point size; also mouse-event fallback */
     TcTouch touch[TC_MAX_TOUCHES];
     uint32_t tap_t0;                 /* two-finger tap gesture in progress (see TC_TAP_MS) */
     int tap_max, tap_spoiled;
@@ -52,7 +53,7 @@ typedef struct TouchControls {
 void tc_init(TouchControls *t, int enabled, int start_active, int accept_mouse_touch);
 /* Per frame. suppressed (a menu is open): the overlay is hidden and drops its touches. ctx: TC_CTX_*. */
 void tc_set_frame(TouchControls *t, int suppressed, unsigned ctx, float aspect);
-/* Pixel size used to normalise mouse events that carry no usable window. */
+/* SDL window size in logical points, independent of drawable backing scale. */
 void tc_set_window_size(TouchControls *t, int w, int h);
 /* Feeds one event; returns the press-edge CbAction bits (CAMERA, STEER_L/R, SHIFT_UP/DOWN in the drag context,
  * ENTER_RACE in the outrun context; PAUSE on a finger lifting inside the button, or at the end of a two-finger tap). */
