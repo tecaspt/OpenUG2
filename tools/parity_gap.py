@@ -17,19 +17,22 @@ Reads:
 Two rules do the work and both are explicit here rather than per package:
 
 USED - the package is referenced where OpenUG2 names it or its hash:
-  name   the package name (with or without the ".fng" suffix) as a whole word, case-insensitive -
-         `src/fe_binding.h:917 {"UI_QRTrackSelect.fng", ..}`, `src/pause_entries.c:105
-         "open:ui_ReplayControl.fng"`. Case-insensitive and word-anchored on purpose: the retail
-         loader hashes the upper-cased name (src/ugui/ugui_assets.c:ug_assets_package), so the
-         game itself is case-blind, and `ui_ReplayControl` proves the source is too. Word
-         boundaries keep `GenericDialog` from matching `GenericDialog_SMALL`.
+  name   the whole package name including ".fng", anchored at both ends over name characters
+         (letters, digits, "_") and matched case-insensitively: `src/fe_binding.h:917
+         {"UI_QRTrackSelect.fng", ..}`, `src/gui_dialog.c:7 PKG_IN_GAME`, `src/pause_entries.c:105`
+         `"open:ui_ReplayControl.fng"`. Case-blind because the retail loader hashes the upper-cased
+         name (src/ugui/ugui_assets.c:ug_assets_package), so the game itself is case-blind. The
+         anchors keep `GenericDialog` out of `GenericDialog_SMALL` and `Loading` out of
+         `"PC_Loading.fng"`; see find_hits for what each anchor costs when missing.
   hash   the 32-bit hash of the name as a hex literal (`0xAA469286`), which is how src/gui_dialog.c
          keys the two dialog packages and src/pause_menu.c:30 the pause root. `ha_hash` is
-         fng_dump's port of src/hud_asset.c:ha_hash, verified against those constants.
+         fng_dump's port of src/hud_asset.c:ha_hash, and both constants it must reproduce are in
+         src/gui_dialog.c: `ha_hash("UI_InGameDialog.fng")` = 0xAA469286 = PKG_IN_GAME,
+         `ha_hash("GenericDialog_SMALL.fng")` = 0x6962C0CD = KEY_PKG_SMALL.
 Both kinds of hit are printed as path:line. A hit inside a C comment counts, because a comment
 that names a package is what a screen-binding note looks like in this tree, and a human reading
 the report can see the line; hits are tagged `code` and `comment` so the distinction is visible
-rather than hidden by a guess. `--used code-only` restricts USED to non-comment hits.
+rather than hidden by a guess. `--used-mode code-only` restricts USED to non-comment hits.
 
 CLASS - the first matching rule of CLASS_RULES wins (see that table). Rules match the package
 name; where the name is silent the content decides (CONTENT_RULES: a package whose text nodes are
@@ -325,29 +328,35 @@ def scan_source(repo):
 def find_hits(name, source_lines):
     """Every source line that references this package, by name and by hash.
 
-    The name rule tries the spellings a source file can actually carry, as plain substrings, each
-    anchored so a shorter name cannot claim a longer one:
+    Both ends of a name match are anchored over the characters a package name can contain
+    (letters, digits, "_"), and that anchoring is the whole near-miss rule:
 
-      `UI_pause.fng`  the whole stored name. The suffix may not be dropped here: src/ writes the
-                      quoted literal with it (`return "UI_pause.fng";`), and a rule that strips
-                      the suffix and then forbids a following "." - the obvious-looking way to
-                      keep `GenericDialog` out of `GenericDialog_SMALL` - matches no quoted
-                      package name at all, which silently loses a third of the USED set.
-      `UI_pause`      the bare stem, for the places that write it without the suffix - a lowercase
-                      `ui_ReplayControl.fng` is caught by the first spelling case-insensitively,
-                      while `UI_pause` in prose needs this one.
-      the hash        as a hex literal, the src/gui_dialog.c style.
+      (?<![A-Za-z0-9_]) UI_pause.fng (?![A-Za-z0-9_])
 
-    Each spelling is followed by a negative lookahead over the characters a stem can contain, so
-    `GenericDialog` cannot match inside `GenericDialog_SMALL`: the suffixed spelling already ends
-    in ".fng", and the bare stem is followed by "_" there. A preceding-character rule is both
-    useless and wrong (a match's predecessor is by definition outside the match, and the quote in
-    `"UI_pause.fng"` must stay a legal neighbour).
+    The suffix is required and the left anchor is what makes that affordable: src/ writes the
+    quoted literal with the suffix (`return "UI_pause.fng";`), the loader hashes the upper-cased
+    name (src/ugui/ugui_assets.c:ug_assets_package) so matching is case-insensitive, and
+    `"open:ui_ReplayControl.fng"` at src/pause_entries.c:105 - a lowercase load site - is matched
+    by the same expression.
+
+    Three shapes the anchor is load-bearing for, each measured on this repo rather than reasoned
+    about:
+
+      without the left anchor, `Loading.fng` matches `"PC_Loading.fng"` at src/fe_menu.c:111 and is
+        reported loaded when nothing loads it. It would be the only reference in the boot-attract
+        class, so it inflates the headline: 34 -> 33.
+      without the right anchor, `GenericDialog` claims `GenericDialog_SMALL`: 34 -> 35, one false
+        positive.
+      dropping the suffix while forbidding a following "." - the tidy-looking version of the same
+        idea - matches no quoted literal at all, because every one carries the suffix, and silently
+        loses 15 references (34 -> 19): `UI_pause`, both HUD families, the garage pickers, all gone.
+
+    `PC_Loading` is reached by its own name and `Loading` claims nothing, so neither borrows the
+    other's load site.
     """
-    stem = strip_fng(name)
-    spellings = [re.escape(n) + r"(?![A-Za-z0-9_.])" for n in
-                 (name if name.lower().endswith(".fng") else name + ".fng", stem)]
-    name_re = re.compile("|".join(spellings), re.IGNORECASE)
+    suffixed = name if name.lower().endswith(".fng") else name + ".fng"
+    name_re = re.compile(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(suffixed),
+                         re.IGNORECASE)
     hash_re = re.compile(r"(?<![0-9a-fA-Fx])(%s)(?![0-9a-fA-F])"
                          % "|".join(re.escape(v) for v in hash_variants(name)), re.IGNORECASE)
     hits = []
@@ -493,8 +502,13 @@ def counting_kinds(used_mode):
 
 
 def filter_records(payload, args):
-    """Apply --class/--used/--in-scope to the package list, in place."""
+    """Apply --class/--used/--in-scope to the package list, in place.
+
+    The class table and totals deliberately stay on the full inventory, so the filtered view can be
+    read against the whole; `filtered` says so on the report rather than leaving it to be inferred.
+    """
     kept = payload["packages"]
+    before = len(kept)
     if args.cls:
         kept = [r for r in kept if r["class"] == args.cls]
     if args.used:
@@ -504,6 +518,7 @@ def filter_records(payload, args):
         want = args.in_scope == "yes"
         kept = [r for r in kept if r["in_scope"] == want]
     payload["packages"] = kept
+    payload["filtered"] = len(kept) != before or bool(args.cls or args.used or args.in_scope)
     return payload
 
 
@@ -516,8 +531,11 @@ def render(payload, show_hits=True):
     t = payload["totals"]
     out.append("data %s" % payload["data_root"])
     out.append("repo %s (%d source files)" % (payload["repo"], t["source_files_scanned"]))
-    out.append("USED rule: package name (case-insensitive, whole word) or ha_hash hex literal; "
-               "mode %s" % payload["used_mode"])
+    out.append("USED rule: whole package name incl. .fng (case-insensitive) or ha_hash hex "
+               "literal; mode %s" % payload["used_mode"])
+    if payload.get("filtered"):
+        out.append("(--class/--used/--in-scope filter the package list only; the class table and "
+                   "totals below are the full inventory)")
     out.append("")
     out.append("%-22s %11s %9s %6s %8s" % ("class", "occurrences", "distinct", "used", "unused"))
     for cls in CLASSES:

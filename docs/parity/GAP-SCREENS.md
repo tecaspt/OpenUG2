@@ -46,7 +46,7 @@ does load is `FrontB.lzc`, not `FRONTA.BUN`.
 
 ## What OpenUG2 already references
 
-34 of the 206 distinct packages (17%). Per class:
+33 of the 206 distinct packages (16%). Per class:
 
 | class | distinct | referenced | gap |
 |---|--:|--:|--:|
@@ -54,22 +54,27 @@ does load is `FrontB.lzc`, not `FRONTA.BUN`.
 | dialog | 21 | 3 | 18 |
 | ingame-menu | 15 | 6 | 9 |
 | ingame-hud | 9 | 5 | 4 |
-| boot-attract | 22 | 1 | 21 |
+| boot-attract | 22 | 0 | 22 |
 | online-lan | 46 | 0 | 46 |
 | 2-player | 9 | 0 | 9 |
 | memory-card-console | 7 | 0 | 7 |
 | other | 2 | 0 | 2 |
-| **total** | **206** | **34** | **172** |
+| **total** | **206** | **33** | **173** |
 
 In the four in-scope classes (frontend-screen, dialog, ingame-hud, ingame-menu) that is **120
-packages, 33 referenced, 87 in the gap**. Out-of-scope classes are counted but not tabled: online/LAN
+packages, 33 referenced, 87 in the gap** - unchanged by the `Loading` correction below, because
+`Loading.fng` was never one of them. Out-of-scope classes are counted but not tabled: online/LAN
 (46), 2-player split screen (9), console memory card and console-only age gate (7), plus the 22
 boot/attract reels and 2 non-screens.
 
 **The headline is the shape, not the count.** All 46 online/LAN packages and all 9 2-player packages
-have no reference anywhere in `src/` - the entire feature area is absent, not partially done. The
-boot/attract family is 1 of 22, and that one is `Loading.fng`, referenced incidentally in audio and
-menu code rather than as a screen.
+have no reference anywhere in `src/` - the entire feature area is absent, not partially done. So is
+all 22 of the boot/attract family: nothing in `src/` names an EA/THX logo, intro FMV, splash or
+language-select reel, and the only loading screen it names is `PC_Loading.fng`.
+
+Of the 33, **two are named only in comments** - `Demo_MiniMap_Legend.fng` and
+`UI_Options_PC_Controller.fng` - so `--used-mode code-only` gives 31 as the count of packages some
+piece of code actually loads. Read 33 as "bound or noted", 31 as "loaded".
 
 ## The gap, grouped by milestone
 
@@ -81,13 +86,19 @@ Counts are distinct in-scope packages; "gap" excludes anything `src/` already na
 | M1/M2 dialog frames | 12 | 2 | 10 | the Generic/Help dialog sizes OpenUG2 does not use yet (only `GenericDialog_SMALL` is bound) |
 | M2 options and profiles | 10 | 6 | 4 | date entry, wheel options, controller options, PC help bar |
 | M3/M9 loading | 2 | 1 | 1 | the boot tips reel |
-| M4/M5 front-end scenes | 24 | 1 | 23 | showcase/DPAD, status bars, magazine and DVD screens, menu assets |
+| M4/M5 front-end scenes | 24 | 1 | 23 | showcase/DPAD, status bars, magazine and DVD screens, menu assets - **a default, see the note below** |
 | M5 customise and tuning | 14 | 3 | 11 | the whole `UI_PerformanceTuning_*` family and the dyno (all three screens) |
 | M6 career | 26 | 2 | 24 | the world map (`WorldMapMain`, `UI_InGame_WorldMap`), SMS (`UI_SMS_Mailbox`), sponsors, shops, car-crib and ownership screens |
 | M7 race modes | 4 | 0 | 4 | in-world map and mode chrome |
 | M9 HUD | 7 | 5 | 2 | the music chyron (`Chyron_IG`, `Chyron_FE`) and the demo minimap legend |
 | M10 replay | 1 | 1 | 0 | named by `pause_entries.c`, and the ROADMAP still lists replay as missing - bound, not implemented |
 | unmapped | 2 | 0 | 2 | `Credits.fng`, `EA_TRAX_Jukebox.fng` - no ROADMAP row covers them |
+
+**M4/M5 is a fallback, not a mapping.** ROADMAP has no row for these packages, so `MILESTONE_RULES`
+sends any unclaimed `UI_*` to M4/M5, and 23 of the 24 rows in that line arrive there by default
+rather than by a scope statement. Read that line as "front-end work the ROADMAP has not placed yet",
+not as 23 tasks M4 or M5 signed up for. The other lines trace to ROADMAP wording (M6's world map,
+car lot, SMS and sponsors; M5's tuning; M1's post-race results; M9's chyron and loading screens).
 
 Two readings matter more than the totals. **The tuning family is invisible without
 `--extra-bundle`**: nine `UI_PerformanceTuning_*`/`UI_PerformanceDyno_*` screens sit in a bundle no
@@ -97,10 +108,17 @@ loader code opens, so a scan of the loader's own slots reports a smaller tuning 
 
 ## Gap table
 
-One row per distinct package name; the file column is one bundle that holds it (10 of these names are
-pooled into two or three bundles, e.g. `UI_PostRaceReward.fng` sits in `InGameRace`, `InGameDrag` and
-`InGameDrift`). nodes = layout nodes, captions = text nodes, lang keys = distinct English language
+One row per distinct package name; the file column is one bundle that holds it. 10 of these names are
+pooled into two or three bundles (`UI_PostRaceReward.fng` sits in `InGameRace`, `InGameDrag` and
+`InGameDrift`; the five GenericDialog sizes in both `FrontB.lzc` and `GlobalB.lzc`), and **the counts
+shown are the first copy's**: the tool parses a name once and reuses the analysis, recording the
+other locations as `duplicate_of`, so pooled copies are *assumed* identical and that has not been
+byte-verified. nodes = layout nodes, captions = text nodes, lang keys = distinct English language
 keys among them, size = S/M/L by the larger of the two dimensions.
+
+The gap table is generated from the tool's JSON. The prose counts around it (236/206/33, the bundle
+table, the per-milestone totals) are this run's numbers, transcribed: re-run the commands at the top
+after landing screen work and refresh both.
 
 
 #### M1 - 6 packages
@@ -246,18 +264,38 @@ Both are tables in `tools/parity_gap.py`, applied to every package; no package i
 
 ### USED: what counts as a reference
 
-A package is referenced when `src/` carries either spelling it actually uses, or its hash:
+Two spellings, and deliberately no third. A package is referenced when `src/` carries:
 
-- `"UI_pause.fng"` - the quoted literal, as `src/gui_timing.c:9` and `src/gui_dialog.c:7` write it.
-- the bare stem - for the places that omit the suffix.
-- `0xAA469286` - the 32-bit hash as a hex literal, the `src/gui_dialog.c` style. `ha_hash` comes from
-  `fng_dump.py`, a port of `src/hud_asset.c:ha_hash`, and was checked against the real constants
-  before being trusted: `ha_hash("UI_InGameDialog.fng")` = `0xAA469286`, which is exactly
-  `PKG_IN_GAME`, and `GenericDialog_SMALL` = `0x6962C0CD`. Matching is case-insensitive because the
-  loader hashes the upper-cased name (`src/ugui/ugui_assets.c:ug_assets_package`) and so is the
-  game.
+- `"UI_pause.fng"` - the whole name including the suffix, matched case-insensitively, as
+  `src/gui_timing.c:9`, `src/options_menu.c:86` and `src/pause_entries.c:105`
+  (`"open:ui_ReplayControl.fng"`, lowercase) write it. Case-blind because the loader hashes the
+  upper-cased name (`src/ugui/ugui_assets.c:ug_assets_package`) and so is the game.
+- `0xAA469286` - the 32-bit hash as a hex literal, the `src/gui_dialog.c` style. `ha_hash` is
+  `fng_dump.py`'s port of `src/hud_asset.c:ha_hash`, and both constants it must reproduce are in
+  `src/gui_dialog.c` and match exactly: `ha_hash("UI_InGameDialog.fng")` = `0xAA469286` =
+  `PKG_IN_GAME` (line 7), `ha_hash("GenericDialog_SMALL.fng")` = `0x6962C0CD` = `KEY_PKG_SMALL`
+  (line 10).
 
-Two ways to get this wrong, both found while building the tool, both silent:
+**Both ends of the name are anchored, and the left anchor is worth more than it looks.** An earlier
+version of the rule matched the name with no left anchor, and `Loading.fng` was reported as the one
+reference in the boot-attract class off `src/fe_menu.c:111` - a line that returns
+`"PC_Loading.fng"`, a different package. Nothing in `src/` has ever named `Loading.fng`; `grep -rn
+'"Loading\.fng"' src/` returns nothing. The match came from `Loading` sitting inside `PC_Loading`, and
+because it was the boot class's only reference it was also inside the headline count: 34, of which one
+was borrowed. Anchoring the left over name characters (letters, digits, `_`) removes it and changes
+nothing else - the same run before the anchor gives 34, after gives 33, and the 87-package in-scope gap
+is identical both ways, so the planning number never depended on it.
+
+The bare stem (`UI_pause` without the suffix) was tried as a third spelling and dropped for the same
+kind of reason: it found no package the suffixed name does not already find - `"open:ui_ReplayControl
+.fng"` at `src/pause_entries.c:105` is matched case-insensitively by the suffixed spelling - while
+admitting `FEM_SCR_LOADING`, `fem_set_loading` and ordinary prose. Two wrong readings of the same
+evidence are worth naming, because both were held before the numbers were checked: the stem looked
+harmless because `Loading` was already matching through the missing left anchor, and dropping the stem
+then looked like the fix when it changed nothing (33 before, 33 after). Only anchoring both ends moved
+the count. A single-word package name - `Loading`, `Credits`, `ScreenPrintf` - is the general risk.
+
+Two ways to get this wrong were found while building it, both silent:
 
 - **Strip the suffix, then forbid a following ".".** This looks like the tidy way to keep
   `GenericDialog` out of `GenericDialog_SMALL`, and it matches **no quoted package name at all**,
@@ -306,7 +344,9 @@ key the game looks up at draw time.
 ## Spot-checks
 
 Ten packages checked against `grep -rniw` over `src/`, tool verdict and grep verdict agreeing on all
-ten. Five said to be referenced:
+ten. Coverage is name-based: it tests the two verdicts and the comment boundary, while the pooled-copy
+and content-class paths are covered by the unit tests rather than by these ten. Five said to be
+referenced:
 
 | package | evidence |
 |---|---|
@@ -325,8 +365,15 @@ so the absence is feature-shaped, not random.
 `Demo_MiniMap_Legend.fng` is the boundary case, and it disagrees with a plain grep on purpose: grep
 `-rniw` finds it, so the tool calls it USED in the default mode, and `--used-mode code-only` calls it
 missing, because the single mention is a block comment at `src/hud_minimap.h:48` describing art the
-minimap matches by node label. Report whichever the question needs; the tag makes the difference
-visible instead of leaving it to a guess.
+minimap matches by node label. `UI_Options_PC_Controller.fng` is the other comment-only name, so the
+code-only count is 31 rather than 33. Report whichever the question needs; the tag makes the
+difference visible instead of leaving it to a guess.
+
+`Loading.fng` is the case that does disagree with grep, and grep is the one that is wrong: `grep -rniw
+Loading` finds `FEM_SCR_LOADING`, `fem_set_loading` and prose, and an unanchored matcher found
+`"PC_Loading.fng"`. The tool reports no reference, which is right - `grep -rn '"Loading\.fng"' src/`
+returns nothing - and that is the eleventh check, added because it is the one the rule was wrong
+about.
 
 ## What to do with this
 

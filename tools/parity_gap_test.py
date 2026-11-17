@@ -138,13 +138,43 @@ class UsedDetectionTest(unittest.TestCase):
     def test_near_miss_names_do_not_match(self):
         """A shorter name must not claim a package whose name extends it."""
         lines = [("src/near_miss.c", 1,
-                  "/* GenericDialog_SMALL is another package */", "comment")]
-        self.assertEqual(gap.find_hits("GenericDialog.fng", lines), [])
+                  'const char *d = "GenericDialog_SMALL.fng";', "code")]
+        self.assertEqual(gap.find_hits("GenericDialog.fng", lines), [],
+                         "GenericDialog matched the GenericDialog inside GenericDialog_SMALL")
         self.assertEqual(len(gap.find_hits("GenericDialog_SMALL.fng", lines)), 1)
 
     def test_case_insensitive_name_matches(self):
         hits = gap.find_hits("ui_testscreen.fng", self.lines)
         self.assertTrue(hits)
+
+    def test_a_short_name_may_not_borrow_a_longer_packages_load_site(self):
+        """`Loading.fng` must not be called loaded by `"PC_Loading.fng"`.
+
+        Without the left anchor this is exactly what happened: Loading.fng was reported as the boot
+        class's one reference off src/fe_menu.c:111, which loads PC_Loading.fng - a different
+        package. It inflated the headline count.
+        """
+        lines = [("src/fe_menu.c", 111, 'case FEM_SCR_LOADING: return "PC_Loading.fng";', "code")]
+        self.assertEqual(gap.find_hits("Loading.fng", lines), [],
+                         "Loading.fng claimed PC_Loading.fng's load site")
+        self.assertEqual([h["by"] for h in gap.find_hits("PC_Loading.fng", lines)], ["name"])
+        self.assertEqual(len(gap.find_hits("Loading.fng",
+                         [("src/y.c", 1, 'return "Loading.fng";', "code")])), 1)
+
+    def test_identifiers_and_prose_are_not_references(self):
+        """FEM_SCR_LOADING, fem_set_loading and English prose name no package."""
+        lines = [("src/fe_menu.c", 213, "if (m->screen != FEM_SCR_LOADING) {", "code"),
+                 ("src/fe_menu.c", 430, "void fem_set_loading(FeMenu *m, int event_id) {", "code"),
+                 ("src/x.c", 5, "/* the loading path is slow */", "comment")]
+        self.assertEqual(gap.find_hits("Loading.fng", lines), [])
+        self.assertEqual(gap.find_hits("ScreenPrintf.fng",
+                       [("src/x.c", 2, "/* printf to the screen */", "comment")]), [])
+
+    def test_case_insensitive_spelling_covers_the_lowercase_literal(self):
+        """The lowercase literal at src/pause_entries.c:105 is a load site like any other."""
+        lines = [("src/pause_entries.c", 105, 'return "open:ui_ReplayControl.fng";', "code")]
+        hits = gap.find_hits("UI_ReplayControl.fng", lines)
+        self.assertEqual([h["by"] for h in hits], ["name"])
 
     def test_code_only_mode_drops_comment_hits(self):
         lines = [("src/x.h", 1, "/* UI_Commentary.fng named here only */", "comment")]
