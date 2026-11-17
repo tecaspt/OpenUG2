@@ -12046,9 +12046,15 @@ int main(int argc, char **argv) {
                 int icon=shop?1+g_career.cd.shop[index].type:7+g_career.cd.race[index].kind;
                 uint32_t hash=shop?g_career.cd.shop[index].zone_hash:g_career.cd.race[index].locator_hash;
                 int zone=cd_find_zone(&g_career.cd,hash);if(zone<0)continue;
-                const CdZone *z=&g_career.cd.zone[zone];float dx=z->cx-carpos[0],dy=z->cy-carpos[1];
+                const CdZone *z=&g_career.cd.zone[zone];
+                uint32_t marker_hash=shop?g_career.cd.shop[index].hash:g_career.cd.race[index].name_hash;
+                int marker=cd_find_marker(&g_career.cd,marker_hash);
+                float x=marker>=0?g_career.cd.marker[marker].x:z->cx;
+                float y=marker>=0?g_career.cd.marker[marker].y:z->cy;
+                float dx=x-carpos[0],dy=y-carpos[1];
                 if(dx*dx+dy*dy>120.0f*120.0f)continue;
-                float pos[3]={z->cx,z->cy,world_ground_z(&scene,z->cx,z->cy,carpos[2])+3.5f};
+                float ground=marker>=0?g_career.cd.marker[marker].z:world_ground_z(&scene,x,y,carpos[2]);
+                float pos[3]={x,y,ground+3.5f};
                 hud_engage_world(hud,&rp,&quad,cpipe.glass,MVP,pos,look,icon);
             }
         }
