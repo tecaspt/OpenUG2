@@ -15,6 +15,7 @@
 #define CD_ID_STRINGS  0x00034A1Du
 #define CD_ID_SHOPS    0x00034A12u
 #define CD_ID_UNLOCKS  0x00034A1Fu
+#define CD_ID_SMS      0x00034A17u
 #define CD_ID_ZONES    0x0003414Au
 #define CD_ID_MARKERS  0x00034146u
 #define CD_MAX_FILE    (256u * 1024u * 1024u)
@@ -113,10 +114,36 @@ static void parse_unlocks(CareerData *cd, const uint8_t *buf, size_t co, size_t 
     cd->nunlock = (int)n;
 }
 
+/* 0x34A17: the career message table, 20-byte records (retail: 167). Missing or malformed table -> nsms 0, never an
+ * error, like the shop and unlock tables. A record whose name offset is out of range keeps its raw bytes and other
+ * fields with an empty name, so the array index stays equal to the record index in the table. docs/parity/SMS-TABLE.md
+ * holds the evidence for every field name. */
+static void parse_sms(CareerData *cd, const uint8_t *buf, size_t co, size_t cs, size_t bo, size_t bs) {
+    size_t o, sz;
+    unsigned i, n;
+    cd->nsms = 0;
+    if (!find_chunk(buf, co, co + cs, CD_ID_SMS, &o, &sz) || sz % CD_SMS_BYTES) return;
+    n = (unsigned)(sz / CD_SMS_BYTES);
+    if (n > CD_MAX_SMS) n = CD_MAX_SMS;
+    for (i = 0; i < n; i++) {
+        const uint8_t *r = buf + o + (size_t)i * CD_SMS_BYTES;
+        CdSms *d = &cd->sms[i];
+        memset(d, 0, sizeof *d);
+        memcpy(d->raw, r, CD_SMS_BYTES);
+        blob_str(buf + bo, bs, rd16(r), d->name, sizeof d->name);   /* empty on a bad offset, on purpose */
+        d->name_hash = cd_hash(d->name);
+        d->trigger = r[0x02]; d->cls = r[0x03]; d->flag = r[0x04]; d->kind = r[0x05];
+        d->arg = rd32(r + 0x08);
+        d->weight = rd16(r + 0x0C);
+        d->sender = rd32(r + 0x10);
+    }
+    cd->nsms = (int)n;
+}
+
 int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     size_t co, cs, ro, rs, so, ss, bo, bs;
     unsigned i, nr, ns;
-    cd->nrace = 0; cd->nstage = 0; cd->nshop = 0; cd->nunlock = 0; cd->error[0] = 0;
+    cd->nrace = 0; cd->nstage = 0; cd->nshop = 0; cd->nunlock = 0; cd->nsms = 0; cd->error[0] = 0;
     if (!buf) return cd_fail(cd, "null buffer");
     if (!find_chunk(buf, 0, len, CD_ID_CAREER, &co, &cs)) return cd_fail(cd, "no 0x80034A10 chunk");
     if (!find_chunk(buf, co, co + cs, CD_ID_STRINGS, &bo, &bs)) return cd_fail(cd, "no 0x34A1D string blob");
@@ -170,6 +197,7 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     cd->nrace = (int)nr; cd->nstage = (int)ns;
     parse_shops(cd, buf, co, cs);
     parse_unlocks(cd, buf, co, cs);
+    parse_sms(cd, buf, co, cs, bo, bs);
     return (int)nr;
 }
 
@@ -312,6 +340,12 @@ int cd_find_marker(const CareerData *cd, uint32_t h) {
 int cd_find_shop(const CareerData *cd, uint32_t h) {
     int i;
     for (i = 0; i < cd->nshop; i++) if (cd->shop[i].hash == h) return i;
+    return -1;
+}
+int cd_find_sms(const CareerData *cd, uint32_t h) {
+    int i;
+    if (!h) return -1;                        /* a record whose name failed to decode has name_hash 0 */
+    for (i = 0; i < cd->nsms; i++) if (cd->sms[i].name_hash == h) return i;
     return -1;
 }
 uint32_t cd_hash(const char *s) {
