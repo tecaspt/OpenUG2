@@ -285,17 +285,30 @@ suite is not fully green. Earlier inferred input/colour choices remain inferred.
 
 ## GPS presentation follow-up
 
-[data] Normal guidance now uses the 3D retail marker plus minimap guidance.
-The old 2D arrow/distance is opt-in through --hud-nav-arrow-2d. Runtime pose
-calibration uses --gps-marker ahead,height,pitch_deg,scale. Current-frame
-race/pause/front-end guards suppress the 3D marker before scene presentation.
+[data] Normal guidance uses the 3D retail marker and minimap guidance. The old
+2D arrow/distance is opt-in through --hud-nav-arrow-2d. Runtime pose calibration
+uses --gps-marker ahead,height,pitch_deg,scale. Current race/pause/front-end state
+suppresses the 3D marker before scene presentation.
 
-[inferred] Straight-view pose fitting uses the owner-supplied Focus capture;
-metric distance/scale, turning placement and bob remain partly inferred.
-The marker position follows car heading while its orientation follows the route,
-so turning guidance stays in view. The solid pass avoids additive face accumulation.
+[observed] The owner-supplied Focus still is fitted at 1280x720: retail bounds
+115x79 pixels centred (637.5,201.5); final engine bounds 116x79 centred (640,200.5).
+The side-by-side is reports/worldmap/s3/gps-straight-side-by-side.png. Engine
+capture is parked; reference speed is 173 km/h. Final defaults are ahead 30 m,
+height 12.919865 m, pitch +0.45 degrees and scale 3.905761.
+[inferred] Metric distance/scale, turn placement, material interpretation and
+bob remain partly inferred. Position follows car heading while orientation
+follows the route; the opaque core preserves genuine vertex blue, with the
+additive rim drawn first. Turn/bob calibration awaits moving retail captures.
 
-[observed] Final validation and side-by-side evidence are being collected under
-reports/worldmap/s3. See GPS-ARROW.md for calibration assumptions, exact defaults,
-visibility rules and current check status. This follow-up supersedes the 2D and
-near/low-arrow presentation in the S2 screenshots; S2 routing/arrival logic stays.
+[observed] Builds pass with 24/29/29 warnings with unchanged normalized lists; all nine
+requested tests pass, including 104 GPS checks in desktop/GLES and 107 career-host
+checks with leak detection disabled only after LSan startup fails. Both live
+race/shop legs preserve routes, hide through pause/map, restore on Back and clear
+at arrival. GLES half-scale capture confirms scene placement and full-resolution
+HUD. All final proof PNGs were reviewed.
+
+[observed] Historical reference shots still FAIL in this software-GL environment;
+both shots are byte-identical to current S2 controls. No reference was replaced.
+Device checks remain NOT RUN. GPS-ARROW.md contains exact parameters, proof paths,
+limitations and requested captures. This supersedes S2 guidance presentation;
+routing/arrival behaviour is retained.
