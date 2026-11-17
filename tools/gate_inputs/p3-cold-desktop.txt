@@ -1,0 +1,15 @@
+15:key=Right
+30:key=Return
+65:shot=save-cold-reloaded.png
+75:key=Escape
+90:key=Left
+105:key=Return
+125:key=Return
+145:key=Return
+165:key=Return
+185:key=Return
+205:key=Right
+230:shot=save-other-car-stock.png
+245:key=Left
+270:shot=save-golf-returned.png
+290:quit

@@ -1,0 +1,96 @@
+{
+  "name": "m1",
+  "env_required": ["OPENUG2_DATA"],
+  "steps": [
+    {"id": "build", "kind": "make", "targets": ["nfsu2"], "jobs": 2, "touch": "src/*.c",
+     "timeout": 5400, "max_warnings": 24},
+
+    {"id": "tests", "kind": "make",
+     "targets": ["hud-race-test", "hud-minimap-test", "hud-host-map-test", "gps-marker-test",
+                 "career-test", "career-data-test", "race-drag-rules-test", "race-drift-rules-test",
+                 "garage-test", "fe-garage-test", "fe-lot-test", "career-data-test", "postrace-test",
+                 "fe-track-test", "fe-screens-check", "race-series-rules-test", "race-options-test",
+                 "race-rewards-test", "drag-physics-test", "controls-test", "fe-screen-test",
+                 "game-flow-test", "input-script-test", "touch-controls-test", "postrace-test",
+                 "settings-test"],
+     "jobs": 1, "target_timeout": 900, "timeout": 7200},
+
+    {"id": "career-host-check", "kind": "cmd", "cmd": ["make", "-s", "career-host-check"],
+     "expect_stdout": "career_host_check: [0-9]+ checks, 0 failures", "timeout": 900},
+
+    {"id": "inv-l4ra", "kind": "game", "binary": "nfsu2", "timeout": 600,
+     "args": ["${OPENUG2_DATA}", "--resolution", "640x480", "--car", "GOLF", "--track", "STREAML4RA",
+              "--shot", "inv-STREAML4RA.png", "--frames", "120"],
+     "shots_min": 1,
+     "shot_equal": {"inv-STREAML4RA.png": "${OPENUG2_GATE_REF}/invx-ref-STREAML4RA.png"}},
+
+    {"id": "inv-l4rb", "kind": "game", "binary": "nfsu2", "timeout": 600,
+     "args": ["${OPENUG2_DATA}", "--resolution", "640x480", "--car", "GOLF", "--track", "STREAML4RB",
+              "--shot", "inv-STREAML4RB.png", "--frames", "120"],
+     "shots_min": 1,
+     "shot_equal": {"inv-STREAML4RB.png": "${OPENUG2_GATE_REF}/invx-ref-STREAML4RB.png"}},
+
+    {"id": "s2", "kind": "game", "binary": "nfsu2", "timeout": 900,
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720",
+              "--input-script", "@tools/gate_inputs/s2.txt"],
+     "spec": "tools/log_specs/s2_menu.spec", "shots_min": 6},
+
+    {"id": "s11", "kind": "game", "binary": "nfsu2", "timeout": 900,
+     "args": ["${OPENUG2_DATA}", "--resolution", "1280x720", "--car", "GOLF",
+              "--track", "STREAML4RB", "--event", "4201",
+              "--input-script", "@tools/gate_inputs/s11.txt"],
+     "spec": "tools/log_specs/s11_drag.spec", "shots_min": 3},
+
+    {"id": "s12", "kind": "game", "binary": "nfsu2", "timeout": 900,
+     "args": ["${OPENUG2_DATA}", "--resolution", "1280x720", "--car", "GOLF",
+              "--track", "STREAML4RA", "--event", "4174",
+              "--input-script", "@tools/gate_inputs/s12.txt"],
+     "spec": "tools/log_specs/s12_drift.spec", "shots_min": 4},
+
+    {"id": "s6c", "kind": "game", "binary": "nfsu2", "timeout": 900,
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720",
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,400:shot=s6c.png,401:quit"],
+     "spec": "tools/log_specs/s6c_career.spec", "shots_min": 1},
+
+    {"id": "ios-host", "kind": "make", "targets": ["ios-host"], "jobs": 2, "timeout": 5400},
+
+    {"id": "s13", "kind": "game", "binary": "nfsu2", "timeout": 900,
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720", "--career-dev", "2",
+              "--career-ask",
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,600:shot=s13-600.png,700:shot=s13-700.png,800:shot=s13-800.png,900:shot=s13-900.png,1000:key=Left,1010:key=Return,1300:shot=s13-1300.png,1301:quit"],
+     "spec": "tools/log_specs/s13_ask.spec", "shots_min": 5},
+
+    {"id": "garage-check", "kind": "cmd", "cmd": ["make", "-s", "garage-check"],
+     "expect_stdout": "garage_check: PASS", "timeout": 900},
+
+    {"id": "p3-desktop", "kind": "game", "binary": "nfsu2", "timeout": 900, "xdg": "p3",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--car", "GOLF", "--menu", "--resolution", "640x480",
+              "--input-script", "@tools/gate_inputs/p3-desktop.txt"],
+     "spec": "tools/log_specs/p3_desktop.spec", "shots_min": 5},
+
+    {"id": "p3-cold", "kind": "game", "binary": "nfsu2", "timeout": 900, "xdg": "p3",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--car", "GOLF", "--menu", "--resolution", "640x480",
+              "--input-script", "@tools/gate_inputs/p3-cold-desktop.txt"],
+     "spec": "tools/log_specs/p3_cold.spec", "shots_min": 3},
+
+    {"id": "s7", "kind": "game", "binary": "nfsu2", "timeout": 1500, "xdg": "s7",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720", "--career-dev", "1",
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,80:shot=s7_lot.png,175:shot=s7_roam.png,4200:shot=s7_end.png,4201:quit"],
+     "spec": "tools/log_specs/s7_carlot.spec", "shots_min": 3},
+
+    {"id": "s7b", "kind": "game", "binary": "nfsu2", "timeout": 900, "xdg": "s7",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720",
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,300:shot=s7b.png,301:quit"],
+     "spec": "tools/log_specs/s7b_continue.spec", "shots_min": 1},
+
+    {"id": "s7m", "kind": "game", "binary": "nfsu2", "timeout": 900, "xdg": "s7m",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720",
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,100:key=Right,120:key=Return,130:shot=s7m_confirm.png,140:key=Return,300:shot=s7m_roam.png,301:quit"],
+     "spec": "tools/log_specs/s7m_lot.spec", "shots_min": 2}
+  ]
+}

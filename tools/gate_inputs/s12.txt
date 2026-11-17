@@ -1,0 +1,10 @@
+10:tdown=gas
+300:tdown=steer_l
+310:tdown=handbrake
+330:tup=handbrake
+360:shot=drift-360.png
+400:shot=drift-400.png
+440:shot=drift-440.png
+480:tup=steer_l
+520:shot=drift-520.png
+560:quit
