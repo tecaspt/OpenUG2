@@ -12,7 +12,10 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATE = sys.argv[1] if len(sys.argv) > 1 else "/home/nike/openug2-dev/reports/parity/m1-gate"
+# The gate output directory to read real logs from: pass it as argv[1]. There is no default, because
+# where a gate run lands is a property of the machine, not the repo - point it at whatever the last
+# `gate_run.py ... --out DIR` produced.
+GATE = sys.argv[1] if len(sys.argv) > 1 else None
 
 # spec -> (log file, corruption, the rule the corruption is meant to break)
 CASES = {
@@ -56,6 +59,9 @@ CASES = {
 
 
 def main():
+    if GATE is None:
+        print("usage: spec_negative_check.py GATE_OUT_DIR   (the --out directory of a gate run)")
+        return 2
     if not os.path.isdir(GATE):
         print("no log directory %s" % GATE)
         return 2
