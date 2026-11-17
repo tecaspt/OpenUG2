@@ -21,26 +21,34 @@ pitch -180..180, and scale greater than 0 through 100. These are operational
 bounds. No iOS environment override for pose is added.
 
 [data] Genuine MARKER_GPS_AID geometry contains 32 core and 50 rim triangles
-with 158 source vertices. Source vertex alpha is 255. Referenced mean RGB is
-approximately (9,84,161) for the core and (58,163,196) for the rim. Both decoded
-ranges reference one band texture, whose record retains additive usage/blend tags.
-[observed] Adding both ranges washes the core bright cyan; applying the band
-opaquely creates black stripes. The retail still has an opaque blue interior.
-[inferred] Rendering therefore draws the additive band/rim first, then paints
-the depth-writing opaque core from its authored prelight. A neutral shader
-multiplier preserves those source colours. Darker/brighter mean prelight
-identifies the two ranges; missing, unsupported or ambiguous ranges fail closed.
-Geometry, core colour and rim texture come from the data. The material-pass
-interpretation, glow and obstruction behaviour need further retail captures.
+with 158 source vertices. Source alpha is 255. Referenced mean RGB is approximately
+(9,84,161) for the core and (58,163,196) for the rim. The object's texture-slot
+list and two material-range records bind the core to slot 0, an opaque 128x256
+arrow atlas (key 985c190c), and the rim to slot 1, a 64x64 horizontal light band
+(key 1e232d55, usage 2 / blend 2).
+[observed] S3's generic world-loader call supplied no resolvable pack keys;
+its last-slot fallback therefore assigned the band to both ranges. S3's statement
+that both ranges were authored with one band was incorrect. The neutral-core
+workaround suppressed the genuine atlas detail and the cyan inner band.
 
-[inferred] Placement follows car heading so a turning route cannot move the
-entire marker outside the view. Orientation independently follows route bearing.
-[data] Current race, pause/results and front-end state gate the previous frame's
+[data] The marker loader now recovers each exact recorded range/slot binding.
+It validates one matching object, contiguous ranges, matching index counts and
+nonzero in-range slots, then requires both textures to decode. Missing or
+ambiguous material metadata fails closed. Source geometry, UVs, prelight and
+texture bytes are never rewritten. A private shader and full RHI state snapshot
+isolate the marker material from world and HUD draws.
+[inferred] The opaque atlas core draws before the additive band shell. The
+MODULATE2X interpretation and calibrated channel gains reconstruct the sampled
+contrast; authored prelight retains the lighter faces. No procedural replacement
+band, painted texture or invented geometry is used.
+
+[data] Placement follows car heading, while yaw follows route bearing.
+Current race, pause/results and front-end state gate the previous frame's
 navigation flag. The marker is suppressed during active races, pause, results
 and every front-end screen, including World Map. It draws with the scene camera
 before render_target_present, so scene scaling applies. Zone arrival clears it.
 
-## Straight-view calibration
+## Accepted straight-view calibration (S3)
 
 [data] The authored Focus primary FAR entry has forward -5.8 m, up 1.7 m,
 lateral 0, and pitch 0 BAU.
@@ -84,7 +92,7 @@ and bob phase introduce a few pixels of uncertainty.
 [inferred] Turning placement fidelity, slope handling, material interpretation
 and animation remain uncalibrated. The fit establishes straight-view framing.
 
-## Checks and evidence
+## S3 checks and evidence
 
 [observed] All commands use the memory gate, shared heavy lock, nice priority,
 at most two build jobs, offscreen video, dummy audio, isolated storage and timeouts.
@@ -172,3 +180,34 @@ on a straight road at steady speed and 6–10 seconds through left/right turns.
 Keep the arrow, car roof and horizon visible without camera switching. Several
 full bob cycles and GPS/pause/map/race transitions would constrain animation,
 obstruction and visibility rules.
+
+## S4 turn pose and colour correction
+
+[observed] The second owner reference is
+reports/retail-gps/retail-gps-turn-right-1170x643.png, a 1170x643 right-turn
+view with a 350Z and default chase. Its marker points sideways to the right;
+the source atlas has grain, blue faces, cyan highlights and a cyan-to-white rim.
+The top-centre rear-view mirror is a separate feature and is out of scope here.
+
+[inferred] Let delta be route bearing minus car heading, s = sin(delta) and
+w = s*s. Yaw uses the route bearing. Base pitch is multiplied by 1-w, becoming
+flat side-on; scale is multiplied by 1+0.10*w. The centre stays 30 m ahead in the
+car frame, moves 4.1*s metres toward the route side and rises 1.1*w metres.
+These are screen-fit parameters, not uniquely recoverable retail world units.
+The smooth symmetric law between the two observed poses remains inferred.
+Straight guidance has w=0 and retains the accepted S3 transform bit-for-bit.
+Bob remains unchanged and uncalibrated; moving references are still needed.
+
+[observed] Material gains, applied in the shader after source texture/prelight
+multiplication, are core RGB (1.8,0.67,1.18), rim RGB (1.8,1.45,1.0).
+They were fitted from the sampled regions, not extracted from executable code.
+The opaque atlas and authored light band provide the spatial detail and face
+contrast. This supersedes the S3 neutral multiplier and rim-before-core order.
+
+[observed] Final builds complete with unchanged 24/29/29 warnings. All five
+requested test targets pass; GPS has 149 checks in desktop and strict GLES
+configurations. Historical invariance still fails on both tracks, while both
+files are byte-identical to S3 controls. Final comparison figures and colour
+measurements are pending a clear turn capture: an initial camera position lets
+a building occlude the guide. Earlier procedural-material experiments,
+stale-binary captures and obstructed views are excluded from final proof.

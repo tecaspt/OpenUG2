@@ -47,12 +47,30 @@ static void configuration_checks(void) {
     CHECK(near(det,8,1e-4f),"proper tilted basis determinant");
     p=(GpsMarkerPose){30,12,0,1};const float car[3]={100,200,10};
     gps_marker_transform(&p,car,1.57079632679f,0,0,m);
-    CHECK(near(m[12],100,1e-4f)&&near(m[13],230,1e-4f)&&near(m[14],22,1e-4f),"position follows car heading");
+    CHECK(near(m[12],100+GPS_MARKER_TURN_SIDE_M,1e-4f)&&near(m[13],230,1e-4f)&&near(m[14],22+GPS_MARKER_TURN_UP_M,1e-4f),"side pose stays ahead and moves toward the route");
     xform(m,(float[]){0,0,-1},o);
-    CHECK(near(o[0],101,1e-4f)&&near(o[1],230,1e-4f),"orientation independently follows route");
+    CHECK(near(o[0],m[12]+GPS_MARKER_TURN_SCALE,1e-4f)&&near(o[1],230,1e-4f),"orientation independently follows route");
     gps_marker_transform(&p,car,0,1.57079632679f,0,m);
-    CHECK(near(m[12],130,1e-4f)&&near(m[13],200,1e-4f),"turn keeps centre ahead of car");
-    xform(m,(float[]){0,0,-1},o);CHECK(near(o[0],130,1e-4f)&&near(o[1],201,1e-4f),"turned tip follows route");
+    CHECK(near(m[12],130,1e-4f)&&near(m[13],200+GPS_MARKER_TURN_SIDE_M,1e-4f),"left turn preserves forward anchor");
+    xform(m,(float[]){0,0,-1},o);CHECK(near(o[0],130,1e-4f)&&near(o[1],200+GPS_MARKER_TURN_SIDE_M+GPS_MARKER_TURN_SCALE,1e-4f),"turned tip follows route");
+    /* Straight framing is an exact invariant of the new side-facing law. */
+    p=(GpsMarkerPose){30,12,.45f,3.9f};float expected[16],pos[3],yaw;
+    gps_marker_pose_configured(&p,car,.7f,0,pos,&yaw);
+    gps_marker_model_configured(&p,pos,.7f,expected);
+    gps_marker_transform(&p,car,.7f,.7f,0,m);
+    CHECK(!memcmp(m,expected,sizeof m),"straight transform unchanged bit-for-bit");
+    float right[16],left[16];
+    gps_marker_transform(&p,car,0,-1.57079632679f,0,right);
+    gps_marker_transform(&p,car,0,1.57079632679f,0,left);
+    CHECK(near(right[12],left[12],1e-5f)&&near(right[13]-200,200-left[13],1e-5f),"left/right offsets reflect symmetrically");
+    CHECK(near(right[14],left[14],1e-5f)&&near(right[14],22+GPS_MARKER_TURN_UP_M,1e-5f),"side height symmetric");
+    CHECK(near(right[10],0,1e-5f)&&near(left[10],0,1e-5f),"side-facing pitch flat");
+    float wrapped[16];gps_marker_transform(&p,car,0,-1.57079632679f+6.28318530718f,0,wrapped);
+    for(int a=0;a<16;a++)CHECK(near(right[a],wrapped[a],1e-4f),"bearing wrap invariant %d",a);
+    float near_a[16],near_b[16];
+    gps_marker_transform(&p,car,0,1.57079632679f-1e-5f,0,near_a);
+    gps_marker_transform(&p,car,0,1.57079632679f+1e-5f,0,near_b);
+    for(int a=0;a<16;a++)CHECK(near(near_a[a],near_b[a],1e-3f),"continuous across side bearing %d",a);
     float vertices[15]={-.5f,-.5f,0,0,0, .5f,-.5f,0,0,0, 0,.5f,0,0,0};
     uint16_t indices[3]={0,1,2};N2Mesh mesh={0};mesh.verts=vertices;mesh.idx=indices;mesh.nidx=3;
     GpsMarkerGeom geom={0};geom.scene.meshes=&mesh;geom.scene.count=1;
@@ -70,6 +88,17 @@ static void configuration_checks(void) {
     range[0].vcol=dark;CHECK(gps_marker_core_range(&geom)==-1,"ambiguous material colours fail closed");
     range[1].vcol=NULL;CHECK(gps_marker_core_range(&geom)==-1,"missing colours fail closed");
     geom.scene.count=1;CHECK(gps_marker_core_range(&geom)==-1,"unsupported range count fail closed");
+    N2Sub sub[2]={{0}};sub[0].count=sub[1].count=3;sub[1].start=3;sub[1].mat=1;
+    uint32_t slots[2]={0x12345678u,0x87654321u};geom.scene.count=2;
+    CHECK(gps_marker_bind_ranges(&geom,slots,2,sub,2),"exact synthetic range binding");
+    CHECK(range[0].texkey==slots[0]&&range[1].texkey==slots[1],"distinct range textures retained");
+    sub[1].mat=0;CHECK(gps_marker_bind_ranges(&geom,slots,2,sub,2)&&range[1].texkey==slots[0],"binding follows slot index rather than range order");
+    sub[1].mat=2;uint32_t kept=range[1].texkey;
+    CHECK(!gps_marker_bind_ranges(&geom,slots,2,sub,2)&&range[1].texkey==kept,"invalid slot rejects atomically");
+    sub[1].mat=1;sub[1].start=4;CHECK(!gps_marker_bind_ranges(&geom,slots,2,sub,2),"gapped material partition rejected");
+    sub[1].start=3;sub[1].count=6;CHECK(!gps_marker_bind_ranges(&geom,slots,2,sub,2),"index count mismatch rejected");
+    sub[1].count=3;slots[1]=0;CHECK(!gps_marker_bind_ranges(&geom,slots,2,sub,2),"unbound source slot rejected");
+    CHECK(!gps_marker_bind_ranges(&geom,slots,2,sub,1)&&!gps_marker_bind_ranges(NULL,slots,2,sub,2),"missing material records rejected");
     printf("configuration: %s\n",fails?"FAIL":"ok");
 }
 
@@ -132,6 +161,8 @@ int main(void) {
     CHECK(tris > 0, "no %s triangles", GPS_MARKER_SOLID);
     if (tris > 0) {
         CHECK(gps_marker_core_range(&g)>=0,"core/rim material identity unavailable");
+        CHECK(g.scene.count==2 && g.scene.meshes[0].texkey && g.scene.meshes[1].texkey &&
+              g.scene.meshes[0].texkey!=g.scene.meshes[1].texkey,"core atlas and rim band resolve distinct authored slots");
         float span[3], c[3] = {0, 0, 0};
         for (int a = 0; a < 3; a++) span[a] = g.bb_max[a] - g.bb_min[a];
         /* sane: a metres-scale object, every axis 0.1..10 m, longest = the
