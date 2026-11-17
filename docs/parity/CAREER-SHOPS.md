@@ -168,10 +168,10 @@ only opaque references. The corresponding descriptor +8 integers span
 Descriptor +12 spans 0..8 and is not a proven career-stage gate.
 
 [data] Descriptor +48, +52, +56 and +60 include IEEE floating-point
-values such as -1 and positive fractions. In particular, the earlier
-blanket interpretation of +64/+68 as small signed reference indices is
-incorrect for this installed data: these fields include float bit patterns.
-Descriptor +64/+68 at the first descriptor have signed ranges -1..57 and
+values such as -1 and positive fractions. Record offsets +64/+68 therefore
+include float bit patterns; distinguish record offsets from descriptor
+offsets when inspecting the table. Descriptor +64/+68 at the first
+descriptor have signed ranges -1..57 and
 -1..58. Header category/level pairs are unique across all 30 records.
 
 [observed] This establishes named component composition candidates, but
