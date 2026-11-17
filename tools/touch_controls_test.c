@@ -61,6 +61,9 @@ int main(void) {
     CHECK(tc_visible(&t)&&!t.active);
     CHECK(tc_button_label(&t,TC_ENTER_RACE)&&!strcmp(tc_button_label(&t,TC_ENTER_RACE),"ENTER"));
     CHECK(!tc_button_label(&t,TC_GAS));
+    float shop_x,shop_y,shop_r;
+    tc_layout(&t,TC_PAUSE,&shop_x,&shop_y,&shop_r);CHECK(shop_x+shop_r<t.aspect*.25f);
+    tc_layout(&t,TC_CAMERA,&shop_x,&shop_y,&shop_r);CHECK(shop_x+shop_r<t.aspect*.25f);
     CHECK(down(&t,1,TC_ENTER_RACE)==BIT(CB_ACT_ENTER_RACE));
     up(&t,1,TC_ENTER_RACE,0);
     SDL_Event keyboard;memset(&keyboard,0,sizeof keyboard);keyboard.type=SDL_KEYDOWN;

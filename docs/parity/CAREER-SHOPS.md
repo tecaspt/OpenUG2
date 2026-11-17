@@ -110,3 +110,6 @@ the destination. An explicit --no-touch still disables the overlay.
 [inferred] Shop-zone detection has no speed gate: the entry action stays
 visible while driving through a zone. Choosing entry uses the existing
 question/stop flow. Race engagement retains its separate speed restriction.
+Before touch input, only the advertised Enter control is drawn in a shop
+zone. Once touch driving is active, the normal controls are drawn, with
+pause/camera moved to the upper-left to keep the shop notice readable.

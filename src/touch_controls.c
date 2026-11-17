@@ -39,6 +39,8 @@ void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r) 
     if (btn < 0 || btn >= TC_COUNT) { if (cx) *cx = 0; if (cy) *cy = 0; if (r) *r = 0; return; }
     const TcSpec *s = &TC_SPEC[btn];
     float x = s->anchor == 0 ? inset + s->dx : s->anchor == 1 ? W - inset - s->dx : W * 0.5f + s->dx;
+    if (t && (t->ctx & TC_CTX_SHOP) && (btn == TC_PAUSE || btn == TC_CAMERA))
+        x = inset + (btn == TC_CAMERA ? 0.16f : 0.0f); /* keep the shop notice clear */
     if (cx) *cx = x;
     if (cy) *cy = s->y;
     if (r) *r = s->r;
@@ -259,6 +261,7 @@ void tc_draw(const TouchControls *t, UiFlat *uf, int w, int h) {
     uf_begin(uf, w, h);
     for (int b = 0; b < TC_COUNT; b++) {
         if (!tc_btn_enabled(t, b)) continue;
+        if (!t->active && b != TC_ENTER_RACE) continue; /* advertise entry without covering the HUD */
         float cx, cy, r;
         tc_layout(t, b, &cx, &cy, &r);
         float px = cx * (float)h, py = cy * (float)h, pr = r * (float)h;
