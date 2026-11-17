@@ -15,6 +15,7 @@ typedef struct {
     /* Approved bounded HUD inputs; map axes are translated at this boundary. */
     int skin_index, hide_map, hide_gauge;
     int career_context, suppress_cash;
+    int engage_icon; /* 0 none; 1..7 shop types, 8..13 race kinds */
     int map_heading_explicit;
     double map_heading_clockwise, map_window_world;
     /* --- drivetrain readouts --- */
@@ -178,6 +179,9 @@ void hud_set_map_sync(Hud *h, int on);
 /* Keep finished maps in <game>/OpenUG2Cache (default on). Off bakes every time. */
 void hud_set_map_cache(Hud *h, int on);
 void hud_free(Hud **h);
+void hud_draw_loading(Hud *h,unsigned elapsed,int width,int height);
+void hud_engage_world(Hud *h,const RProg *rp,GpuMesh *quad,RhiPipeline pipe,
+                      const float vp[16],const float pos[3],const float look[3],int icon);
 #ifdef HUD_TEST_HOOKS
 /* Test only: a HUD with one white image node shown as the career widget backing; needs a GL context, no game data. */
 Hud *hud_test_white_widget(void);
