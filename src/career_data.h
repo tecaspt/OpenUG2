@@ -111,6 +111,7 @@ int cd_find(const CareerData *cd, uint32_t name_hash);          /* race index or
 int cd_find_zone(const CareerData *cd, uint32_t locator_hash);  /* zone index or -1 */
 int cd_find_marker(const CareerData *cd, uint32_t hash);        /* marker index or -1 */
 int cd_find_shop(const CareerData *cd, uint32_t hash);          /* shop index (by name hash) or -1 */
-int cd_find_sms(const CareerData *cd, uint32_t name_hash);      /* sms index (by cd_hash(name)) or -1; 0 never matches */
+int cd_find_sms(const CareerData *cd, uint32_t name_hash);      /* sms index (by cd_hash(name)) or -1; the empty
+                                                                 * name's hash never matches */
 uint32_t cd_hash(const char *s);                                /* ug_hash of the upper-cased string */
 #endif

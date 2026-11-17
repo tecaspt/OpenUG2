@@ -344,7 +344,7 @@ int cd_find_shop(const CareerData *cd, uint32_t h) {
 }
 int cd_find_sms(const CareerData *cd, uint32_t h) {
     int i;
-    if (!h) return -1;                        /* a record whose name failed to decode has name_hash 0 */
+    if (h == 0xFFFFFFFFu) return -1;          /* a record whose name failed to decode hashes as the empty name */
     for (i = 0; i < cd->nsms; i++) if (cd->sms[i].name_hash == h) return i;
     return -1;
 }
