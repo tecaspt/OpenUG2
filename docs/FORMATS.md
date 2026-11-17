@@ -714,7 +714,7 @@ relative to the data start after the `0x11` alignment filler** that prefixes it
 (same quirk as vertex buffers). Three pixel formats occur, distinguished by the
 record, not the (always-0) compression byte:
 
-- **P8** (`format == 0x08`, palette present) — a 256-entry RGBA palette at
+- **P8** (`format == 0x08`, palette present) — a 256-entry BGRA palette at
   `PaletteOffset` then 8-bit indices at `Offset`. This is what the
   road-surface textures use (`RDP_AIRPORT_ROADPATCH_A` is 512×512 P8), which
   is why they looked like high-entropy noise until decoded through the
@@ -745,7 +745,9 @@ record, not the (always-0) compression byte:
 
 Alpha semantics are format-specific and **PROVEN** by A/B renders:
 
-- P8 palette entries are RGBA and palette byte 3 is alpha.
+- P8 palette entries are BGRA and palette byte 3 is alpha. The lane texture
+  `RDP_LANEA_YS_AA_KT` decodes cyan with RGB byte order and yellow with BGRA;
+  the latter interpretation is consistent with its yellow-solid name [inferred].
 - DXT1 is transparent only in the `c0 <= c1` mode and only for selector 3.
 - DXT3 carries an explicit 4-bit alpha value per pixel.
 - An all-255 decoded plane is discarded, preserving the opaque RGB upload path.

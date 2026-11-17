@@ -780,7 +780,7 @@ int texture_record_tests(void) {
     texture_record_rejection_tests();
 
     /* Digit-leading names are valid HUD texture records, not padding. Cover
-       enumeration and decoding with synthetic RGBA palettes and pixel indices. */
+       enumeration and decoding with synthetic BGRA palettes and pixel indices. */
     for (int digit = 0; digit < 10; ++digit) {
         unsigned char pixels[1024 + 16] = {0};
         pixels[0] = 10; pixels[1] = 20; pixels[2] = 30; pixels[3] = 0;
@@ -800,7 +800,8 @@ int texture_record_tests(void) {
         int decoded = n2_tpk_decode(tpk.b, tpk.n, pack, hash, &tex);
         chk("digit-leading P8 sprite preserves colour and transparency",
             decoded && tex.alpha && tex.alpha[0] == 0 && tex.alpha[1] == 255 &&
-            tex.rgb[0] == 10 && tex.rgb[3] == 100 && tex.w == 4 && tex.h == 4);
+            tex.rgb[0] == 30 && tex.rgb[1] == 20 && tex.rgb[2] == 10 &&
+            tex.rgb[3] == 160 && tex.rgb[4] == 130 && tex.rgb[5] == 100 && tex.w == 4 && tex.h == 4);
         if (decoded) { free(tex.rgb); free(tex.alpha); free(tex.dxt); }
         chk("digit-leading record cannot bypass truncated pixel bounds",
             !n2_tpk_decode(tpk.b, tpk.n - 1, pack, hash, &tex));
@@ -990,7 +991,7 @@ int texture_record_tests(void) {
     /* T9: P8 palette with meaningful, non-uniform authored alpha. */
     {
         unsigned char pal[1024]; memset(pal, 0, sizeof pal);
-        pal[0]=255; pal[1]=0;   pal[2]=0;   pal[3]=64;    /* index 0: red,   alpha 64  */
+        pal[0]=255; pal[1]=0;   pal[2]=0;   pal[3]=64;    /* index 0: blue,  alpha 64  */
         pal[4]=0;   pal[5]=255; pal[6]=0;   pal[7]=200;   /* index 1: green, alpha 200 */
         Buf px; px.n = 0;
         bbytes(&px, pal, 1024);                           /* palette first */

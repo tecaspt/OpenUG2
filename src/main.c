@@ -2541,7 +2541,8 @@ int main(int argc, char **argv) {
                           the selected event route (src/route_guide.c); not
                           retail UI, no retail arrow asset is matched
          --no-drivetrain  use the classic physics instead of the stock drivetrain (on by default)
-         --map-detail N   minimap size: 512 (retail, default), 1024, 2048 or 4096
+         --map-detail N   minimap size: 512 (retail), 1024, 2048 or 4096
+                          default: 512 on desktop, 2048 on iOS
          --no-map-cache   bake minimaps every run; ignore OpenUG2Cache
          --lighting MODE  original (projected headlight pool, as the original
                           game) or modern; default follows Level Of Detail 1-2
@@ -2696,7 +2697,11 @@ int main(int argc, char **argv) {
     const char *drive_trace_path = NULL;
     const char *circuit = "ROUTESL4RF/Paths4602.bin"; int explicit_circuit = 0;
     int want_event_id = 0;   /* --event <id>: boot straight into a race event */
-    int map_detail_opt = 0;  /* --map-detail: 512 (retail, default), 1024, 2048 or 4096 */
+#ifdef N2_IOS
+    int map_detail_opt = 2048; /* [inferred] sharper map for high-density displays */
+#else
+    int map_detail_opt = 0;  /* --map-detail: 512 (default), 1024, 2048 or 4096 */
+#endif
     int map_cache_opt = 1;   /* --no-map-cache: bake every run */
     int vehicle_quality_explicit = 0, road_reflections_explicit = 0;  /* CLI beats saved settings */
     int lighting_opt = -1;   /* --lighting original|modern; -1 follows Level Of Detail */
@@ -10406,6 +10411,10 @@ int main(int argc, char **argv) {
             rp.p->uReflectionDepth=saved.uReflectionDepth;
             memcpy(rp.p->uHeadShadowMap,saved.uHeadShadowMap,sizeof saved.uHeadShadowMap);
             rp.p->uAlpha=1;rp.p->uAmbient=g_dbg.ambient;rp.p->uDiffuse=g_dbg.diffuse;
+            /* The shared world shader evaluates pow(rl, uGloss) even when
+             * uSpec is zero. A zero exponent after the memset makes 0^0
+             * undefined and can turn road fragments black. */
+            rp.p->uGloss=20.0f;
             rp.p->uFogDensity=g_dbg.fog_density;rp.p->uVColor=g_dbg.vcolor;
             ug2_vec3(rp.p->uFogColor,g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b);
             ug2_vec3(rp.p->uLight,N2_SUN_X,N2_SUN_Y,N2_SUN_Z);

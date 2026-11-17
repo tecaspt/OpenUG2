@@ -132,7 +132,9 @@ void sfg_render(SfxGame *g, const SfgInput *in, int16_t *out, int n)
     /* gear shift between two forward gears */
     if (g->have_shift && in->gear > 0 && g->last_gear > 0 && in->gear != g->last_gear) {
         const SfxClip *c = in->gear > g->last_gear ? &g->up : &g->down;
-        sfx_play(g->mix, c, master * 0.45f, 1.0f, 0);
+        /* [inferred] Match the engine mixer's 11000/32768 output scale;
+         * the effects player adds full-scale PCM after the engine mix. */
+        sfx_play(g->mix, c, master * (0.45f * 11000.0f / 32768.0f), 1.0f, 0);
     }
     g->last_gear = in->gear;
     if (g->since_impact < 0x7fffffffu - (uint32_t)n) g->since_impact += (uint32_t)n;
