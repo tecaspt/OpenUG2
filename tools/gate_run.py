@@ -279,13 +279,18 @@ def mem_available_mib(path="/proc/meminfo"):
 
 
 def run_script(script, cwd):
-    """Run an input script through the game, honouring a `#!/bin/sh` first line (gate.sh's inline scripts)."""
-    if script.startswith("#!") or "\n" in script:
-        path = os.path.join(cwd, "gate-input.txt")
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(script if script.endswith("\n") else script + "\n")
-        return "@" + path
-    return script
+    """How an --input-script value reaches the game.
+
+    One line goes through unchanged - gate.sh's inline scripts, and every bare `@name` after the
+    repo lookup. Anything else has to become a file: a multi-line script cannot survive as the single
+    argv entry the game parses, so it is written next to the step log and passed as @path.
+    """
+    if "\n" not in script and not script.startswith("#!"):
+        return script
+    path = os.path.join(cwd, "gate-input.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(script if script.endswith("\n") else script + "\n")
+    return "@" + path
 
 
 class Proc:
@@ -334,14 +339,12 @@ class Proc:
 # ---------------------------------------------------------------- the runner
 
 class Runner:
-    def __init__(self, gate, repo, out, only=None, keep_going=False, write=sys.stdout,
-                 env=None, sleep=time.sleep):
+    def __init__(self, gate, repo, out, only=None, keep_going=False, env=None, sleep=time.sleep):
         self.gate = gate
         self.repo = repo
         self.out = out
         self.only = only
         self.keep_going = keep_going
-        self.write = write
         self.env = dict(env or {})      # base environment for every step (os.environ when None)
         self.sleep = sleep
         self.xdg_used = set()
@@ -351,16 +354,16 @@ class Runner:
     # ------------------------------------------------------------------ output
 
     def say(self, text):
-        self.write(text + "\n")
-        if hasattr(self.write, "flush"):
-            self.write.flush()
+        """One line, flushed: a full-gate run takes an hour and whoever is watching it now
+        should not have to wait for the end to see where it got to."""
+        print(text, flush=True)
 
     def report(self, step, status, detail, seconds=None):
         record = {"id": step["id"], "kind": step["kind"], "status": status,
                   "detail": detail, "seconds": seconds}
         self.results.append(record)
         self.say("%s  %s  %s" % (step["id"], status, detail))
-        return record
+        return record   # printed as `id  STATUS  detail`, the one line per step the CLI promises
 
     # ------------------------------------------------------------------ paths
 
@@ -439,6 +442,19 @@ class Runner:
             return None, elapsed
         return rc, elapsed
 
+    def tail_log(self, log_path, lines=1):
+        """The last few lines of a step's log, for a failure detail that needs the child's own words.
+
+        make exits 2 for any recipe failure and puts the real code in its message, so the rc alone
+        cannot say which target broke and how; the log can.
+        """
+        try:
+            with open(log_path, "rb") as fh:
+                data = fh.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            return ""
+        return " | ".join(line.strip() for line in data[-lines:] if line.strip())
+
     def read_log(self, log_path):
         try:
             with open(log_path, "rb") as fh:
@@ -489,7 +505,8 @@ class Runner:
                                 % (target, timeout))
                 break
             if rc != 0:
-                problems.append("'%s' exited %d" % (target, rc))
+                problems.append("'%s' exited %d (%s)" % (target, rc,
+                                                         self.tail_log(log_path) or "no output"))
                 if not self.keep_going:
                     break
 
@@ -501,17 +518,30 @@ class Runner:
             return FAIL, detail + "; " + "; ".join(problems), time.monotonic() - started
         return PASS, detail, time.monotonic() - started
 
-    def resolve_arg(self, value, cwd):
-        """An `--input-script` value of '@tools/...' names a file in the repo, not in the step dir."""
-        if value.startswith("@") and not os.path.isabs(value[1:]):
-            candidate = os.path.join(self.repo, value[1:])
-            if os.path.isfile(candidate):
-                return "@" + candidate
-        if value.startswith("@") and not os.path.isfile(os.path.join(cwd, value[1:])):
-            # A script that names a file in neither place makes the game start with no script at all,
-            # and a run with no scripted input proves nothing; say so instead of reporting a pass.
-            raise Refused("input script %s not found in the repo or the step dir" % value)
-        return value
+    def resolve_input_script(self, value, cwd):
+        """Get an --input-script value to the game as something it can read.
+
+        A bare one-line script or a `#text` goes through as it is. A `@name` names a file: first in
+        the repo (that is where gate_inputs/ lives and what m1.json uses), then in the step dir; the
+        repo hit is rewritten to an absolute path because the game's cwd is the step dir. A `@name`
+        that is in neither place raises - a game started with an unreadable script runs with no
+        scripted input at all, and a run that touches no keys proves nothing, so it must not be
+        allowed to come back as a pass. A multi-line script cannot be one argv entry, so it goes to
+        a file in the step dir.
+        """
+        if not value.startswith("@"):
+            return run_script(value, cwd)
+        name = value[1:]
+        if os.path.isabs(name):
+            if os.path.isfile(name):
+                return value
+            raise Refused("input script %s not found" % value)
+        in_repo = os.path.join(self.repo, name)
+        if os.path.isfile(in_repo):
+            return "@" + in_repo
+        if os.path.isfile(os.path.join(cwd, name)):
+            return value
+        raise Refused("input script %s not found in the repo (%s) or the step dir" % (value, self.repo))
 
     def game_argv(self, step, cwd, missing, base):
         binary = expand(step["binary"], missing, base)
@@ -523,9 +553,7 @@ class Runner:
         for value in step["args"]:
             value = expand(value, missing, base)
             if previous == "--input-script":
-                value = run_script(value, cwd)
-                if value.startswith("@"):
-                    value = self.resolve_arg(value, cwd)
+                value = self.resolve_input_script(value, cwd)
             argv.append(value)
             previous = value
         return argv
@@ -607,7 +635,14 @@ class Runner:
         return PASS, detail, elapsed
 
     def run_cmd(self, step, missing, base):
-        cwd = self.step_dir(step)
+        """A plain command, run in the repo with the run's environment.
+
+        cwd is the repo, not the step dir: a cmd step is `make -s career-host-check` or a script in
+        the tree, and both need to be where the Makefile is. Its output still lands in the step's own
+        log, so the evidence for every step stays in one place.
+        """
+        cwd = self.repo
+        self.step_dir(step)
         env = self.step_env(step, missing, base)
         if step.get("xdg"):
             cfg, data = self.xdg_dirs(step)
@@ -741,6 +776,11 @@ def parse_only(text, gate):
 
 
 def main(argv=None):
+    """Run one gate. argv is the full command line including argv[0], like sys.argv.
+
+    Returns 0 / 1 / 2 (pass / a step did not pass / bad gate or usage) rather than exiting, so a
+    caller (the self-test, or another tool) can drive a whole run without a subprocess.
+    """
     parser = argparse.ArgumentParser(
         prog="gate_run.py",
         description="run a gate file and end in one machine verdict",
@@ -758,7 +798,7 @@ def main(argv=None):
     parser.add_argument("--keep-going", action="store_true",
                         help="keep running after a step fails (default: stop at the first FAIL)")
     try:
-        args = parser.parse_args(argv[1:] if argv is not None else None)
+        args = parser.parse_args(sys.argv[1:] if argv is None else argv[1:])
     except SystemExit as exc:
         return EXIT_PASS if not exc.code else EXIT_USAGE
 
