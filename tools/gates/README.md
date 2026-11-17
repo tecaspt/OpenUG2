@@ -107,4 +107,6 @@ then FAILs the step with `low memory`.
 Copy `m1.json`, change the steps, and add a spec per game step - a game step with no `spec`, no
 `shot_equal` and no `shots_min` passes on exit status alone, which is how a silent run looks green.
 `tools/gate_run_test.py` covers the runner's logic with fake gates that run `true` and `false`; it
-needs no game and no data dir.
+needs no game and no data dir. `tools/spec_negative_check.py` checks the other half - that every
+spec the gate uses can actually fail, by breaking one meaningful line in a real gate log and
+insisting the spec rejects it (`python3 -I tools/spec_negative_check.py [log dir]`).
