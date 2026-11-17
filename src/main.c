@@ -12542,24 +12542,8 @@ int main(int argc, char **argv) {
                     map_icons[hs.map_icon_n++]=(HudMapIcon){wm_destination.x,wm_destination.y,0,HMI_GPS,0};
                 }
             }
-            static char career_notice[96];
-            const char *career_label=pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL);   /* "Enter Race / Shop" */
-            int career_prompt_on=!hs.racing && (career_zone>=0 || career_shop>=0);
-            if (career_prompt_on && career_zone<0 && career_shop>=0) {
-                /* shops: the retail display name, never the internal shop id (MINIMAP_CARLOT / ASK_ENTER_CRIB_HEADER) */
-                int type=g_career.cd.shop[career_shop].type;
-                const char *keys[]={"ASK_ENTER_CRIB_HEADER","MINIMAP_GRAPHICS","MINIMAP_BODY",
-                                    "MINIMAP_PERFORMANCE","MINIMAP_CARLOT","ASK_ENTER_ICE_SHOP_HEADER"};
-                const char *fallback[]={"Garage","Graphics Shop","Body Shop","Performance Shop","Car Lot","Car Specialties Shop"};
-                const char *nm=pause_menu_text(PAUSE_MENU_READY,ug_hash_upper(keys[type<6?type:2]),fallback[type<6?type:2]);
-                snprintf(career_notice,sizeof career_notice,"%s: %s",career_label&&*career_label?career_label:"Enter Shop",
-                         nm&&*nm?nm:"Shop");
-            } else if (career_prompt_on && !ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),career_label,career_notice,sizeof career_notice))
-                career_prompt_on=0;
-            for (char *c=career_notice; career_prompt_on && *c; c++) *c=(char)toupper((unsigned char)*c);   /* HUD notice font: capitals only */
-            hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
-                      career_prompt_on?career_notice:
-                      !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
+            /* Retail does not show a text prompt for nearby events or shops. */
+            hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:NULL;
 
             /* Guidance: only when a route was actually solved. The bearing is
                to the next node ALONG THE ROUTE, never the straight line to the
