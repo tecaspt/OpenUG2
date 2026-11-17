@@ -1679,7 +1679,7 @@ static int wm_snapshot(const CareerHost *ch, FeMapIcon out[FWM_MAX_ICONS])
             ch->cd.shop[i].type==CD_SHOP_CRIB ? 0x7ce21662u :
             ch->cd.shop[i].type==CD_SHOP_BODY ? ug_hash_upper("MINIMAP_BODY") :
             ch->cd.shop[i].type==CD_SHOP_PAINT ? ug_hash_upper("MINIMAP_GRAPHICS") :
-            ch->cd.shop[i].type==CD_SHOP_PERF ? ug_hash_upper("MINIMAP_PERFORMANCE") : 0x1cbfa047u};
+            ch->cd.shop[i].type==CD_SHOP_PERF ? ug_hash_upper("MINIMAP_PERFORMANCE") : 0xa4e5ee6cu};
         k++;
     }
     if (k!=n) return -1;
@@ -12540,7 +12540,7 @@ int main(int argc, char **argv) {
                 /* shops: the retail display name, never the internal shop id (MINIMAP_CARLOT / ASK_ENTER_CRIB_HEADER) */
                 int type=g_career.cd.shop[career_shop].type;
                 const char *keys[]={"ASK_ENTER_CRIB_HEADER","MINIMAP_GRAPHICS","MINIMAP_BODY",
-                                    "MINIMAP_PERFORMANCE","MINIMAP_CARLOT","CUST_CATEGORY_INTERIORS"};
+                                    "MINIMAP_PERFORMANCE","MINIMAP_CARLOT","ASK_ENTER_ICE_SHOP_HEADER"};
                 const char *fallback[]={"Garage","Graphics Shop","Body Shop","Performance Shop","Car Lot","Car Specialties Shop"};
                 const char *nm=pause_menu_text(PAUSE_MENU_READY,ug_hash_upper(keys[type<6?type:2]),fallback[type<6?type:2]);
                 snprintf(career_notice,sizeof career_notice,"%s: %s",career_label&&*career_label?career_label:"Enter Shop",
