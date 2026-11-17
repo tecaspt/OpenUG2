@@ -17,3 +17,11 @@ before the first touch. Menus suppress the overlay.
 point diameters at logical heights 321, 643, 768 and 1536, entry placement,
 non-overlapping targets, input edges, suppression and shop discoverability.
 Physical-device validation is not yet performed.
+
+[observed] Desktop, GLES and iOS-host builds complete with 24/29/29
+warnings. All nine requested regression targets pass. Two invariant shots
+with the rear mirror disabled and fresh user directories match their
+references byte for byte. Reviewed prompt and active overlays before and
+after at 1170x643 and 2048x1536: ENTER clears the car and the point-sized
+controls no longer grow with frame height. These host captures have a 1x
+logical/drawable ratio; they do not establish physical-device behavior.
