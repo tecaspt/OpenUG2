@@ -10411,6 +10411,10 @@ int main(int argc, char **argv) {
             rp.p->uReflectionDepth=saved.uReflectionDepth;
             memcpy(rp.p->uHeadShadowMap,saved.uHeadShadowMap,sizeof saved.uHeadShadowMap);
             rp.p->uAlpha=1;rp.p->uAmbient=g_dbg.ambient;rp.p->uDiffuse=g_dbg.diffuse;
+            /* The shared world shader evaluates pow(rl, uGloss) even when
+             * uSpec is zero. A zero exponent after the memset makes 0^0
+             * undefined and can turn road fragments black. */
+            rp.p->uGloss=20.0f;
             rp.p->uFogDensity=g_dbg.fog_density;rp.p->uVColor=g_dbg.vcolor;
             ug2_vec3(rp.p->uFogColor,g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b);
             ug2_vec3(rp.p->uLight,N2_SUN_X,N2_SUN_Y,N2_SUN_Z);
