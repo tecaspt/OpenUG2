@@ -39,6 +39,8 @@ static void gpu_checks(void)
     assert(win);
     RhiDeviceDesc device={RHI_BACKEND_DEFAULT,0,win};
     assert(rhi_device_create(&device)==RHI_OK);
+    printf("rear mirror context: renderer=%s backend=%d gpu_timer=%d\n",
+        (const char *)glGetString(GL_RENDERER),(int)rhi_caps()->backend,rhi_caps()->gpu_timer);
     for(int i=0;i<3;i++){
         assert(rhi_frame_begin(NULL)==RHI_OK);
         rhi_cmd_set_viewport(7,11,100,200);
@@ -46,7 +48,10 @@ static void gpu_checks(void)
         assert(rhi_scene_target_is_selected(mirror.target));
         assert(rhi_cmd_clear_main((float[]){1,0,0,1},1)==RHI_OK);
         glEnable(GL_SCISSOR_TEST);glScissor(128,0,128,40);
-        glClearColor(0,0,1,1);glClear(GL_COLOR_BUFFER_BIT);glDisable(GL_SCISSOR_TEST);
+        glClearColor(0,0,1,1);glClear(GL_COLOR_BUFFER_BIT);
+        glScissor(0,20,128,20);glClearColor(1,1,0,1);glClear(GL_COLOR_BUFFER_BIT);
+        glScissor(128,20,128,20);glClearColor(0,1,1,1);glClear(GL_COLOR_BUFFER_BIT);
+        glDisable(GL_SCISSOR_TEST);
         rear_mirror_finish(&mirror);
         int vp[4];rhi_viewport(vp);
         assert(vp[0]==7 && vp[1]==11 && vp[2]==100 && vp[3]==200);
@@ -61,6 +66,9 @@ static void gpu_checks(void)
         unsigned char *right=pixels+(95*1170+680)*4;
         assert(left[2]>240 && left[0]<10);
         assert(right[0]>240 && right[2]<10);
+        assert(left[1]>240 && right[1]>240); /* scene top stays at panel top */
+        assert(pixels[(110*1170+480)*4+1]<10);
+        assert(pixels[(118*1170+453)*4+1]>240); /* tapered corner is transparent */
         assert(pixels[(140*1170+480)*4+1]>240);
         assert(glGetError()==GL_NO_ERROR);
         assert(rhi_frame_end()==RHI_OK);
@@ -68,7 +76,7 @@ static void gpu_checks(void)
     rear_mirror_destroy(&mirror);render_target_destroy(&scene);
     assert(glGetError()==GL_NO_ERROR);
     rhi_device_destroy();SDL_DestroyWindow(win);SDL_Quit();
-    puts("rear mirror GPU: reflection, placement, state, scale 1/.5/.75 passed");
+    puts("rear mirror GPU: reflection, upright image, tapered frame, placement, state, scale 1/.5/.75 passed");
 }
 #endif
 int main(void)

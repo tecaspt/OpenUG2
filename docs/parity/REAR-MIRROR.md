@@ -31,7 +31,7 @@ overrides the profile for reproducible comparisons.
 [observed] The supplied retail still is 1170 by 643; its bevelled panel spans
 approximately x=450..715, y=75..120. [inferred] Until an authored frame is
 identified, use a centred 265 by 45 panel scaled by drawable height / 643,
-with a procedural dark bevel. This is an approximation, not recovered retail
+with a procedural dark bevel and tapered sides. This is an approximation, not recovered retail
 art. The scene is horizontally reflected during composition.
 
 [inferred] Show during free roam and races; hide for front-end, pause/world map,
@@ -69,5 +69,5 @@ If target/shader creation fails, the mirror disables for the session.
 The existing profile Gameplay option is connected in pause as well as front-end;
 a direct-track launch without a loaded profile uses session-only settings.
 The extra mouse-look row remains available in pause. CLI override takes priority
-until restart. GPU tests check horizontal reversal, rectangle placement, state
+until restart. GPU tests check horizontal reversal, upright orientation, tapered corners, rectangle placement, state
 restoration and composition with main scales 1, 0.5 and 0.75 on GL and GLES.

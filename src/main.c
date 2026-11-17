@@ -10337,10 +10337,16 @@ int main(int argc, char **argv) {
             UG2Params saved=*rp.p;
             float eye[3],dir[3],mp[16],mv[16],mmvp[16];
             rear_mirror_camera(render_player.pos,render_player.head,car_body_ride+carbb[5],eye,dir);
-            mat_persp(.30f,(float)REAR_MIRROR_WIDTH/REAR_MIRROR_HEIGHT,.2f,REAR_MIRROR_DISTANCE,mp);
+            mat_persp(.30f,265.f/45.f,.2f,REAR_MIRROR_DISTANCE,mp);
             mat_lookat(eye,dir,mv);mat_mul(mp,mv,mmvp);
             rhi_cmd_clear_main((float[]){g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b,1},1);
             memset(rp.p,0,sizeof *rp.p);
+            /* Sampler types must retain distinct texture units even when an
+             * effect is disabled; a cube and 2D sampler cannot alias unit 0. */
+            rp.p->uTex=saved.uTex;rp.p->uEnvCube=saved.uEnvCube;
+            rp.p->uReflectionColor=saved.uReflectionColor;
+            rp.p->uReflectionDepth=saved.uReflectionDepth;
+            memcpy(rp.p->uHeadShadowMap,saved.uHeadShadowMap,sizeof saved.uHeadShadowMap);
             rp.p->uAlpha=1;rp.p->uAmbient=g_dbg.ambient;rp.p->uDiffuse=g_dbg.diffuse;
             rp.p->uFogDensity=g_dbg.fog_density;rp.p->uVColor=g_dbg.vcolor;
             ug2_vec3(rp.p->uFogColor,g_dbg.fog_r,g_dbg.fog_g,g_dbg.fog_b);

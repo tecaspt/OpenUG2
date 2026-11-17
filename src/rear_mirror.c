@@ -7,7 +7,7 @@ static int prepare(RearMirror *m)
                                    -1,1,0,1, 1,-1,1,0, 1,1,1,1};
     static const char vs_gl[]="#version 120\nattribute vec2 aPosition,aUV; varying vec2 vUV; void main(){vUV=aUV;gl_Position=vec4(aPosition,0.,1.);}";
     static const char vs_es[]="attribute vec2 aPosition,aUV; varying mediump vec2 vUV; void main(){vUV=aUV;gl_Position=vec4(aPosition,0.,1.);}";
-#define MIRROR_FRAGMENT "uniform sampler2D uTex0; varying mediump vec2 vUV; void main(){vec2 p=vUV; vec2 edge=min(p,1.-p)*vec2(265.,45.); float d=min(edge.x,edge.y); if(d<1.)gl_FragColor=vec4(.025,.025,.03,1.); else if(d<3.)gl_FragColor=vec4(vec3(p.y>.5?.38:.12),1.); else gl_FragColor=texture2D(uTex0,vec2(1.-p.x,p.y));}"
+#define MIRROR_FRAGMENT "uniform sampler2D uTex0; varying mediump vec2 vUV; void main(){vec2 p=vUV; float inset=(1.-p.y)*.025; float dx=min(p.x-inset,1.-inset-p.x)*265.; if(dx<0.)discard; vec2 edge=vec2(dx,min(p.y,1.-p.y)*45.); float d=min(edge.x,edge.y); if(d<1.)gl_FragColor=vec4(.025,.025,.03,1.); else if(d<3.)gl_FragColor=vec4(vec3(p.y>.5?.38:.12),1.); else gl_FragColor=texture2D(uTex0,vec2(1.-p.x,p.y));}"
     static const char fs_es[]="precision mediump float; " MIRROR_FRAGMENT;
     static const char fs_gl[]="#version 120\n#define mediump\n" MIRROR_FRAGMENT;
 #undef MIRROR_FRAGMENT
