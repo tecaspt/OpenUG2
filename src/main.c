@@ -6766,6 +6766,7 @@ int main(int argc, char **argv) {
     int outrun_slot=-1;Uint32 outrun_until=0; /* free-roam outrun shown on the race HUD */
     int outrun_offer=-1,outrun_challenge=0;   /* challengeable rival; Enter Race pressed */
     int career_zone=-1,career_enter=0;        /* M6: available career event under the car; Enter Race pressed */
+    int shop_loading=0; Uint32 shop_loading_start=0;
     int career_shop=-1,shop_enter=0;          /* M6: car lot / crib under the car (race zones win); Enter pressed there */
     int lot_pending=0,lot_must_buy=0,lot_dev_frames=0;   /* M6: open the lot once the launch runs; must-buy lot */
     int crib_garage=0;                        /* M6: the FE Garage was opened at the crib */
@@ -7579,7 +7580,8 @@ int main(int argc, char **argv) {
             else if (frq.kind == FEM_REQ_LOT_BUY) {
                 GfLaunch gl;
                 int ok = ch_lot_buy(&g_career, frq.car, &gl);
-                printf("%s\n", g_career.last);
+                /* Keep the purchase record whole when stdout and stderr share a log. */
+                fflush(stdout); printf("%s\n", g_career.last); fflush(stdout);
                 if (ok) {   /* free roam in the bought car at the lot marker */
                     garage_reload_pending = 1; garage_load_failed = 0;
                     lot_must_buy = 0; lot_dev_frames = 0; career_dev_frames = 0;
@@ -7628,8 +7630,11 @@ int main(int argc, char **argv) {
                     if (k == 90) printf("career-dev: buy first lot car\n");
                 }
             }
+            if (shop_loading && SDL_GetTicks()-shop_loading_start>=1200u) {
+                shop_loading=0; career_open_shop(fem);
+            }
             /* Career free roam: the available event under the car (Enter Race), or the developer automation. */
-            int career_roam = g_career.active && g_career.race < 0 && gflow.state == GF_RUNNING &&
+            int career_roam = !shop_loading && g_career.active && g_career.race < 0 && gflow.state == GF_RUNNING &&
                               gflow.launch.free_run && !world.city.race.active && !fem_is_open(fem);
             career_zone = career_roam ? ch_zone(&g_career, carpos[0], carpos[1], PHYS_KMH(speed)) : -1;
             if (!career_roam) career_enter = 0;
@@ -7702,13 +7707,13 @@ int main(int argc, char **argv) {
                 if (g_career.cd.shop[sh].type == CD_SHOP_CRIB) {
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     crib_garage = 1;
-                    career_open_shop(fem);
+                    shop_loading=1; shop_loading_start=SDL_GetTicks();
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                     printf("career: crib %s, Garage\n", g_career.cd.shop[sh].name);
                 } else if (career_dev && !career_ask) {
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     lot_must_buy = g_career.st.nowned == 0;
-                    career_open_shop(fem);
+                    shop_loading=1; shop_loading_start=SDL_GetTicks();
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                 } else if (!shop_ask_live && !ask_live && pause_menu_confirm(PAUSE_MENU_READY, career_shop_question(g_career.cd.shop[sh].type))) {
                     shop_ask_live = 1; shop_ask_shop = sh;
@@ -7725,7 +7730,7 @@ int main(int argc, char **argv) {
                     g_career.at_shop = shop_ask_shop;
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     lot_must_buy = g_career.st.nowned == 0;
-                    career_open_shop(fem);
+                    shop_loading=1; shop_loading_start=SDL_GetTicks();
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                 }
             }
@@ -12032,6 +12037,28 @@ int main(int argc, char **argv) {
                 g_dbg.rain_intensity*lens,g_dbg.weather_quality,(float)W/fmaxf(H,1));
         }
 
+        if (hud && passmode==0 && g_career.active && !fem_is_open(fem) &&
+            !pause_frame && !pause_menu_is_open(pause_menu) && g_career.race<0 &&
+            gflow.state==GF_RUNNING && gflow.launch.free_run) {
+            int races[CD_MAX_RACES];int nr=cr_list(&g_career.st,&g_career.cd,races,CD_MAX_RACES);
+            for(int k=0;k<g_career.cd.nshop+nr;k++){
+                int shop=k<g_career.cd.nshop, index=shop?k:races[k-g_career.cd.nshop];
+                if(shop && !cr_shop_open(&g_career.st,&g_career.cd,index))continue;
+                int icon=shop?1+g_career.cd.shop[index].type:7+g_career.cd.race[index].kind;
+                uint32_t hash=shop?g_career.cd.shop[index].zone_hash:g_career.cd.race[index].locator_hash;
+                int zone=cd_find_zone(&g_career.cd,hash);if(zone<0)continue;
+                const CdZone *z=&g_career.cd.zone[zone];
+                uint32_t marker_hash=shop?g_career.cd.shop[index].hash:g_career.cd.race[index].name_hash;
+                int marker=cd_find_marker(&g_career.cd,marker_hash);
+                float x=marker>=0?g_career.cd.marker[marker].x:z->cx;
+                float y=marker>=0?g_career.cd.marker[marker].y:z->cy;
+                float dx=x-carpos[0],dy=y-carpos[1];
+                if(dx*dx+dy*dy>120.0f*120.0f)continue;
+                float ground=marker>=0?g_career.cd.marker[marker].z:world_ground_z(&scene,x,y,carpos[2]);
+                float pos[3]={x,y,ground+3.5f};
+                hud_engage_world(hud,&rp,&quad,cpipe.glass,MVP,pos,look,icon);
+            }
+        }
         int gps_draw=gps_marker && passmode==0 && gps_marker_visible(gps_marker_on,
             world.city.race.active || (ai_race && race_state!=3),
             pause_frame || pause_menu_is_open(pause_menu) || pr_is_open(post),
@@ -12542,24 +12569,8 @@ int main(int argc, char **argv) {
                     map_icons[hs.map_icon_n++]=(HudMapIcon){wm_destination.x,wm_destination.y,0,HMI_GPS,0};
                 }
             }
-            static char career_notice[96];
-            const char *career_label=pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL);   /* "Enter Race / Shop" */
-            int career_prompt_on=!hs.racing && (career_zone>=0 || career_shop>=0);
-            if (career_prompt_on && career_zone<0 && career_shop>=0) {
-                /* shops: the retail display name, never the internal shop id (MINIMAP_CARLOT / ASK_ENTER_CRIB_HEADER) */
-                int type=g_career.cd.shop[career_shop].type;
-                const char *keys[]={"ASK_ENTER_CRIB_HEADER","MINIMAP_GRAPHICS","MINIMAP_BODY",
-                                    "MINIMAP_PERFORMANCE","MINIMAP_CARLOT","ASK_ENTER_ICE_SHOP_HEADER"};
-                const char *fallback[]={"Garage","Graphics Shop","Body Shop","Performance Shop","Car Lot","Car Specialties Shop"};
-                const char *nm=pause_menu_text(PAUSE_MENU_READY,ug_hash_upper(keys[type<6?type:2]),fallback[type<6?type:2]);
-                snprintf(career_notice,sizeof career_notice,"%s: %s",career_label&&*career_label?career_label:"Enter Shop",
-                         nm&&*nm?nm:"Shop");
-            } else if (career_prompt_on && !ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),career_label,career_notice,sizeof career_notice))
-                career_prompt_on=0;
-            for (char *c=career_notice; career_prompt_on && *c; c++) *c=(char)toupper((unsigned char)*c);   /* HUD notice font: capitals only */
-            hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
-                      career_prompt_on?career_notice:
-                      !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
+            /* Retail does not show a text prompt for nearby events or shops. */
+            hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:NULL;
 
             /* Guidance: only when a route was actually solved. The bearing is
                to the next node ALONG THE ROUTE, never the straight line to the
@@ -12606,6 +12617,8 @@ int main(int argc, char **argv) {
             hud_host_context(&hs);
             if (g_career.active && !hs.racing) {   /* M6: the career's live bank in the free-roam widget */
                 hs.career_context = 1; hs.have_money = 1; hs.money = (long)g_career.st.bank;
+                if (career_shop >= 0) hs.engage_icon = 1 + g_career.cd.shop[career_shop].type;
+                else if (career_zone >= 0) hs.engage_icon = 7 + g_career.cd.race[career_zone].kind;
             }
             if (hud_preview_opt && !hs.racing) {
                 double now = hs.clock_ms;
@@ -12655,8 +12668,9 @@ int main(int argc, char **argv) {
                 }
             }
             hud_last_state = hs;
-            hud_draw(hud, &rp, &quad, &hs, W, H);
+            if (!shop_loading) hud_draw(hud, &rp, &quad, &hs, W, H);
         }
+        if (shop_loading && hud) hud_draw_loading(hud,SDL_GetTicks()-shop_loading_start,W,H);
 #ifdef DEBUG_UI     /* debug readouts + ImGui overlay, drawn on top of everything */
         g_dbg.cam[0]=cam[0]; g_dbg.cam[1]=cam[1]; g_dbg.cam[2]=cam[2];
         g_dbg.car[0]=carpos[0]; g_dbg.car[1]=carpos[1]; g_dbg.car[2]=carpos[2];
@@ -13518,6 +13532,8 @@ int main(int argc, char **argv) {
             rhi_drawable_size(&ow, &oh);
             if (uflat && !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem)) && !pr_is_open(post)) tc_draw(&g_touch, uflat, ow, oh);
             if (fem && fem_is_open(fem)) fem_draw(fem, ow, oh);
+            if (hud && fem && fem_screen(fem)==FEM_SCR_LOADING && g_career.active && g_career.race>=0)
+                hud_draw_loading(hud,SDL_GetTicks(),ow,oh);
             if (pr_is_open(post)) pr_draw(post, ow, oh);
         }
         if (pause_menu_is_open(pause_menu)) {
