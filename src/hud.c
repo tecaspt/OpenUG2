@@ -4,6 +4,7 @@
 #include "hud_texture.h"
 #include "hud_baseline.h"
 #include "hud_race.h"
+#include "ugui/ugui_codec.h"
 #include "race.h"
 #include "map_bake.h"
 #include "tex_override.h"
@@ -558,6 +559,12 @@ Hud *hud_init(const char*root){
  for(int i=0;i<PACK_COUNT;i++){char skin[128];const char*path;
   if(i<7)path=paths[i];else if(i==22)path="GLOBAL/InGameCommon.lzc";else if(i>=18)path=events[i-18];else{snprintf(skin,sizeof skin,"GLOBAL/HUD_CustomTextures_%02d.bin",i-7);path=skin;}
   h->packs[i].data=readfile(root,path,&h->packs[i].len);
+  if(i==22 && h->packs[i].data){
+   unsigned char *decoded=NULL;size_t length=0;char error[128];
+   int result=ug_decompress(h->packs[i].data,h->packs[i].len,&decoded,&length,error,sizeof error);
+   if(result==1){free(h->packs[i].data);h->packs[i].data=decoded;h->packs[i].len=length;}
+   else if(result==0){free(h->packs[i].data);h->packs[i].data=NULL;h->packs[i].len=0;diagnostic(h,"world loading bundle decompression failed");}
+  }
   if(h->packs[i].data){h->packs[i].tpk=n2_tpk_open(h->packs[i].data,(long)h->packs[i].len);catalog(h->packs+i,h->packs[i].data,h->packs[i].len,0);}else diagnostic(h,path);
  }
  for(int i=0;i<7;i++)if(h->packs[i].data)metadata(h,h->packs[i].data,h->packs[i].len,0);
