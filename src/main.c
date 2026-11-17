@@ -2425,7 +2425,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--gps-marker", "--hud-nav-arrow-2d", "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--world-map-dev", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--perf-csv", "--career-dev", "--career-ask", "--career-place-raw", "--world-map-dev", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2681,6 +2681,8 @@ int main(int argc, char **argv) {
     long debug_sink = -1;                /* --debug-sink FRAME: drop the car 30 m through the world (recovery check) */
     int world_map_dev = 0; /* explicit scripted arrival check; F8 teleports only to a validated destination */
     int career_ask = 0;   /* --career-ask */
+    int career_place_raw = 0;   /* --career-place-raw: dev/test only, career pose not road-snapped */
+    float career_raw_pose[4] = {0};
     int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
                                             engage the first available event, finish it in PLACE */
     for (int i = 1; i < argc; i++) {
@@ -2721,6 +2723,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--world-map-dev")) world_map_dev=1;
         else if (!strcmp(argv[i], "--career-ask")) career_ask = 1;   /* with --career-dev: still ask the race question */
+        else if (!strcmp(argv[i], "--career-place-raw")) career_place_raw = 1;   /* tests: keep the exact shop/zone pose */
         else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
@@ -6992,7 +6995,7 @@ int main(int argc, char **argv) {
             int ww0 = 1, wh0 = 1; SDL_GetWindowSize(win, &ww0, &wh0);
             unsigned tctx = 0;
             if (world.city.race.active && world.city.race.kind == N2_RACE_DRAG) tctx |= TC_CTX_DRAG;
-            if (outrun_offer >= 0 || career_zone >= 0) tctx |= TC_CTX_OUTRUN;   /* M6: Enter Race in a career zone too */
+            if (outrun_offer >= 0 || career_zone >= 0 || career_shop >= 0) tctx |= TC_CTX_OUTRUN;   /* M6: Enter Race in a career event, car lot or crib zone too */
             tc_set_window_size(&g_touch, ww0, wh0);
             tc_set_frame(&g_touch, pause_frame, tctx, th > 0 ? (float)tw / (float)th : 1.0f);
             if (script_spec) {
@@ -7583,6 +7586,11 @@ int main(int argc, char **argv) {
                 int ty = sh >= 0 ? g_career.cd.shop[sh].type : -1;
                 career_shop = career_zone < 0 && (ty == CD_SHOP_CAR_LOT || ty == CD_SHOP_CRIB) ? sh : -1;
                 if (career_shop < 0) shop_enter = 0;
+                static int career_shop_logged = -2;   /* log zone changes: tests assert on them */
+                if (career_roam && career_shop != career_shop_logged) {
+                    career_shop_logged = career_shop;
+                    printf("career: shop zone %s\n", career_shop >= 0 ? g_career.cd.shop[career_shop].name : "none");
+                }
             }
             float ce_x = carpos[0], ce_y = carpos[1], ce_kmh = PHYS_KMH(speed);
             if (career_dev > 0 && career_roam && g_career.st.stage == 0 && !lot_pending && g_career.st.nowned > 0 &&
@@ -7682,6 +7690,15 @@ int main(int argc, char **argv) {
                 if (ch_take_spawn(&g_career, sp)) {
                     g_focus_override[0] = sp[0]; g_focus_override[1] = sp[1]; g_focus_override_set = 1;
                     career_heading = sp[3]; career_heading_set = 1;
+                    memcpy(career_raw_pose, sp, sizeof career_raw_pose);
+                    if (career_place_raw && g_career.at_shop >= 0) {   /* tests: the shop zone centre (markers sit on zone edges) */
+                        int zz = cd_find_zone(&g_career.cd, g_career.cd.shop[g_career.at_shop].zone_hash);
+                        if (zz >= 0) {
+                            const CdZone *q = &g_career.cd.zone[zz];
+                            career_raw_pose[0] = 0.25f * (q->poly[0][0] + q->poly[1][0] + q->poly[2][0] + q->poly[3][0]);
+                            career_raw_pose[1] = 0.25f * (q->poly[0][1] + q->poly[1][1] + q->poly[2][1] + q->poly[3][1]);
+                        }
+                    }
                     if (!strcmp(career_launch.track, trackname)) {
                         vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                         pending_track = seltrack; career_reload = 1;
@@ -8131,6 +8148,10 @@ int main(int argc, char **argv) {
                        the previous one was freed with old_city above. */
                     if (hud) city_map_apply(hud, &scene, &world.city, trackname, city_map_size);
                     resident_args.scenery_event=resident_scenery_applied=scenery_preview_set?scenery_event:-1;
+                    if (career_heading_set && career_place_raw) {   /* --career-place-raw: tests park inside a shop zone */
+                        next_spawn[0] = career_raw_pose[0]; next_spawn[1] = career_raw_pose[1]; next_spawn[2] = career_raw_pose[2];
+                        printf("career: raw placement (%.1f %.1f %.1f)\n", next_spawn[0], next_spawn[1], next_spawn[2]);
+                    }
                     memcpy(spawn, next_spawn, sizeof spawn);
                     memcpy(carpos, next_spawn, sizeof carpos);
                     world2_spawn_xy[0] = next_spawn[0];
@@ -12389,10 +12410,19 @@ int main(int argc, char **argv) {
                 }
             }
             static char career_notice[96];
+            const char *career_label=pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL);   /* "Enter Race / Shop" */
+            int career_prompt_on=!hs.racing && (career_zone>=0 || career_shop>=0);
+            if (career_prompt_on && career_zone<0 && career_shop>=0) {
+                /* shops: the retail display name, never the internal shop id (MINIMAP_CARLOT / ASK_ENTER_CRIB_HEADER) */
+                int crib=g_career.cd.shop[career_shop].type==CD_SHOP_CRIB;
+                const char *nm=pause_menu_text(PAUSE_MENU_READY,crib?0x7ce21662u:0x93ff4a6eu,NULL);
+                snprintf(career_notice,sizeof career_notice,"%s: %s",career_label&&*career_label?career_label:"Enter Shop",
+                         nm&&*nm?nm:(crib?"Garage":"Car Lot"));
+            } else if (career_prompt_on && !ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),career_label,career_notice,sizeof career_notice))
+                career_prompt_on=0;
+            for (char *c=career_notice; career_prompt_on && *c; c++) *c=(char)toupper((unsigned char)*c);   /* HUD notice font: capitals only */
             hs.notice=SDL_GetTicks()<outrun_notice_until?outrun_notice:
-                      !hs.racing && (career_zone>=0 || career_shop>=0) && ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),
-                                                                pause_menu_text(PAUSE_MENU_READY,0x4a1341b3u,NULL),   /* "Enter Race / Shop" */
-                                                                career_notice,sizeof career_notice)?career_notice:
+                      career_prompt_on?career_notice:
                       !hs.racing && outrun_offer>=0?"ENTER RACE KEY: OUTRUN":NULL;
 
             /* Guidance: only when a route was actually solved. The bearing is
