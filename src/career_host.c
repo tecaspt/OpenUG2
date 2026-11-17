@@ -352,3 +352,15 @@ int ch_crib_done(CareerHost *ch, GfLaunch *out)
         snprintf(ch->last, sizeof ch->last, "career: garage left, stage %d", ch->st.stage);
     return 1;
 }
+
+int ch_shop_install(CareerHost *ch,const char *car,const GarageConfig *cfg)
+{
+    if (!ch || !ch->active || ch->race >= 0 || !car || strcmp(car,ch->st.car)) return ST_E_ARG;
+    CareerState before = ch->st;
+    int rc = cr_shop_install(&ch->st,&ch->cd,ch->at_shop,cfg);
+    if (rc == ST_OK) rc = cr_save_file(ch->root,ch->profile,&ch->st);
+    if (rc != ST_OK) ch->st = before;
+    snprintf(ch->last,sizeof ch->last,"career: installation %s car %s shop %d price 0",
+             rc == ST_OK ? "saved" : "refused",car,ch->at_shop);
+    return rc;
+}

@@ -3,8 +3,10 @@
 #include "garage.h"
 #include "gui_view.h"
 typedef struct FeGarage FeGarage;
-enum { FEG_HUB,FEG_SLOTS,FEG_PARTS,FEG_BRANDS,FEG_RIMS };
+enum { FEG_HUB,FEG_SLOTS,FEG_PARTS,FEG_BRANDS,FEG_RIMS,FEG_EMPTY };
 typedef int (*FegSaveFn)(void *,const char *car,const GarageConfig *);
+/* type -1 restores Quick Race; other values use career shop categories. */
+int feg_shop(FeGarage *,int type,uint32_t slots);
 int feg_set_save(FeGarage *,FegSaveFn,void *);
 int feg_busy(const FeGarage *);
 FeGarage *feg_create(const char *root);

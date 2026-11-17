@@ -78,6 +78,8 @@ void fem_set_career(FeMenu *, int available, int has_save);
 void fem_open_lot(FeMenu *, const FeLotCar *cars, int n, int must_buy, long long bank);
 /* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */
 void fem_open_career_garage(FeMenu *);
+void fem_open_career_shop(FeMenu *,int type,uint32_t slots,
+                         int (*save)(void *,const char *,const GarageConfig *),void *user);
 /* Task S: copied bounded snapshot of available career races/open shops. World XY;
  * heading radians. Accept requests a destination; Back requests CAREER_ROAM. */
 void fem_open_world_map(FeMenu *, const FeMapIcon *icons, int n,

@@ -55,6 +55,23 @@ before the save callback commits an installation.
 [inferred] Existing map legend variants are reused: car lot 0, graphics 1,
 performance 2, body 3, specialties 4. No invented unique-shop marker is added.
 
+## Save and entry contract
+
+[inferred] Schema 3 TLV 6 contains one 88-byte configuration per owned car,
+in ownership order: four little-endian i32 legacy geometry selectors,
+eleven i32 part selectors, a zero-terminated 24-byte rim archive name and
+an i32 rim style. Length/count, selector domains and rim names are checked.
+Missing configurations migrate to stock. Unknown TLVs remain preserved.
+Replacing the career car resets its configuration rather than importing a
+Quick Race configuration. The host restores state if persistence fails;
+the frontend then requests restoration of the previous rendered config.
+
+[inferred] Body and graphics use their retail question text/hash pairs;
+performance and specialties currently use the generic retail shop question.
+Every question starts focused on No; Back cancels. A shop's filtered
+category page returns directly to free roam on Back. Part selection keeps
+the existing preview / acknowledgement / Keep / restoration protocol.
+
 ## Remaining fidelity limits
 
 Paint/material palette ownership, vinyl composition and performance

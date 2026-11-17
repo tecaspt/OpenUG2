@@ -1676,7 +1676,10 @@ static int wm_snapshot(const CareerHost *ch, FeMapIcon out[FWM_MAX_ICONS])
         out[k]=(FeMapIcon){visual[k].x,visual[k].y,FWM_ICON_SHOP,
                           visual[k].variant,ch->cd.shop[i].hash,
             ch->cd.shop[i].type==CD_SHOP_CAR_LOT ? 0x7edc9715u :
-            ch->cd.shop[i].type==CD_SHOP_CRIB ? 0x7ce21662u : 0};
+            ch->cd.shop[i].type==CD_SHOP_CRIB ? 0x7ce21662u :
+            ch->cd.shop[i].type==CD_SHOP_BODY ? ug_hash_upper("MINIMAP_BODY") :
+            ch->cd.shop[i].type==CD_SHOP_PAINT ? ug_hash_upper("MINIMAP_GRAPHICS") :
+            ch->cd.shop[i].type==CD_SHOP_PERF ? ug_hash_upper("MINIMAP_PERFORMANCE") : 0x1cbfa047u};
         k++;
     }
     if (k!=n) return -1;
@@ -1716,6 +1719,32 @@ static int career_open_lot(FeMenu *fem, int must_buy) {
 }
 
 /* Career save present for the FE's current profile (drives Main > Career: continue vs new). */
+static int career_save_parts(void *user,const char *car,const GarageConfig *cfg) {
+    CareerHost *ch=user;
+    int rc=ch_shop_install(ch,car,cfg);
+    printf("%s\n",ch->last);
+    return rc;
+}
+static void career_open_shop(FeMenu *fem) {
+    int sh=g_career.at_shop;
+    if(sh<0||sh>=g_career.cd.nshop)return;
+    int type=g_career.cd.shop[sh].type;
+    if(type==CD_SHOP_CAR_LOT){career_open_lot(fem,g_career.st.nowned==0);return;}
+    uint32_t slots=0;
+    for(int i=0;i<=GARAGE_RIM;i++)if(cr_shop_slot(type,i))slots|=1u<<i;
+    fem_open_career_shop(fem,type,slots,career_save_parts,&g_career);
+    printf("career: opened shop %s type %d\n",g_career.cd.shop[sh].name,type);
+}
+static int career_shop_question(int type) {
+    switch(type) {
+    case CD_SHOP_BODY:return GD_ENGAGE_BODY;
+    case CD_SHOP_PAINT:return GD_ENGAGE_PAINT;
+    case CD_SHOP_PERF:return GD_ENGAGE_PERF;
+    case CD_SHOP_SPECIALTY:return GD_ENGAGE_SPECIALTY;
+    default:return GD_ENGAGE_SHOP;
+    }
+}
+
 static int career_has_save(const FeMenu *fem) {
     static CareerState probe;
     const StProfile *fp = fem ? fem_current_profile(fem) : NULL;
@@ -7530,6 +7559,7 @@ int main(int argc, char **argv) {
                 } else {
                     printf("%s\n", g_career.last);
                     career_save_shown = 1; fem_set_career(fem, 1, 1);
+                    garage_reload_pending = 1; garage_load_failed = 0;
                     career_place = 1;
                     gf_start(&gflow, &gl);
                     career_launch = gl;
@@ -7545,6 +7575,7 @@ int main(int argc, char **argv) {
                 int ok = ch_lot_buy(&g_career, frq.car, &gl);
                 printf("%s\n", g_career.last);
                 if (ok) {   /* free roam in the bought car at the lot marker */
+                    garage_reload_pending = 1; garage_load_failed = 0;
                     lot_must_buy = 0; lot_dev_frames = 0; career_dev_frames = 0;
                     career_place = 1;
                     gf_start(&gflow, &gl);
@@ -7601,8 +7632,7 @@ int main(int argc, char **argv) {
             {
                 int sh = career_roam ? ch_shop_zone(&g_career, carpos[0], carpos[1], PHYS_KMH(speed)) : -1;
                 if (career_roam) g_career.at_shop = sh;
-                int ty = sh >= 0 ? g_career.cd.shop[sh].type : -1;
-                career_shop = career_zone < 0 && (ty == CD_SHOP_CAR_LOT || ty == CD_SHOP_CRIB) ? sh : -1;
+                career_shop = career_zone < 0 ? sh : -1;
                 if (career_shop < 0) shop_enter = 0;
                 static int career_shop_logged = -2;   /* log zone changes: tests assert on them */
                 if (career_roam && career_shop != career_shop_logged) {
@@ -7666,15 +7696,15 @@ int main(int argc, char **argv) {
                 if (g_career.cd.shop[sh].type == CD_SHOP_CRIB) {
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     crib_garage = 1;
-                    fem_open_career_garage(fem);
+                    career_open_shop(fem);
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                     printf("career: crib %s, Garage\n", g_career.cd.shop[sh].name);
                 } else if (career_dev && !career_ask) {
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     lot_must_buy = g_career.st.nowned == 0;
-                    career_open_lot(fem, lot_must_buy);
+                    career_open_shop(fem);
                     if (adev) SDL_PauseAudioDevice(adev, 1);
-                } else if (!shop_ask_live && !ask_live && pause_menu_confirm(PAUSE_MENU_READY, GD_ENGAGE_SHOP)) {
+                } else if (!shop_ask_live && !ask_live && pause_menu_confirm(PAUSE_MENU_READY, career_shop_question(g_career.cd.shop[sh].type))) {
                     shop_ask_live = 1; shop_ask_shop = sh;
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                     printf("career: asking to enter %s\n", g_career.cd.shop[sh].name);
@@ -7689,7 +7719,7 @@ int main(int argc, char **argv) {
                     g_career.at_shop = shop_ask_shop;
                     vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading);
                     lot_must_buy = g_career.st.nowned == 0;
-                    career_open_lot(fem, lot_must_buy);
+                    career_open_shop(fem);
                     if (adev) SDL_PauseAudioDevice(adev, 1);
                 }
             }
@@ -7828,6 +7858,7 @@ int main(int argc, char **argv) {
                 wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on); wm_from_pause=0;
                 if (g_career.active) {   /* M6: keep the free-roam pose; an unfinished race counts as aborted */
                     ch_suspend(&g_career, carpos[0], carpos[1], carpos[2], heading);
+                    garage_reload_pending=1; garage_load_failed=0;
                     printf("career: suspended (stage %d bank %lld)\n", g_career.st.stage, (long long)g_career.st.bank);
                 }
                 /* Leaving a race or free run: the car must not keep rolling into the next session. */
@@ -7950,7 +7981,12 @@ int main(int argc, char **argv) {
                 } else {
                     CarSwitchCandidate candidate={0};
                     GarageConfig saved={0};
-                    int saved_rc = fem ? fem_garage_saved(fem,next_car,&saved) : ST_E_NOTFOUND;
+                    int saved_rc;
+                    if(g_career.active) {
+                        const GarageConfig *career_cfg=cr_car_config(&g_career.st);
+                        saved_rc=career_cfg&&!strcmp(next_car,g_career.st.car)?ST_OK:ST_E_NOTFOUND;
+                        if(saved_rc==ST_OK)saved=*career_cfg;
+                    } else saved_rc=fem ? fem_garage_saved(fem,next_car,&saved) : ST_E_NOTFOUND;
                     if (saved_rc == ST_E_NOTFOUND) {
                         memset(&saved,0,sizeof saved);
                         snprintf(saved.rim_brand,sizeof saved.rim_brand,"NFSU"); saved.rim_style=1;
@@ -12501,10 +12537,13 @@ int main(int argc, char **argv) {
             int career_prompt_on=!hs.racing && (career_zone>=0 || career_shop>=0);
             if (career_prompt_on && career_zone<0 && career_shop>=0) {
                 /* shops: the retail display name, never the internal shop id (MINIMAP_CARLOT / ASK_ENTER_CRIB_HEADER) */
-                int crib=g_career.cd.shop[career_shop].type==CD_SHOP_CRIB;
-                const char *nm=pause_menu_text(PAUSE_MENU_READY,crib?0x7ce21662u:0x93ff4a6eu,NULL);
+                int type=g_career.cd.shop[career_shop].type;
+                const char *keys[]={"ASK_ENTER_CRIB_HEADER","MINIMAP_GRAPHICS","MINIMAP_BODY",
+                                    "MINIMAP_PERFORMANCE","MINIMAP_CARLOT","CUST_CATEGORY_INTERIORS"};
+                const char *fallback[]={"Garage","Graphics Shop","Body Shop","Performance Shop","Car Lot","Car Specialties Shop"};
+                const char *nm=pause_menu_text(PAUSE_MENU_READY,ug_hash_upper(keys[type<6?type:2]),fallback[type<6?type:2]);
                 snprintf(career_notice,sizeof career_notice,"%s: %s",career_label&&*career_label?career_label:"Enter Shop",
-                         nm&&*nm?nm:(crib?"Garage":"Car Lot"));
+                         nm&&*nm?nm:"Shop");
             } else if (career_prompt_on && !ch_prompt(&g_career,carpos[0],carpos[1],PHYS_KMH(speed),career_label,career_notice,sizeof career_notice))
                 career_prompt_on=0;
             for (char *c=career_notice; career_prompt_on && *c; c++) *c=(char)toupper((unsigned char)*c);   /* HUD notice font: capitals only */

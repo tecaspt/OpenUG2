@@ -62,6 +62,8 @@ struct FeMenu {
     char cur_car[32], cur_track[16];
     FeChoice choice;
     FeGarage *garage;
+    int (*career_parts_save)(void *,const char *,const GarageConfig *);
+    void *career_save_user;
     int career_garage;           /* M6: Garage opened from career roam; leaving it requests FEM_REQ_CAREER_ROAM */
     FeWorldMap world_map;
     int map_pressed;
@@ -325,6 +327,7 @@ static void views_update(FeMenu *m, float ms) {
 static int save_garage(void *user,const char *car,const GarageConfig *cfg) {
  FeMenu *m=user;
  if(!m||!m->profile||!m->profile->valid)return ST_E_ARG;
+ if(m->career_garage&&m->career_parts_save)return m->career_parts_save(m->career_save_user,car,cfg);
  int rc=fem_persist_profile(m);
  return rc==ST_OK?garage_save(m->profile->root,m->profile->value.name,car,cfg):rc;
 }
@@ -390,6 +393,7 @@ void fem_open(FeMenu *m, FemScreen screen) {
     if(screen!=FEM_SCR_GARAGE)m->career_garage=0;
     if(m->editing && screen!=FEM_SCR_PROFILE){m->editing=0;SDL_StopTextInput();}
     /* Pause uses a separate store handle; reload its keys before any FE write. */
+    if(screen==FEM_SCR_GARAGE&&!m->career_garage)feg_shop(m->garage,-1,~0u);
     int from_roam=screen==FEM_SCR_GARAGE && m->career_garage && !m->open;   /* career Garage: pause may have written */
     if((screen==FEM_SCR_OPTIONS || screen==FEM_SCR_PROFILE || screen==FEM_SCR_GARAGE) && (m->screen==FEM_SCR_MAIN || from_roam)) {
         StRegStore fresh={0};
@@ -882,4 +886,12 @@ void fem_open_world_map(FeMenu *m,const FeMapIcon *icons,int n,float x,float y,f
 }
 const FeWorldMap *fem_world_map_state(const FeMenu *m) {
     return m && m->screen==FEM_SCR_WORLD_MAP?&m->world_map:NULL;
+}
+
+void fem_open_career_shop(FeMenu *m,int type,uint32_t slots,
+                         int (*save)(void *,const char *,const GarageConfig *),void *user) {
+    if(!m||feg_busy(m->garage))return;
+    if(!feg_shop(m->garage,type,slots))return;
+    m->career_parts_save=save;m->career_save_user=user;
+    fem_open_career_garage(m);
 }

@@ -74,6 +74,8 @@ int  ch_lot_buy(CareerHost *ch, const char *car, GfLaunch *out);
 /* Leaving the career Garage at the crib: completes a crib objective (Stage 0: DDAY_EVENT_B -> stage 1, logs
  * "career: stage 0 -> 1"), saves, and fills a free roam at the crib marker in the career car. 1 ok, 0 no career. */
 int  ch_crib_done(CareerHost *ch, GfLaunch *out);
+/* Renderer-acknowledged career installation; rolls state back if the save fails. */
+int ch_shop_install(CareerHost *,const char *car,const GarageConfig *);
 /* Takes a pending spawn (1) and clears it. */
 int  ch_take_spawn(CareerHost *ch, float spawn[4]);
 #endif

@@ -328,10 +328,13 @@ const GarageConfig *cr_car_config(const CareerState *s)
 static int config_valid(const GarageConfig *c)
 {
     if (!c || c->car.body_kit < 0 || c->car.body_kit > 99 ||
-        c->car.hood_style < 0 || c->car.hood_style > 5999 ||
-        c->car.spoiler_style < 0 || c->car.spoiler_style > 5999 ||
-        c->car.wheel_style_id < 0 || c->car.wheel_style_id > 5999 ||
-        !memchr(c->rim_brand, 0, sizeof c->rim_brand) || c->rim_style < 0 || c->rim_style > 99) return 0;
+        c->car.hood_style < 0 || c->car.hood_style > 999 ||
+        c->car.spoiler_style < 0 || c->car.spoiler_style > 999 ||
+        c->car.wheel_style_id < 0 || c->car.wheel_style_id > 999 ||
+        !memchr(c->rim_brand, 0, sizeof c->rim_brand) || c->rim_style < 0 || c->rim_style > 999) return 0;
+    if (!c->rim_brand[0] && c->rim_style) return 0;
+    for (const char *p = c->rim_brand; *p; p++)
+        if (!((*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_')) return 0;
     for (int i = 0; i < N2_PART_COUNT; i++) if (c->car.parts[i] < 0 || c->car.parts[i] > 5999) return 0;
     return 1;
 }
@@ -344,7 +347,8 @@ int cr_shop_install(CareerState *s, const CareerData *cd, int shop, const Garage
     if (!cr_shop_slot(type, N2_PART_HOOD) && old->car.hood_style != c->car.hood_style) return ST_E_ARG;
     if (!cr_shop_slot(type, N2_PART_SPOILER) && old->car.spoiler_style != c->car.spoiler_style) return ST_E_ARG;
     if (!cr_shop_slot(type, GARAGE_RIM) && (old->car.wheel_style_id != c->car.wheel_style_id ||
-        strcmp(old->rim_brand, c->rim_brand) || old->rim_style != c->rim_style)) return ST_E_ARG;
+        strcmp(old->rim_brand[0]?old->rim_brand:"NFSU", c->rim_brand[0]?c->rim_brand:"NFSU") ||
+        (old->rim_brand[0]?old->rim_style:1) != (c->rim_brand[0]?c->rim_style:1))) return ST_E_ARG;
     for (int i = 0; i < N2_PART_COUNT; i++)
         if (!cr_shop_slot(type, i) && old->car.parts[i] != c->car.parts[i]) return ST_E_ARG;
     s->config[s->active] = *c;

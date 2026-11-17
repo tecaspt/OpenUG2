@@ -20,6 +20,7 @@ typedef enum {
     GD_DEFAULTS,                                                  /* GenericDialog_SMALL.fng */
     GD_CONTROLS_RESET,                                            /* same package: OK / Cancel (CONTROLS_SPEC 4.6) */
     GD_ENGAGE_RACE,                                               /* M6: same package, Yes / No: "Would you like to race this event?" */
+    GD_ENGAGE_BODY, GD_ENGAGE_PAINT, GD_ENGAGE_PERF, GD_ENGAGE_SPECIALTY,
     GD_ENGAGE_SHOP                                                /* M6: same package, Yes / No: ASK_ENTER_CAR_LOT */
 } GdKind;
 

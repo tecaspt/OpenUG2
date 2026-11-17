@@ -128,10 +128,29 @@ static void test_save_recovery(void) {
  feg_ack(g,r.serial,1,NULL);assert(p.calls==2&&feg_advance(g,0)&&!feg_busy(g));
  feg_destroy(g);free(cat);
 }
+static void test_shop_filter(void) {
+ GarageCatalog *cat=calloc(1,sizeof *cat);assert(cat);strcpy(cat->car,"SYNTH");
+ for(int i=0;i<GARAGE_SLOTS;i++){cat->menu[i].count=2;cat->menu[i].options[1].value=1;}
+ GarageConfig cfg={0};FeGarage *g=feg_create("");GarageRequest r;
+ assert(g&&feg_use_catalog(g,cat,&cfg));
+ assert(feg_shop(g,5,(1u<<N2_PART_ENGINE)|(1u<<N2_PART_AUDIO)));
+ assert(feg_page(g)==FEG_SLOTS&&feg_input(g,FES_IN_ACCEPT)==1);
+ assert(!feg_shop(g,2,~0u)); /* filters cannot change during an edit */
+ feg_input(g,FES_IN_RIGHT);feg_advance(g,1);assert(feg_take(g,&r));
+ assert(r.config.car.parts[N2_PART_ENGINE]==1&&r.config.car.body_kit==0);
+ feg_ack(g,r.serial,1,NULL);feg_input(g,FES_IN_ACCEPT);assert(feg_take(g,&r));
+ feg_ack(g,r.serial,1,NULL);assert(feg_advance(g,0));
+ assert(feg_input(g,FES_IN_BACK)==2); /* direct return to roam */
+ assert(feg_shop(g,1,0)&&feg_page(g)==FEG_EMPTY);
+ assert(feg_input(g,FES_IN_ACCEPT)==0&&feg_input(g,FES_IN_BACK)==2);
+ assert(feg_shop(g,-1,0)&&feg_page(g)==FEG_HUB);
+ feg_destroy(g);free(cat);
+}
 int main(void){
  test_save_recovery();
  test_rename_carry();
  test_rims();
+ test_shop_filter();
  test_parts_binding();
  GarageCatalog *cat=calloc(1,sizeof *cat);assert(cat);strcpy(cat->car,"SYNTH");
  cat->menu[GARAGE_KIT].count=20;for(int i=0;i<20;i++){cat->menu[GARAGE_KIT].options[i].value=i;snprintf(cat->menu[GARAGE_KIT].options[i].label,48,"Synthetic %d",i);}

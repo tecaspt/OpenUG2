@@ -157,6 +157,22 @@ int main(int argc, char **argv)
     for (int k = 0; k < nicon; k++) nshopicon += ic[k].kind == HMI_SHOP;
     CHECK(nicon - nshopicon == 5, "stage 1 event icons %d (want 5)", nicon - nshopicon);
 
+    CHECK(nshopicon == 8, "stage 1 open shop icons %d",nshopicon);
+    int body = cd_find_shop(&ch.cd,cd_hash("CC_BODYSHOP_1"));
+    ch.at_shop = body;
+    GarageConfig installed = {0};installed.car.body_kit=1;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)==ST_OK,"body installation saved");
+    CHECK(ch_shop_install(&ch,"OTHER",&installed)==ST_E_ARG,"wrong car refused");
+    installed.car.parts[N2_PART_AUDIO]=1;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)==ST_E_ARG,"body cannot install specialty part");
+    CareerState loaded;
+    CHECK(cr_load_file(argv[2],"CAREERT",&loaded)==ST_OK&&loaded.config[0].car.body_kit==1,"installation survives load");
+    char saved_root[256];snprintf(saved_root,sizeof saved_root,"%s",ch.root);
+    snprintf(ch.root,sizeof ch.root,"%s/nonexistent",argv[2]);
+    installed=ch.st.config[0];installed.car.body_kit=2;
+    CHECK(ch_shop_install(&ch,"FOCUS",&installed)!=ST_OK&&ch.st.config[0].car.body_kit==1,"save failure rolls back state");
+    snprintf(ch.root,sizeof ch.root,"%s",saved_root);
+
     int list[CD_MAX_RACES], n = cr_list(&ch.st, &ch.cd, list, CD_MAX_RACES), done = 0;
     CHECK(n == 5, "stage 1 available %d", n);
     for (int k = 0; k < n; k++) {

@@ -10,12 +10,13 @@ struct FeGarage {
  char root[512],car[32],loaded_car[32],status[220];
  GarageConfig current;GarageCatalog catalog;Garage model;
  FegSaveFn save;void *save_user;int recovery;char notice[160];
+ int shop_type;uint32_t slot_mask;
  int page,cursor,slot_cursor,first,count,slots[GARAGE_SLOTS+1],nslots;
  GarageRims rims;int rims_ready,brands[32],nbrands,brand,back_page;
  char labels[GC_MAX][48];
  GuiCarousel carousel;GvCarousel view;GvEntry entry[GC_MAX];
 };
-FeGarage *feg_create(const char *root){FeGarage *g=calloc(1,sizeof *g);if(g)snprintf(g->root,sizeof g->root,"%s",root?root:"");return g;}
+FeGarage *feg_create(const char *root){FeGarage *g=calloc(1,sizeof *g);if(g){g->shop_type=-1;g->slot_mask=~0u;snprintf(g->root,sizeof g->root,"%s",root?root:"");}return g;}
 void feg_destroy(FeGarage *g){free(g);}
 int feg_busy(const FeGarage *g){return g&&(g->model.editing||g->model.inflight||g->model.action||g->recovery);}
 int feg_set_save(FeGarage *g,FegSaveFn save,void *user){if(!g||feg_busy(g))return 0;g->save=save;g->save_user=user;return 1;}
@@ -23,9 +24,14 @@ static void model_reset(FeGarage *g,const GarageConfig *cfg) {
  uint32_t serial=g->model.serial;garage_init(&g->model,&g->catalog,cfg);g->model.serial=serial;
 }
 static void slots_build(FeGarage *g) {
- g->nslots=0;if(g->catalog.menu[GARAGE_KIT].count>1)g->slots[g->nslots++]=GARAGE_KIT;
- if(g->rims.count)g->slots[g->nslots++]=GARAGE_RIM;
- for(int i=0;i<N2_PART_COUNT;i++)if(g->catalog.menu[i].count>1)g->slots[g->nslots++]=i;
+ g->nslots=0;if((g->slot_mask&(1u<<GARAGE_KIT))&&g->catalog.menu[GARAGE_KIT].count>1)g->slots[g->nslots++]=GARAGE_KIT;
+ if((g->slot_mask&(1u<<GARAGE_RIM))&&g->rims.count)g->slots[g->nslots++]=GARAGE_RIM;
+ for(int i=0;i<N2_PART_COUNT;i++)if((g->slot_mask&(1u<<i))&&g->catalog.menu[i].count>1)g->slots[g->nslots++]=i;
+}
+int feg_shop(FeGarage *g,int type,uint32_t mask) {
+ if(!g||feg_busy(g)||type < -1||type>6)return 0;
+ g->shop_type=type;g->slot_mask=type<0?~0u:mask;slots_build(g);
+ g->page=type<0?FEG_HUB:g->nslots?FEG_SLOTS:FEG_EMPTY;g->cursor=0;return 1;
 }
 int feg_use_catalog(FeGarage *g,const GarageCatalog *cat,const GarageConfig *c) {
  if(!g||!cat||!c||!memchr(cat->car,0,sizeof cat->car)||!cat->car[0]||!garage_config_valid(c)||g->model.editing||g->model.inflight)return 0;
@@ -55,6 +61,7 @@ int feg_current(FeGarage *g,const char *car,const GarageConfig *c) {
 int feg_page(const FeGarage *g){return g?g->page:0;}
 static int brand_end(FeGarage *g){return g->brand+1<g->nbrands?g->brands[g->brand+1]:g->rims.count;}
 static int list_count(FeGarage *g){
+ if(g->page==FEG_EMPTY)return 1;
  if(g->page==FEG_HUB)return 4;
  if(g->page==FEG_SLOTS)return g->nslots;
  if(g->page==FEG_BRANDS)return g->nbrands;
@@ -79,12 +86,13 @@ int feg_open(FeGarage *g,GvScreen *s,UgAssets *a) {
   if(!ok){snprintf(s->status,sizeof s->status,"Rim catalogue is unavailable");return 0;}
  }
  slots_build(g);
- const char *pkg=g->page==FEG_PARTS?"UI_GenericParts_Browser.fng":g->page==FEG_BRANDS?"UI_ChooseRimBrand.fng":g->page==FEG_RIMS?"UI_Rims_Browser.fng":"UI_ChooseCustomizeCategory.fng";
+ if(g->shop_type>=0 && (g->page==FEG_HUB||g->page==FEG_EMPTY))g->page=g->nslots?FEG_SLOTS:FEG_EMPTY;
+ const char *pkg=g->page==FEG_EMPTY?(g->shop_type==1?"UI_ChoosePaintCategory.fng":"UI_ChoosePerformanceCategory.fng"):g->page==FEG_PARTS?"UI_GenericParts_Browser.fng":g->page==FEG_BRANDS?"UI_ChooseRimBrand.fng":g->page==FEG_RIMS?"UI_Rims_Browser.fng":"UI_ChooseCustomizeCategory.fng";
  if(!gv_screen_load(s,a,pkg))return 0;
  /* [data] This root group contains placeholder player/bank values. No bank is supplied here. */
  for(int i=0;i<s->scene.n;i++) {
   const UgFngObject *o=s->scene.nodes[i].obj;
-  if((!o->parent_guid&&o->type==UG_OBJ_GROUP&&o->name_hash==0x02ddf58cu)||o->guid==0xe50fe||((g->page==FEG_RIMS)&&o->guid==0xe26b6))s->scene.nodes[i].app_hidden=1;
+  if((!o->parent_guid&&o->type==UG_OBJ_GROUP&&o->name_hash==0x02ddf58cu)||o->guid==0xe50fe||(g->page==FEG_EMPTY&&(o->guid==0xe57d5||o->guid==0xe4f90))||((g->page==FEG_RIMS)&&o->guid==0xe26b6))s->scene.nodes[i].app_hidden=1;
  }
 
  gc_init(&g->carousel,GC_RAIL_PAUSE);
@@ -95,7 +103,7 @@ int feg_input(FeGarage *g,int in) {
  if(!g||g->model.action>GAR_PREVIEW||(g->model.inflight&&g->model.flight.action>GAR_PREVIEW))return 0;
  if(in&&!g->recovery)g->notice[0]=0;
  if(in==FES_IN_BACK) {
-  if(g->page==FEG_HUB)return 2;
+  if(g->page==FEG_HUB||g->page==FEG_EMPTY||(g->shop_type>=0&&g->page==FEG_SLOTS))return 2;
   if(g->page==FEG_SLOTS){g->page=FEG_HUB;g->cursor=0;return 1;}
   g->back_page=g->page==FEG_RIMS?FEG_BRANDS:FEG_SLOTS;garage_finish(&g->model,0);return 0;
  }
@@ -107,7 +115,7 @@ int feg_input(FeGarage *g,int in) {
   if(g->page==FEG_RIMS)garage_select_rim(&g->model,g->brands[g->brand]+next);
   return 0;
  }
- if(in!=FES_IN_ACCEPT)return 0;
+ if(in!=FES_IN_ACCEPT||g->page==FEG_EMPTY)return 0;
  if(g->page==FEG_HUB){if(!g->nslots)return 0;g->page=FEG_SLOTS;g->cursor=0;return 1;}
  if(g->page==FEG_SLOTS){
   if(g->cursor<0||g->cursor>=g->nslots)return 0;
@@ -155,7 +163,8 @@ int feg_sync(FeGarage *g,GvScreen *s,float ms) {
   0xf69ac384u,0x2cbb2d1cu,0xc15c94e6u,0xe803e1cdu,0xbb034ea6u,0xa434a006u,0x79165861u,0x028c24f6u};
  for(int i=0;i<visible;i++) {
   int at=i+g->first;const char *label=NULL;
-  if(g->page==FEG_HUB){label=gv_text(s->assets,ug_hash_upper(hub[at]),NULL);disabled[i]=at!=0||!g->nslots;}
+  if(g->page==FEG_EMPTY){label="No installable parts available";disabled[i]=1;}
+  else if(g->page==FEG_HUB){label=gv_text(s->assets,ug_hash_upper(hub[at]),NULL);disabled[i]=at!=0||!g->nslots;}
   else if(g->page==FEG_SLOTS)label=g->slots[at]==GARAGE_RIM?gv_text(s->assets,0xe4504d8du,NULL):g->slots[at]==GARAGE_KIT?"Body kit presets":gv_text(s->assets,ug_hash_upper(slot_keys[g->slots[at]]),NULL);
   else if(g->page==FEG_BRANDS) {
    const char *brand=g->rims.options[g->brands[at]].brand;
@@ -165,7 +174,7 @@ int feg_sync(FeGarage *g,GvScreen *s,float ms) {
   } else label=g->catalog.menu[g->model.slot].options[at].label;
   /* Only genuine retail art. Missing identities are reported, never painted natively. */
   int slot=g->page==FEG_SLOTS?g->slots[at]:g->model.slot;
-  uint32_t icon=g->page==FEG_HUB?hub_icons[at]:slot==GARAGE_RIM?0x0294d2a3u:slot_icons[slot];
+  uint32_t icon=g->page==FEG_EMPTY?hub_icons[g->shop_type==1?2:1]:g->page==FEG_HUB?hub_icons[at]:slot==GARAGE_RIM?0x0294d2a3u:slot_icons[slot];
   if(g->page==FEG_BRANDS||g->page==FEG_RIMS) {
    char key[64];const char *brand=g->rims.options[g->brands[g->page==FEG_BRANDS?at:g->brand]].brand;
    snprintf(key,sizeof key,"VISUAL_RIMS_BRAND_%s",brand);
@@ -177,7 +186,8 @@ int feg_sync(FeGarage *g,GvScreen *s,float ms) {
  for(int i=visible;i<g->view.nslots;i++)s->scene.nodes[g->view.slot[i]].app_hidden=1;
  gc_set_entries(&g->carousel,visible,disabled);gc_snap_to(&g->carousel,g->cursor-g->first);
  gc_update(&g->carousel,ms/1000);
- const char *heading=g->page==FEG_BRANDS?gv_text(s->assets,0x94c5e7bfu,NULL):g->page==FEG_RIMS?gv_text(s->assets,0xe4504d8du,NULL):g->page==FEG_PARTS?(g->model.slot==GARAGE_KIT?"Body kit presets":gv_text(s->assets,ug_hash_upper(slot_keys[g->model.slot]),NULL)):
+ const char *shop_key=g->shop_type==1?"MINIMAP_GRAPHICS":g->shop_type==3?"MINIMAP_PERFORMANCE":g->shop_type==5?"CUST_CATEGORY_INTERIORS":"CUST_CATEGORY_BODY";
+ const char *heading=(g->shop_type>=0&&(g->page==FEG_SLOTS||g->page==FEG_EMPTY))?gv_text(s->assets,ug_hash_upper(shop_key),"Shop"):g->page==FEG_BRANDS?gv_text(s->assets,0x94c5e7bfu,NULL):g->page==FEG_RIMS?gv_text(s->assets,0xe4504d8du,NULL):g->page==FEG_PARTS?(g->model.slot==GARAGE_KIT?"Body kit presets":gv_text(s->assets,ug_hash_upper(slot_keys[g->model.slot]),NULL)):
   gv_text(s->assets,ug_hash_upper(g->page==FEG_SLOTS?"CUST_CATEGORY_BODY":"UI_MAIN_CUSTOMIZE"),NULL);
  const char *title=g->model.status[0]?g->model.status:g->notice[0]?g->notice:heading;
  if(!title){snprintf(g->status,sizeof g->status,"Garage caption unavailable");return 0;}

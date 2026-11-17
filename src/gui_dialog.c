@@ -32,6 +32,11 @@ static const Text T_DEFAULTS = { 0x2BBCCA6Bu, "Reset to default settings?" };
 static const Text T_ENGAGE = { 0xEC9488BBu, "Would you like to race this event?" };
 static const Text T_ENGAGE_SHOP = { 0x0AAB553Eu, "Do you want to enter the car lot?" };   /* ASK_ENTER_CAR_LOT */
 
+static const Text T_SHOP_BODY = { 0x78DAD861u, "Would you like to enter the Body Shop?" };
+static const Text T_SHOP_PAINT = { 0x85D2ED13u, "Would you like to enter the Graphics Shop?" };
+static const Text T_SHOP_GENERIC = { 0x15D6B438u, "Would you like to enter the Shop?" };
+static int shop_kind(GdKind k) { return k >= GD_ENGAGE_BODY && k <= GD_ENGAGE_SHOP; }
+
 static const Text *quit_text(const GdContext *c) {              /* 2.4 table, "Quit" rows */
     if (c->mode == 8u) {
         if (c->session_test) return c->flag ? &T_SESSION_FLAG : &T_SESSION;
@@ -62,8 +67,10 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->back_msg = MSG_DEFAULTS_NO;          /* Back = No */
         return;
     }
-    if (kind == GD_ENGAGE_RACE || kind == GD_ENGAGE_SHOP) {   /* M6: career event / shop zone; Yes / No like Default Settings */
-        const Text *t = kind == GD_ENGAGE_SHOP ? &T_ENGAGE_SHOP : &T_ENGAGE;
+    if (kind == GD_ENGAGE_RACE || shop_kind(kind)) {   /* M6: career event / shop zone; Yes / No like Default Settings */
+        const Text *t = kind == GD_ENGAGE_BODY ? &T_SHOP_BODY : kind == GD_ENGAGE_PAINT ? &T_SHOP_PAINT :
+            kind == GD_ENGAGE_PERF || kind == GD_ENGAGE_SPECIALTY ? &T_SHOP_GENERIC :
+            kind == GD_ENGAGE_SHOP ? &T_ENGAGE_SHOP : &T_ENGAGE;
         out->package = PKG_SMALL;
         out->package_key = KEY_PKG_SMALL;
         out->message_key = t->key;
@@ -126,7 +133,7 @@ void gd_input(GuiDialog *d, GdInput in) {
 }
 
 void gd_button_extent(GdKind kind, int button, float e[4]) {
-    float cx = kind == GD_DEFAULTS || kind == GD_CONTROLS_RESET || kind == GD_ENGAGE_RACE || kind == GD_ENGAGE_SHOP ? 150.0f : 151.0f;        /* button centres, 6 */
+    float cx = kind == GD_DEFAULTS || kind == GD_CONTROLS_RESET || kind == GD_ENGAGE_RACE || shop_kind(kind) ? 150.0f : 151.0f;        /* button centres, 6 */
     cx = button ? cx : -cx;
     e[0] = cx - 149.0f;                                      /* 128 + 21 */
     e[2] = cx + 149.0f;

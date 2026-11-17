@@ -248,6 +248,38 @@ static void test_save2(void)
     }
 }
 
+static void test_save3(void)
+{
+    static CareerState s,t;static uint8_t bytes[16384],block[8192],out[16384];
+    StContainerView v;uint8_t header[8];size_t n;
+    cr_new(&s,&cd,"GOLF");s.config[0].car.parts[N2_PART_AUDIO]=1001;
+    strcpy(s.config[0].rim_brand,"NFSU");s.config[0].rim_style=2;
+    n=cr_serialize(&s,bytes,sizeof bytes);
+    CHECK(n&&st_container_parse(bytes,n,&v)==ST_OK);
+    memcpy(header,v.a,8);memcpy(block,v.b,v.size_b);
+    size_t at=0;
+    while(at+8<=v.size_b&&block[at]!=6) {
+        uint32_t size=(uint32_t)block[at+4]|(uint32_t)block[at+5]<<8;
+        at+=8+size;
+    }
+    CHECK(at+96<=v.size_b);
+    /* Schema 2 migration keeps ownership but installs stock. */
+    header[4]=2;n=st_container_build(out,sizeof out,header,8,block,v.size_b);
+    CHECK(cr_parse(&t,out,n)==ST_OK&&t.nowned==1&&t.config[0].car.parts[N2_PART_AUDIO]==0);
+    header[4]=3;
+    /* Count mismatch, invalid value, duplicate config record, no output mutation. */
+    uint8_t saved=block[at+4];block[at+4]=0;
+    n=st_container_build(out,sizeof out,header,8,block,(uint32_t)at+8);
+    CHECK(cr_parse(&t,out,n)==ST_E_CORRUPT);block[at+4]=saved;
+    block[at+8]=255;block[at+9]=255;
+    n=st_container_build(out,sizeof out,header,8,block,v.size_b);
+    CareerState before=t;
+    CHECK(cr_parse(&t,out,n)==ST_E_CORRUPT&&state_eq(&t,&before));
+    memcpy(block,v.b,v.size_b);memcpy(block+v.size_b,block+at,96);
+    n=st_container_build(out,sizeof out,header,8,block,v.size_b+96);
+    CHECK(cr_parse(&t,out,n)==ST_E_CORRUPT);
+}
+
 static CrResult res(uint32_t h, int place, int failed, int aborted)
 {
     CrResult r; memset(&r, 0, sizeof r);
@@ -274,7 +306,7 @@ static int state_eq(const CareerState *a, const CareerState *b)
         a->rep != b->rep || a->entered != b->entered || a->won != b->won || a->nrec != b->nrec ||
         strcmp(a->car, b->car) || memcmp(a->pose, b->pose, sizeof a->pose) || a->nextra != b->nextra ||
         memcmp(a->extra, b->extra, a->nextra)) return 0;
-    if (a->nowned != b->nowned || a->active != b->active || a->region != b->region) return 0;
+    if (a->nowned != b->nowned || a->active != b->active || a->region != b->region || memcmp(a->config,b->config,sizeof a->config)) return 0;
     for (i = 0; i < a->nowned; i++) if (strcmp(a->owned[i], b->owned[i])) return 0;
     for (i = 0; i < a->nrec; i++)
         if (a->rec[i].hash != b->rec[i].hash || a->rec[i].best_place != b->rec[i].best_place ||
@@ -453,6 +485,7 @@ int main(void)
 
     test_lot();
     test_save2();
+    test_save3();
     build_lot_data();
     cr_new(&s, &cd, "STARTER1");
     cd.shop[3].type = CD_SHOP_BODY;
