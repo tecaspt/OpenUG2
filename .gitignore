@@ -24,6 +24,7 @@ nfsu2
 race-log-*.csv
 build/
 scratchpad/
+gate-out/
 *.o
 *.obj
 *.exe
