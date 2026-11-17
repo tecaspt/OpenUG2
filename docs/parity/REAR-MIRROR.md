@@ -71,3 +71,63 @@ a direct-track launch without a loaded profile uses session-only settings.
 The extra mouse-look row remains available in pause. CLI override takes priority
 until restart. GPU tests check horizontal reversal, upright orientation, tapered corners, rectangle placement, state
 restoration and composition with main scales 1, 0.5 and 0.75 on GL and GLES.
+
+## Validation
+
+Builds: desktop 24 warnings, GLES 29, ios-host 29; all exit 0, matching the
+requested baseline counts. No new warning messages. Required tests all pass:
+rear_mirror_test (48 assertions), hud-race-test, hud-minimap-test (89 checks),
+gps-marker-test (149 checks, including retail geometry), fe-screen-test and
+game-flow-test (252 checks). Additional options-menu-test passes (1,448 checks,
+plus 1,866 supporting GUI-art checks and pause-options checks).
+
+On the Pi host's V3D 7.1.10.2 renderer, GL and GLES framebuffer tests pass at
+main scene scales 1, .5 and .75. Desktop exposes GPU timers; GLES does not.
+The sandbox hides graphics device nodes and falls back to llvmpipe: the first software INV
+comparison was different and is excluded from the host results.
+
+With fresh XDG homes, both STREAML4RA and STREAML4RB INV captures are byte-identical
+to the supplied invx references when --rear-mirror off is set. Default on changes
+them; at 640x480 every changed pixel lies inside the mirror rectangle. The rest
+of the scene is pixel-identical. Scale 1 still bypasses the main scene target.
+
+`reports/mirror/retail-vs-mirror.png` and `panel-details.png` were visually
+inspected. Both source frames are 1170x643. The approximate panel footprint and
+taper match the supplied still; frame art is procedural, and vehicle, location
+and lighting differ. This is a geometry/appearance comparison, not a claim of
+identical retail scene rendering. `ios-on.png` verifies the GLES touch-host
+build at explicit scene scale .75 (877x482 scene, 1170x643 drawable).
+
+Performance protocol: GOLF, STREAML4RA, 640x480, default deterministic seed,
+--follow-roam-ai --perf-still --shot OUTPUT --frames 1860 --perf-csv OUTPUT,
+with separate fresh XDG directories and explicit --rear-mirror off/on. Discard
+60 warm-up ticks and GPU lag samples originating before tick 60; run
+`tools/perf_report.py` on each resulting CSV. Each reported sample contains
+1,800 frames, exactly 30 seconds of simulated free roam on the same route;
+wall-clock duration is longer when the Pi renders below 60 fps. Raw and filtered
+CSVs remain in reports/mirror. This warm-up excludes initial asset loading,
+which the profiler charges to its first CPU frame.
+
+[inferred] A supplementary name-hash search used plausible Mirror/RearView node
+names with HUD_/IG_/IMAGE_ prefixes and frame/background/panel/group suffixes.
+[data] 288 candidate strings (228 distinct case-folded hashes) match zero nodes
+in the InGame packages. This does not identify unnamed/otherwise-named assets.
+
+Measured on V3D 7.1.10.2 (one paired run; milliseconds):
+
+| Metric | Mirror off mean | Off p99 | Mirror on mean | On p99 |
+| --- | ---: | ---: | ---: | ---: |
+| Frame / cpu_total | 27.14 | 85.19 | 35.19 | 121.57 |
+| GPU / gpu_total | 26.95 | 73.58 | 34.99 | 116.78 |
+
+Mean increases: frame +8.05 ms (29.7%), GPU +8.04 ms. This is a material cost
+on this Pi despite the small target and reduced scene. Each mode has 1,800 CPU
+samples and 1,797 GPU samples after warm-up/lag filtering. The final paired
+screenshots differ only inside the mirror, confirming matched route and main
+scene state. See perf-warm-off/on-report.txt and performance-summary.json.
+
+`ios-touch-on.png` is a scripted post-overlay capture, visually inspected with
+both the mirror and touch controls visible at scale .75. Existing top touch
+button rings meet the mirror's upper edge; their established positions are
+retained. The mirror is passive and does not intercept touch input. No actual
+phone/tablet performance measurement is claimed by the host test.
