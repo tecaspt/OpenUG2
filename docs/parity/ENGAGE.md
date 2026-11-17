@@ -7,7 +7,10 @@ messages remain.
 The retail shop capture shows a world-space wrench, a matching HUD icon and an
 engage indication in the d-pad. These cues are not yet implemented. The HUD
 package contains the engage widget and a `Mode_Icon_Circuit.tga` node; the
-correct assets and mapping for each shop and race type still need verification.
+global texture catalog also names `SHOP_ICON_BODY`, `SHOP_ICON_CAR_LOT`,
+`SHOP_ICON_CRIB`, `SHOP_ICON_GRAPHIC`, `SHOP_ICON_INTERIORS` and
+`SHOP_ICON_PERFORMANCE`, alongside `MODE_ICON_*` race textures. Their use,
+rendering and mapping for each shop and race type still need verification.
 
 The shop entry cinematic is not implemented: playback requires a VP6 decoder.
 `HUD_World_Loading.fng` in the common in-game bundle contains a loading label
