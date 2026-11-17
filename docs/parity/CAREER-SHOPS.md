@@ -156,3 +156,28 @@ regression-v3-results.log, touch-extra-v3-results.log, save-check.txt,
 final-image-manifest.tsv and review-final/). Raw placement is a zone-input
 fixture; its height can leave the car above the road. These captures prove
 entry/UI/state transitions, not original shop interiors or cameras.
+
+## Follow-up data-only investigation
+
+[data] Cross-checking the 30 records in 0x34A15 against Labels.bin gives
+nonempty performance component identities at record offsets 16, 108, 200
+and 292. These are descriptor +4 for the four 92-byte descriptors. Thus
+the descriptors contain actual component language hashes, rather than
+only opaque references. The corresponding descriptor +8 integers span
+0..8000; a price interpretation is plausible but remains [inferred].
+Descriptor +12 spans 0..8 and is not a proven career-stage gate.
+
+[data] Descriptor +48, +52, +56 and +60 include IEEE floating-point
+values such as -1 and positive fractions. Record offsets +64/+68 therefore
+include float bit patterns; distinguish record offsets from descriptor
+offsets when inspecting the table. Descriptor +64/+68 at the first
+descriptor have signed ranges -1..57 and
+-1..58. Header category/level pairs are unique across all 30 records.
+
+[observed] This establishes named component composition candidates, but
+not their activation, unlock, handling or engine attribute mapping. The
+existing power-level implementation and documentation draw partly on
+executable research and cannot supply the missing data-only proof.
+Paint palette identity, finish mapping and per-stage vinyl eligibility
+also remain unresolved. Purchases, save extensions and cold-start proof
+for these two shop types remain unimplemented; no purchase pass is claimed.

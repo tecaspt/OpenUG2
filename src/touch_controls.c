@@ -7,20 +7,21 @@
 #define TC_MOUSE_ID ((int64_t)-1)
 #define TC_AXIS_HIDE 16383          /* more than 50% of full deflection */
 
-/* Layout table: x anchor (0 = left inset, 1 = right inset, 2 = centre), x offset, y, radius. */
+/* Positions and radii in logical points. Positive y is from the top;
+ * negative y is from the bottom. Anchor 1 measures x from the right. */
 typedef struct { int anchor; float dx, y, r; int action; } TcSpec;
 static const TcSpec TC_SPEC[TC_COUNT] = {
-    [TC_STEER_L]    = { 0, 0.15f, 0.80f, 0.13f, CB_ACT_STEER_LEFT },
-    [TC_STEER_R]    = { 0, 0.45f, 0.80f, 0.13f, CB_ACT_STEER_RIGHT },
-    [TC_GAS]        = { 1, 0.15f, 0.80f, 0.14f, CB_ACT_THROTTLE },
-    [TC_BRAKE]      = { 1, 0.45f, 0.83f, 0.11f, CB_ACT_BRAKE },
-    [TC_NOS]        = { 1, 0.15f, 0.50f, 0.09f, CB_ACT_NITROUS },
-    [TC_HANDBRAKE]  = { 1, 0.42f, 0.55f, 0.08f, CB_ACT_HANDBRAKE },
-    [TC_CAMERA]     = { 2, 0.16f, 0.07f, 0.06f, CB_ACT_CAMERA },
-    [TC_PAUSE]      = { 2, 0.00f, 0.07f, 0.06f, CB_ACT_PAUSE },
-    [TC_SHIFT_UP]   = { 1, 0.15f, 0.30f, 0.08f, CB_ACT_SHIFT_UP },
-    [TC_SHIFT_DOWN] = { 1, 0.35f, 0.30f, 0.08f, CB_ACT_SHIFT_DOWN },
-    [TC_ENTER_RACE] = { 2, 0.00f, 0.70f, 0.09f, CB_ACT_ENTER_RACE },
+    [TC_STEER_L]    = { 0, 44, -44, 28, CB_ACT_STEER_LEFT },
+    [TC_STEER_R]    = { 0, 108, -44, 28, CB_ACT_STEER_RIGHT },
+    [TC_GAS]        = { 1, 44, -44, 28, CB_ACT_THROTTLE },
+    [TC_BRAKE]      = { 1, 108, -44, 28, CB_ACT_BRAKE },
+    [TC_NOS]        = { 1, 44, -108, 22, CB_ACT_NITROUS },
+    [TC_HANDBRAKE]  = { 1, 108, -108, 22, CB_ACT_HANDBRAKE },
+    [TC_CAMERA]     = { 0, 92, 30, 22, CB_ACT_CAMERA },
+    [TC_PAUSE]      = { 0, 40, 30, 22, CB_ACT_PAUSE },
+    [TC_SHIFT_UP]   = { 1, 44, -164, 22, CB_ACT_SHIFT_UP },
+    [TC_SHIFT_DOWN] = { 1, 108, -164, 22, CB_ACT_SHIFT_DOWN },
+    [TC_ENTER_RACE] = { 1, 44, -220, 22, CB_ACT_ENTER_RACE },
 };
 
 void tc_init(TouchControls *t, int enabled, int start_active, int accept_mouse_touch) {
@@ -35,15 +36,13 @@ void tc_set_window_size(TouchControls *t, int w, int h) { t->win_w = w; t->win_h
 
 void tc_layout(const TouchControls *t, int btn, float *cx, float *cy, float *r) {
     float W = (t && t->aspect > 0.0f) ? t->aspect : 16.0f / 9.0f;
-    float inset = 0.05f * W;
+    float height = t && t->win_h > 0 ? (float)t->win_h : 480.0f;
     if (btn < 0 || btn >= TC_COUNT) { if (cx) *cx = 0; if (cy) *cy = 0; if (r) *r = 0; return; }
     const TcSpec *s = &TC_SPEC[btn];
-    float x = s->anchor == 0 ? inset + s->dx : s->anchor == 1 ? W - inset - s->dx : W * 0.5f + s->dx;
-    if (t && (t->ctx & TC_CTX_SHOP) && (btn == TC_PAUSE || btn == TC_CAMERA))
-        x = inset + (btn == TC_CAMERA ? 0.16f : 0.0f); /* keep the shop notice clear */
+    float x = s->anchor == 1 ? W - s->dx / height : s->dx / height;
     if (cx) *cx = x;
-    if (cy) *cy = s->y;
-    if (r) *r = s->r;
+    if (cy) *cy = s->y < 0 ? 1.0f + s->y / height : s->y / height;
+    if (r) *r = s->r / height;
 }
 
 static int tc_btn_enabled(const TouchControls *t, int b) {
