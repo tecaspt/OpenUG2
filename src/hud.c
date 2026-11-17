@@ -168,7 +168,7 @@ void hud_engage_world(Hud *h,const RProg *rp,GpuMesh *quad,RhiPipeline pipe,
  float mv[16];mat_mul(vp,m,mv);UG2Params saved=*rp->p;RhiStateSnapshot state;rhi_cmd_save_state(&state);
  ug2_copy(rp->p->uMVP,mv,16);rp->p->uUnlit=1;rp->p->uUseTex=1;rp->p->uTextureAlpha=1;
  rp->p->uAlpha=1;rp->p->uSoft=0;rp->p->uTex=0;rp->p->uVColor=0;
- rp->p->uAlphaTest=0;rp->p->uFogDensity=0;rp->p->uDecal=0;ug2_vec3(rp->p->uColor,1,1,1);
+ rp->p->uAlphaTest=0;rp->p->uFogDensity=0;rp->p->uDecal=0;rp->p->uEmissiveTex=1;ug2_vec3(rp->p->uColor,1,1,1);
  rhi_cmd_bind_pipeline(pipe);rhi_cmd_bind_texture(0,t.id);render_draw_gpumesh(quad);
  *rp->p=saved;rhi_cmd_restore_state(&state);
 }
