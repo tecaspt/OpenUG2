@@ -284,7 +284,8 @@ int ch_take_spawn(CareerHost *ch, float spawn[4])
 
 int ch_shop_zone(const CareerHost *ch, float x, float y, float kmh)
 {
-    if (!ch || !ch->active || ch->race >= 0 || fabsf(kmh) > CH_ENGAGE_KMH) return -1;
+    (void)kmh; /* Shop entry remains discoverable while driving through the zone. */
+    if (!ch || !ch->active || ch->race >= 0) return -1;
     return cr_shop_hit(&ch->st, &ch->cd, x, y);
 }
 

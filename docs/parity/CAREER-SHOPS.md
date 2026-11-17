@@ -106,3 +106,7 @@ uses a dark backing, bright border and explicit ENTER label instead of a
 triangle-only icon. This is a platform adaptation, not retail artwork.
 The uppercase shop notice and stage-gated minimap/world-map icons identify
 the destination. An explicit --no-touch still disables the overlay.
+
+[inferred] Shop-zone detection has no speed gate: the entry action stays
+visible while driving through a zone. Choosing entry uses the existing
+question/stop flow. Race engagement retains its separate speed restriction.
