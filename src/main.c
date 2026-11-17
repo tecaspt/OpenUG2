@@ -2696,7 +2696,11 @@ int main(int argc, char **argv) {
     const char *drive_trace_path = NULL;
     const char *circuit = "ROUTESL4RF/Paths4602.bin"; int explicit_circuit = 0;
     int want_event_id = 0;   /* --event <id>: boot straight into a race event */
-    int map_detail_opt = 0;  /* --map-detail: 512 (retail, default), 1024, 2048 or 4096 */
+#ifdef N2_IOS
+    int map_detail_opt = 2048; /* [inferred] sharper map for high-density displays */
+#else
+    int map_detail_opt = 0;  /* --map-detail: 512 (default), 1024, 2048 or 4096 */
+#endif
     int map_cache_opt = 1;   /* --no-map-cache: bake every run */
     int vehicle_quality_explicit = 0, road_reflections_explicit = 0;  /* CLI beats saved settings */
     int lighting_opt = -1;   /* --lighting original|modern; -1 follows Level Of Detail */
