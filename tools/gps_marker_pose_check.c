@@ -31,7 +31,9 @@ int main(int argc,char **argv) {
  printf("FOCUS FAR: fwd=%.6f up=%.6f lat=%.6f pitch_bau=%d fov_bau=%d ride_assumed=0.35 speed=173km/h\n",entry->fwd,entry->up,entry->lat,entry->pitch_bau,camera.fov_bau);
  printf("eye=%.6f %.6f %.6f look=%.6f %.6f %.6f\n",camera.eye[0],camera.eye[1],camera.eye[2],camera.look[0],camera.look[1],camera.look[2]);
  float v[16],p[16],vp[16];view_matrix(&camera,v);cam_projection(CAM_PROJ_DEFAULT,camera.fov_bau,1280,720,1,.1f,1500,p);multiply(p,v,vp);
+ printf("projection xs=%.6f ys=%.6f FOV=%.6f,%.6f degrees policy=wide\n",p[0],p[5],2*atanf(1/p[0])*57.2957795131f,2*atanf(1/p[5])*57.2957795131f);
  GpsMarkerGeom g;if(!gps_marker_geom_load(argv[1],&g,NULL,NULL)){puts("FAIL marker unavailable");return 1;}
+ if(gps_marker_core_range(&g)<0){gps_marker_geom_free(&g);puts("FAIL unsupported marker materials");return 1;}
  for(int i=0;i<g.scene.count;i++) {
   const N2Mesh *mesh=g.scene.meshes+i;double c[4]={0};int lo[4]={255,255,255,255},hi[4]={0};
   for(int j=0;j<mesh->nidx;j++)for(int a=0;a<4;a++) {int value=mesh->vcol[mesh->idx[j]*4+a];c[a]+=value;if(value<lo[a])lo[a]=value;if(value>hi[a])hi[a]=value;}

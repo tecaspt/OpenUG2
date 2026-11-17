@@ -61,6 +61,15 @@ static void configuration_checks(void) {
     CHECK(near(box[0],25,1e-5f)&&near(box[1],25,1e-5f)&&near(box[2],75,1e-5f)&&near(box[3],75,1e-5f),"projected bounds");
     float before[4],behind[16];memcpy(before,box,sizeof box);memcpy(behind,identity,sizeof behind);behind[15]=-1;
     CHECK(!gps_marker_project_bounds(&geom,identity,behind,100,100,box)&&!memcmp(before,box,sizeof box),"behind-camera projection rejects atomically");
+    unsigned char dark[12]={1,2,3,255,4,5,6,255,7,8,9,255};
+    unsigned char bright[12]={200,210,220,255,200,210,220,255,200,210,220,255};
+    N2Mesh range[2]={mesh,mesh};range[0].nverts=range[1].nverts=3;
+    range[0].vcol=dark;range[1].vcol=bright;geom.scene.meshes=range;geom.scene.count=2;
+    CHECK(gps_marker_core_range(&geom)==0,"core selected from source prelight");
+    range[0].vcol=bright;range[1].vcol=dark;CHECK(gps_marker_core_range(&geom)==1,"range order independent");
+    range[0].vcol=dark;CHECK(gps_marker_core_range(&geom)==-1,"ambiguous material colours fail closed");
+    range[1].vcol=NULL;CHECK(gps_marker_core_range(&geom)==-1,"missing colours fail closed");
+    geom.scene.count=1;CHECK(gps_marker_core_range(&geom)==-1,"unsupported range count fail closed");
     printf("configuration: %s\n",fails?"FAIL":"ok");
 }
 
@@ -122,6 +131,7 @@ int main(void) {
            g.bb_max[0], g.bb_max[1], g.bb_max[2]);
     CHECK(tris > 0, "no %s triangles", GPS_MARKER_SOLID);
     if (tris > 0) {
+        CHECK(gps_marker_core_range(&g)>=0,"core/rim material identity unavailable");
         float span[3], c[3] = {0, 0, 0};
         for (int a = 0; a < 3; a++) span[a] = g.bb_max[a] - g.bb_min[a];
         /* sane: a metres-scale object, every axis 0.1..10 m, longest = the

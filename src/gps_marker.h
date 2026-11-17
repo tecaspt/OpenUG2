@@ -7,8 +7,9 @@
  * (a 64x64 horizontal light band) whose record is authored additive
  * (usage 2, blend 2) [data]. The vertex stream carries the blue as prelight
  * [data]. The solid has opaque vertex alpha [data]; the owner still shows an
- * opaque dark-blue core [observed]. Use depth-writing opaque solid passes
- * with MODULATE2X prelight [inferred]; adding both faces washes the core out.
+ * opaque dark-blue core [observed]. The core uses its authored prelight with
+ * depth writes; the rim keeps the additive band [inferred]. Adding both
+ * faces washes the core out; applying the band opaquely produces black stripes.
  *
  * The solid is authored pointing DOWN (tip at -Z of its own frame, the flat
  * faces along +-Y) [data]. The fitted pose raises it far above/ahead of the
@@ -33,11 +34,11 @@
 #define GPS_MARKER_BUNDLE        "GLOBAL/InGameCommon.bun"
 #define GPS_MARKER_SOLID         "MARKER_GPS_AID"     /* [data] */
 #define GPS_MARKER_AHEAD_M       30.0f  /* [inferred] metric gauge for the observed straight-view fit */
-#define GPS_MARKER_HEIGHT_M      12.285345f /* [observed] straight-view fit; world height remains inferred */
-#define GPS_MARKER_PITCH_DEG     -2.75f  /* [observed] fitted tilt for that camera, not turn/animation evidence */
+#define GPS_MARKER_HEIGHT_M      12.919865f /* [observed] straight-view fit; world height remains inferred */
+#define GPS_MARKER_PITCH_DEG      0.45f  /* [observed] fitted tilt for that camera, not turn/animation evidence */
 #define GPS_MARKER_BOB_M         0.15f  /* [inferred] vertical bob amplitude */
 #define GPS_MARKER_BOB_PERIOD_MS 1600u  /* [inferred] bob period */
-#define GPS_MARKER_SCALE         3.540327f /* [observed] fitted screen size; metric scale remains inferred */
+#define GPS_MARKER_SCALE         3.905761f /* [observed] fitted screen size; metric scale remains inferred */
 /* Untextured fallback: a 1x1 texel of 128 makes MODULATE2X pass the authored
    vertex blue through unchanged. */
 #define GPS_MARKER_FLAT_TEXEL    128
@@ -98,6 +99,24 @@ static int gps_marker_geom_from_bundle(const unsigned char *data, long len, GpsM
             for (int a = 0; a < 3; a++) m->verts[k * 5 + a] -= c[a];
     }
     return g->tris;
+}
+
+/* [inferred] Two-range material identity: the darker prelight range is the
+   blue core, the brighter one its rim. Reject absent/ambiguous source colours. */
+static int gps_marker_core_range(const GpsMarkerGeom *g) {
+    if(!g || g->scene.count!=2 || !g->scene.meshes)return -1;
+    double light[2]={0};
+    for(int i=0;i<2;i++) {
+        const N2Mesh *m=g->scene.meshes+i;
+        if(!m->vcol || !m->idx || m->nidx<=0 || m->nverts<=0)return -1;
+        for(int j=0;j<m->nidx;j++) {
+            int n=m->idx[j];if(n>=m->nverts)return -1;
+            for(int a=0;a<3;a++)light[i]+=m->vcol[n*4+a];
+        }
+        light[i]/=m->nidx;
+    }
+    if(fabs(light[0]-light[1])<1e-6)return -1;
+    return light[0]<light[1]?0:1;
 }
 
 /* Reads <dataroot>/GLOBAL/InGameCommon.bun. Returns the triangle count; 0 and
@@ -215,9 +234,12 @@ static int gps_marker_project_bounds(const GpsMarkerGeom *g,const float model[16
 typedef struct GpsMarker {
     GpsMarkerGeom geom;
     GpuMesh      *gpu;
-    RhiTexture    tex;        /* authored band, or the flat fallback */
+    RhiTexture    tex;        /* authored rim band, or the flat fallback */
+    RhiTexture    core_tex;   /* neutral multiplier: preserves source core prelight */
+    int           core;
     int           textured;   /* 1 = authored texture decoded */
     uint32_t      shader;     /* shader the pipeline below belongs to */
+    RhiPipeline   halo;       /* additive band on the bright rim */
     RhiPipeline   solid;      /* [inferred] opaque/depth-writing, matched to the captured solid */
 } GpsMarker;
 
@@ -225,6 +247,7 @@ static void gps_marker_free(GpsMarker *m) {
     if (!m) return;
     free_scene_gpu(m->gpu, m->geom.scene.count);
     if (m->tex.id) rhi_texture_destroy(m->tex);
+    if (m->core_tex.id) rhi_texture_destroy(m->core_tex);
     gps_marker_geom_free(&m->geom);
     free(m);
 }
@@ -235,10 +258,15 @@ static GpsMarker *gps_marker_load(const char *dataroot) {
     if (!m) return NULL;
     unsigned char *data = NULL; long len = 0;
     if (!gps_marker_geom_load(dataroot, &m->geom, &data, &len)) { free(m); return NULL; }
+    m->core=gps_marker_core_range(&m->geom);
+    if(m->core<0){fprintf(stderr,"gps_marker: unsupported material ranges\n");free(data);gps_marker_free(m);return NULL;}
+    N2Tex neutral={0};unsigned char neutral_rgb[3]={128,128,128};
+    neutral.w=neutral.h=1;neutral.rgb=neutral_rgb;m->core_tex=upload_tex(&neutral);
+    if(!m->core_tex.id){free(data);gps_marker_free(m);return NULL;}
     m->gpu = upload_scene(&m->geom.scene);
     if (!m->gpu) {
         fprintf(stderr, "gps_marker: GPU upload failed\n");
-        free(data); gps_marker_geom_free(&m->geom); free(m); return NULL;
+        free(data); gps_marker_free(m); return NULL;
     }
     if (m->geom.texkey) {
         N2Tpk tpk = n2_tpk_open(data, len);
@@ -267,21 +295,26 @@ static GpsMarker *gps_marker_load(const char *dataroot) {
 static void gps_marker_draw(GpsMarker *m, const RProg *rp, const float mvp[16],
                             const float car_pos[3], float heading, float bearing, unsigned t_ms,const GpsMarkerPose *cfg) {
     if (!m || !rp || !mvp || !car_pos) return;
-    if (m->shader != rp->shader.id || !m->solid.id) {
+    if (m->shader != rp->shader.id || !m->solid.id || !m->halo.id) {
         UG2CarPipelines cp;
         render_car_pipelines(rp, &cp);
-        m->solid = cp.opaque[RHI_CULL_NONE]; m->shader = rp->shader.id;
+        m->solid = cp.opaque[RHI_CULL_NONE]; m->halo=cp.halo; m->shader = rp->shader.id;
     }
     float model[16], mv[16];
     gps_marker_transform(cfg,car_pos,heading,bearing,t_ms,model);
     mat_mul(mvp, model, mv);
     RMarkSaved saved;
     render_mark_begin(rp, &saved);          /* unlit, clamp(2*texel*vertex), fog */
-    rhi_cmd_bind_pipeline(m->solid);        /* observed opaque core; no additive face accumulation */
-    render_model(rp, model);                /* fog distance from world position */
+    render_model(rp, model);
     ug2_copy(rp->p->uMVP, mv, 16);
-    rhi_cmd_bind_texture(0, m->tex);
-    for (int i = 0; i < m->geom.scene.count; i++) render_draw_gpumesh(&m->gpu[i]);
+    /* [inferred] Paint the opaque core after the additive shell, so front
+       shell faces cannot wash its captured dark-blue fill out. */
+    rhi_cmd_bind_pipeline(m->halo);
+    rhi_cmd_bind_texture(0,m->tex);
+    for(int i=0;i<m->geom.scene.count;i++)if(i!=m->core)render_draw_gpumesh(&m->gpu[i]);
+    rhi_cmd_bind_pipeline(m->solid);
+    rhi_cmd_bind_texture(0,m->core_tex);
+    render_draw_gpumesh(&m->gpu[m->core]);
     render_model(rp, NULL);
     render_mark_end(rp, &saved);
 }
