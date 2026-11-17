@@ -20,13 +20,13 @@
 
     {"id": "inv-l4ra", "kind": "game", "binary": "nfsu2", "timeout": 600,
      "args": ["${OPENUG2_DATA}", "--resolution", "640x480", "--car", "GOLF", "--track", "STREAML4RA",
-              "--shot", "inv-STREAML4RA.png", "--frames", "120"],
+              "--rear-mirror", "off", "--shot", "inv-STREAML4RA.png", "--frames", "120"],
      "shots_min": 1,
      "shot_equal": {"inv-STREAML4RA.png": "${OPENUG2_GATE_REF}/invx-ref-STREAML4RA.png"}},
 
     {"id": "inv-l4rb", "kind": "game", "binary": "nfsu2", "timeout": 600,
      "args": ["${OPENUG2_DATA}", "--resolution", "640x480", "--car", "GOLF", "--track", "STREAML4RB",
-              "--shot", "inv-STREAML4RB.png", "--frames", "120"],
+              "--rear-mirror", "off", "--shot", "inv-STREAML4RB.png", "--frames", "120"],
      "shots_min": 1,
      "shot_equal": {"inv-STREAML4RB.png": "${OPENUG2_GATE_REF}/invx-ref-STREAML4RB.png"}},
 
