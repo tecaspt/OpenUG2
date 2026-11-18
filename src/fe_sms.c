@@ -142,7 +142,7 @@ void fe_sms_open_list(FeSms *s, const FeSmsItem *items, int n) {
     s->n = n;
     s->opened = -1;
     s->header_scale = 1;
-    /* [inferred] Retail opens on the newest message; the table order is the receipt order, so that is
+    /* [inferred] The host supplies receipt order, so the newest message is
      * the last unread record. With nothing unread the browsed row is the first. */
     s->sel = newest >= 0 ? newest : 0;
 }

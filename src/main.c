@@ -7073,7 +7073,7 @@ int main(int argc, char **argv) {
         sim_counter=resident_frame_counter;
         float frame_scale=deterministic_sim?1:(float)fmin(frame_seconds*PHYS_TICKRATE,8);
         int sim_reset=0,presentation_snap=0;
-        if(g_career.active && g_career.race<0 && gflow.launch.free_run &&
+        if(g_career.active && g_career.race<0 && gflow.launch.free_run && !world.city.race.active &&
            !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem)))
             ch_sms_tick(&g_career,carpos[0],carpos[1],deterministic_sim?1.0/PHYS_TICKRATE:fmin(frame_seconds,.1));
         int pause_frame = pause_menu_is_open(pause_menu) || (fem && fem_is_open(fem)) || pr_is_open(post);
@@ -7158,7 +7158,8 @@ int main(int argc, char **argv) {
                                e.cbutton.button == SDL_CONTROLLER_BUTTON_START) ||
                               (e.type == SDL_JOYBUTTONDOWN &&
                                cx_joy_button_is(&g_cx, e.jbutton.which, e.jbutton.button, CB_ACT_PAUSE));
-            if(fem && g_career.active && g_career.race<0 && !pause_frame && gflow.launch.free_run) {
+            if(fem && g_career.active && g_career.race<0 && !pause_frame &&
+               gflow.launch.free_run && !world.city.race.active) {
                 int sms_key=e.type==SDL_KEYDOWN && !e.key.repeat &&
                     cx_key_is(&g_cx,(int)e.key.keysym.scancode,CB_ACT_READ_SMS);
                 int sms_pad=(pad_edge & (1u<<CB_ACT_READ_SMS)) ||

@@ -52,7 +52,7 @@ typedef struct FeSms {
 int fe_sms_build(const CareerData *cd, const LangTable *lang, const int *received, int nreceived,
                  FeSmsItem *out, int cap);
 /* (Re)opens the mailbox over `n` built items: the browsed row is the newest unread message (the last
- * unread in table order), else the first row. */
+ * unread in receipt order), else the first row. */
 void fe_sms_open_list(FeSms *s, const FeSmsItem *items, int n);
 /* List navigation with wrap-around: `delta` rows either way (0 and |delta| >= n leave the row alone). */
 void fe_sms_select(FeSms *s, int delta);
