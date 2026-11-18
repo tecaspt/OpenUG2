@@ -11,7 +11,7 @@ definitions:
     # Pinned. Never `latest`: Xcode 27 builds against the iOS 27 SDK, which requires
     # the UIScene lifecycle, and SDL2 2.32 does not implement it, so the app would
     # not launch. Raise this only after the SDL side supports UIScene.
-    xcode: "26.6"
+    xcode: "27.2"  # App Store requires the iOS 27 SDK from April 2027 (ITMS-90725)
     vars:
       BUNDLE_ID: "com.tecaspt.openug2"
       XCODE_PROJECT: "ios/OpenUG2.xcodeproj"
