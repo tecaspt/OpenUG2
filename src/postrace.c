@@ -275,6 +275,15 @@ static int hit(float x,float y) {
     if(y>=385 && y<=435 && x>=400 && x<=620)return PR_ACT_CONTINUE;
     return 0;
 }
+static int pointer_hit(const PostRace *p,float x,float y) {
+    int action=hit(x,y);
+    if(p->phase!=PR_SCREEN_MENU && p->phase!=PR_SCREEN_RESULTS) {
+        action=0;
+        if(y>=385 && y<=472)action=x<220?(p->flow_at>0?-1:PR_ACT_QUIT_MAIN):x>=400?PR_ACT_CONTINUE:0;
+    }
+    if(p->phase==PR_SCREEN_MENU && y<400)action=x<220?10:x>420?11:12;
+    return action;
+}
 void pr_event(PostRace *p,const SDL_Event *e,SDL_Window *win) {
     if(!p || !p->open || p->pending)return;
     if(e->type==SDL_KEYDOWN && !e->key.repeat) {
@@ -292,12 +301,7 @@ void pr_event(PostRace *p,const SDL_Event *e,SDL_Window *win) {
     } else if(win && (e->type==SDL_MOUSEBUTTONDOWN || e->type==SDL_MOUSEBUTTONUP) && e->button.button==SDL_BUTTON_LEFT && e->button.which!=SDL_TOUCH_MOUSEID) {
         int w,h;float x,y;SDL_GetWindowSize(win,&w,&h);if(w<=0 || h<=0)return;
         pause_menu_to_virtual(pause_menu_transform(w,h),e->button.x,e->button.y,&x,&y);
-        int action=hit(x,y);
-        if(p->phase!=PR_SCREEN_MENU && p->phase!=PR_SCREEN_RESULTS) {
-            action=0;
-            if(y>=385 && y<=472)action=x<220?(p->flow_at>0?-1:PR_ACT_QUIT_MAIN):x>=400?PR_ACT_CONTINUE:0;
-        }
-        if(p->phase==PR_SCREEN_MENU && y<400)action=x<220?10:x>420?11:12;
+        int action=pointer_hit(p,x,y);
         if(e->type==SDL_MOUSEBUTTONDOWN)p->pressed=action;
         else {
             if(p->pressed==action) {
@@ -311,8 +315,7 @@ void pr_event(PostRace *p,const SDL_Event *e,SDL_Window *win) {
         float x=e->tfinger.x*640,y=e->tfinger.y*480;
         if(win){int w,h;SDL_GetWindowSize(win,&w,&h);if(w<=0 || h<=0)return;
             pause_menu_to_virtual(pause_menu_transform(w,h),e->tfinger.x*w,e->tfinger.y*h,&x,&y);}
-        int action=y>=385?(x<220?(p->flow_at>0 && p->phase!=PR_SCREEN_MENU?-1:PR_ACT_QUIT_MAIN):x>=400?PR_ACT_CONTINUE:0):0;
-        if(p->phase==PR_SCREEN_MENU && y<400)action=x<220?10:x>420?11:12;
+        int action=pointer_hit(p,x,y);
         if(e->type==SDL_FINGERDOWN)p->pressed=action;
         else {if(action && action==p->pressed) {
             if(action==10 || action==11)gc_step(&p->carousel,action==10?-1:1);

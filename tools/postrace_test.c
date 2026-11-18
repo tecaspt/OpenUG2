@@ -32,6 +32,9 @@ int main(void) {
         e=(SDL_Event){0};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_RIGHT;pr_event(p,&e,NULL);
         e.key.keysym.sym=SDLK_RETURN;pr_event(p,&e,NULL);assert(pr_update(p,0)==PR_ACT_CONTINUE);checked++;
     }
+    info=(PostRaceInfo){.kind=N2_RACE_DRAG};pr_open(p,&info);
+    e=(SDL_Event){0};e.type=SDL_FINGERDOWN;e.tfinger.x=.15f;e.tfinger.y=.85f;pr_event(p,&e,NULL);
+    e.type=SDL_FINGERUP;pr_event(p,&e,NULL);assert(pr_update(p,0)==PR_ACT_RESTART);checked++;
     pr_destroy(p);assert(!pr_is_open(NULL));assert(pr_update(NULL,0)==0);
     printf("postrace_test: %d checks PASS\n",checked);return 0;
 }
