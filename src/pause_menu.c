@@ -142,6 +142,8 @@ static const GuiDialog *pause_current_dialog(const PauseMenu *p) {
     return p->ps.dialog.open ? &p->ps.dialog : NULL;
 }
 
+static void pause_sync_dialog(PauseMenu *p, float ms);
+
 static void pause_sync_dialog(PauseMenu *p, float ms) {
     const GuiDialog *d = pause_current_dialog(p);
     if (!d) { pause_drop_dialog(p); p->dlg_failed = 0; return; }
@@ -389,10 +391,12 @@ static PsInput ps_of(PmKey k) {
     switch (k) {
     case PMK_LEFT: return PS_IN_LEFT;
     case PMK_RIGHT: return PS_IN_RIGHT;
+    case PMK_UP: return PS_IN_UP;                              /* dialog row navigation (TASK-AL) */
+    case PMK_DOWN: return PS_IN_DOWN;
     case PMK_ACCEPT: return PS_IN_ACCEPT;
     case PMK_BACK: return PS_IN_BACK;
     case PMK_START: return PS_IN_START;
-    default: return PS_IN_NONE;                              /* Up/Down are ignored on the carousel */
+    default: return PS_IN_NONE;                              /* Up/Down do nothing on the carousel */
     }
 }
 static OmInput om_of(PmKey k) {
@@ -415,8 +419,9 @@ static void pause_pill_clear(PauseMenu *p) {
 static void pause_key(PauseMenu *p, PmKey k) {
     if (!p->open || k == PMK_NONE) return;
     if (p->confirm_only) {
-        GdInput in = k == PMK_LEFT ? GD_IN_LEFT : k == PMK_RIGHT ? GD_IN_RIGHT : k == PMK_ACCEPT ? GD_IN_ACCEPT :
-                     k == PMK_BACK ? GD_IN_BACK : GD_IN_NONE;
+        GdInput in = k == PMK_LEFT ? GD_IN_LEFT : k == PMK_RIGHT ? GD_IN_RIGHT :
+                     k == PMK_UP ? GD_IN_UP : k == PMK_DOWN ? GD_IN_DOWN :
+                     k == PMK_ACCEPT ? GD_IN_ACCEPT : k == PMK_BACK ? GD_IN_BACK : GD_IN_NONE;
         if (in != GD_IN_NONE) gd_input(&p->confirm, in);
         return;
     }
@@ -688,6 +693,21 @@ static void pause_compose(PauseMenu *p) {
     pause_draw_pills(p);
 }
 
+/* Binds the dialog on screen with the retail resources. Returns 1 when the authored package bound.
+ * Call after a family change (pause_menu_confirm with another GdKind) -- the bound package belongs to
+ * the dialog family, so a help sheet opened after a two-button dialog rebinds to its own package. */
+int pause_menu_dialog_prepare(PauseMenu *p) {
+    const GuiDialog *d = pause_current_dialog(p);
+    if (!d) return 0;
+    p->dlg_failed = 0;                                      /* retry the bind after an earlier failure */
+    if (p->dlg_loaded) {
+        const char *want = d->spec.package;
+        if (want && strcmp(want, p->dlg_v.scr.name)) pause_drop_dialog(p);   /* another family: rebind */
+    }
+    pause_sync_dialog(p, 0);
+    return p->dlg_loaded;
+}
+
 void pause_menu_draw(PauseMenu *p, int width, int height) {
     if (!pause_menu_is_open(p) || !p->gl || !p->compatible || width <= 0 || height <= 0) return;
     const UgFace *face = ug_text_face();
@@ -785,7 +805,6 @@ int pause_menu_confirm(PauseMenu *p, int kind) {
     pause_drop_dialog(p); p->dlg_failed = 0;
     gd_open(&p->confirm, &spec);
     p->confirm_only = 1; p->confirm_result = GD_RES_NONE; p->open = 1; p->press_pill = 0;
-    pause_sync_dialog(p, 0);
     return 1;
 }
 int pause_menu_take_confirm(PauseMenu *p) {

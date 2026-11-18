@@ -180,19 +180,27 @@ int gv_controls_bind(GvControls *v, GvScreen *s, const ControlsMenu *m);
  * window, focus scripts, capture pulse, selector arrows, scrollbar. */
 void gv_controls_sync(GvControls *v, const ControlsMenu *m, float dt_ms);
 
-/* ---- two-button dialog (UI_InGameDialog / GenericDialog_SMALL) ---------------------------- */
+/* ---- dialog (two-button UI_InGameDialog / GenericDialog_SMALL, three-button
+ *          GenericDialog_ThreeButton, help sheet HelpDialog_SMALL/MED/LARGE) ------------------ */
 typedef struct GvDialog {
     GvScreen scr;
-    int msg, lbl1, lbl2, lbl3, b1, b2, b3;
+    int msg, lbl1, lbl2, lbl3, b1, b2, b3;   /* message M, labels L1-L3, button rows button1/2/3 */
+    int title, back, glyph;                  /* help sheet: title T, back caption B, console glyph hint */
     int open;
     int seen_focus;
     int exit_sent;
     int bound;
 } GvDialog;
-/* Loads the dialog package named by `d->spec`, fills texts, hides the third button and focuses the
- * second. Returns 0 (unavailable) when the package, its objects or art are missing. */
+/* Loads the dialog package named by `d->spec`: a two-button frame binds the message and the two
+ * buttons (the third row stays hidden as it always was) and focuses the second button; the
+ * three-button frame binds all three rows and their labels and focuses the middle row; a help
+ * frame binds title, body and back caption and focuses nothing (the console glyph hint is hidden
+ * on PC like every hint text). Returns 0 (unavailable) when the package, its objects or art are
+ * missing. */
 int gv_dialog_open(GvDialog *v, const UgAssets *assets, const GuiDialog *d);
 int gv_dialog_attach(GvDialog *v, const UgFngPackage *pk, const UgAssets *assets, const GuiDialog *d);
+/* Advances the scene; focus changes move the scene focus (the authored Highlight/Focus responses
+ * animate as data), the closing state starts the authored exit. */
 void gv_dialog_sync(GvDialog *v, const GuiDialog *d, float dt_ms);
 void gv_dialog_close(GvDialog *v);
 

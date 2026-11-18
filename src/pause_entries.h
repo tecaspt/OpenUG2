@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include "gui_dialog.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -60,6 +62,8 @@ typedef struct PauseEntry {
     const char *label;            /* English caption (language-file text for that key) */
     int needs_replay;             /* disabled unless replay data is available */
     int disabled;                 /* evaluated: needs_replay && !replay_available */
+    GdKind dialog;                /* confirmation dialog kind (TASK-AL); 0 = the default
+                                   * two-button dialog which the action would open */
 } PauseEntry;
 
 /* Builds the list; returns the number of entries (0..PE_MAX). */

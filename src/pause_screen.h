@@ -16,7 +16,9 @@
 extern "C" {
 #endif
 
-typedef enum { PS_IN_NONE = 0, PS_IN_LEFT, PS_IN_RIGHT, PS_IN_ACCEPT, PS_IN_BACK, PS_IN_START } PsInput;
+/* Up/Down step the rows of a three-button dialog; the pause carousel itself ignores them (the
+ * retail carousel is horizontal). */
+typedef enum { PS_IN_NONE = 0, PS_IN_LEFT, PS_IN_RIGHT, PS_IN_UP, PS_IN_DOWN, PS_IN_ACCEPT, PS_IN_BACK, PS_IN_START } PsInput;
 
 /* Exactly-once results for the host / adapter. */
 typedef enum {

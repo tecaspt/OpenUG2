@@ -413,6 +413,127 @@ static void test_tvg10(void) {
     CHECK(gd_pointer_click(&g, 151, 95) && g.closing, "extent edges are inclusive");
     gd_update(&g, 0.2f);
     CHECK(gd_poll(&g) == GD_RES_SECOND, "pointer Cancel result");
+
+    /* ---- TASK-AL: three vertically stacked rows (GenericDialog_ThreeButton.fng) -------------------- */
+    GdSpec t3;
+    gd_spec(&t3, GD_DELETE_PROFILE, NULL);
+    CHECK(!strcmp(t3.package, "GenericDialog_ThreeButton.fng") && t3.package_key == 0xD53E4A88u, "three-button package");
+    CHECK(t3.frame && t3.frame->buttons == 3, "three-button frame declares three rows");
+    CHECK(t3.message_key == 0x2C8EC31Du && strstr(t3.message, "%s") != NULL, "profile-delete message keeps the percent-s placeholder");
+    CHECK(t3.label_key[0] == 0x56B00632u && !strcmp(t3.label[0], "Delete") &&
+          t3.label_key[1] == 0x0000061Cu && !strcmp(t3.label[1], "No") &&
+          t3.label_key[2] == 0x541389E5u && !strcmp(t3.label[2], "Cancel"), "row captions Delete/No/Cancel");
+    CHECK(t3.initial_focus == 1, "three-button opens on the middle row");
+    gd_open(&g, &t3);
+    CHECK(g.open && g.focus == 1, "three-button focus on the middle row");
+    gd_input(&g, GD_IN_DOWN); CHECK(g.focus == 0, "Down steps toward L1 (bottom)");
+    gd_input(&g, GD_IN_DOWN); CHECK(g.focus == 0, "Down at the bottom row: no wrap");
+    gd_input(&g, GD_IN_UP); CHECK(g.focus == 1, "Up steps back to the middle");
+    gd_input(&g, GD_IN_UP); CHECK(g.focus == 2, "Up steps toward L3 (top)");
+    gd_input(&g, GD_IN_UP); CHECK(g.focus == 2, "Up at the top row: no wrap");
+    gd_input(&g, GD_IN_LEFT); gd_input(&g, GD_IN_RIGHT); gd_input(&g, GD_IN_START);
+    CHECK(g.focus == 2 && !g.closing, "Left/Right/Start do nothing on stacked rows");
+    gd_input(&g, GD_IN_ACCEPT);
+    CHECK(g.closing && g.open, "Accept on the top row starts the exit");
+    gd_update(&g, 0.139f);
+    CHECK(gd_poll(&g) == GD_RES_NONE && g.open, "no three-button result before the 140 ms exit");
+    gd_update(&g, 0.002f);
+    CHECK(gd_poll(&g) == GD_RES_THIRD && !g.open, "top row delivers GD_RES_THIRD after the exit");
+    gd_open(&g, &t3);
+    gd_input(&g, GD_IN_ACCEPT);                                   /* focus starts on the middle row */
+    gd_update(&g, 0.15f);
+    CHECK(gd_poll(&g) == GD_RES_SECOND, "middle row Accept gives the second result");
+    gd_open(&g, &t3);
+    gd_input(&g, GD_IN_DOWN);
+    gd_input(&g, GD_IN_ACCEPT);
+    gd_update(&g, 0.15f);
+    CHECK(gd_poll(&g) == GD_RES_FIRST, "bottom row Accept gives the first result");
+    gd_open(&g, &t3);
+    gd_input(&g, GD_IN_UP);
+    gd_input(&g, GD_IN_BACK);                                     /* Back cancels whatever the focus */
+    gd_update(&g, 0.15f);
+    CHECK(gd_poll(&g) == GD_RES_CANCEL, "Back on a three-row dialog gives GD_RES_CANCEL");
+    /* tap targets: authored 512 x 42 row strips at centres y 164 (L1) / 120 / 76 (L3) [data] */
+    {
+        float r0[4], r1[4], r2[4];
+        gd_spec_button_extent(&t3, 0, r0); gd_spec_button_extent(&t3, 1, r1); gd_spec_button_extent(&t3, 2, r2);
+        CHECK(NEAR(r0[0], -256, 0.001) && NEAR(r0[2], 256, 0.001) && NEAR(r0[1], 143, 0.001) && NEAR(r0[3], 185, 0.001), "bottom row strip");
+        CHECK(NEAR(r1[1], 99, 0.001) && NEAR(r1[3], 141, 0.001), "middle row strip");
+        CHECK(NEAR(r2[1], 55, 0.001) && NEAR(r2[3], 97, 0.001), "top row strip");
+        gd_open(&g, &t3);
+        CHECK(!gd_pointer_click(&g, 0, 142.5f) && !g.closing, "tap between the strips is inert");
+        CHECK(gd_pointer_click(&g, -200, 164) && g.closing, "tap on the bottom row chooses it");
+        gd_update(&g, 0.2f);
+        CHECK(gd_poll(&g) == GD_RES_FIRST, "tap result of the bottom row");
+        gd_open(&g, &t3);
+        CHECK(gd_pointer_click(&g, 255.9f, 97.0f) && g.closing, "strip edges are inclusive");
+        gd_update(&g, 0.2f);
+        CHECK(gd_poll(&g) == GD_RES_THIRD, "tap result of the top row");
+    }
+
+    /* ---- TASK-AL: help sheet (HelpDialog_SMALL/MED/LARGE) -------------------------------------------- */
+    GdSpec hs;
+    gd_spec(&hs, GD_HELP, NULL);                                  /* retail default texts */
+    CHECK(!strcmp(hs.package, "HelpDialog_SMALL.fng") && hs.package_key == 0x6EACFF39u, "help default binds SMALL");
+    CHECK(hs.title_key == 0x00169268u && !strcmp(hs.title, "Help"), "help title uses the retail Help key");
+    CHECK(hs.back_key == 0x001335F0u, "help caption uses the retail Back key");
+    CHECK(hs.frame && hs.frame->buttons == 1 && hs.frame->help, "help frame has one caption row");
+    gd_open(&g, &hs);
+    CHECK(g.open && g.focus == -1, "a help sheet opens without focus");
+    gd_input(&g, GD_IN_LEFT); gd_input(&g, GD_IN_RIGHT); gd_input(&g, GD_IN_UP);
+    gd_input(&g, GD_IN_DOWN); gd_input(&g, GD_IN_START);
+    CHECK(!g.closing, "navigation keys do nothing on a help sheet");
+    gd_input(&g, GD_IN_ACCEPT);                                   /* Enter dismisses */
+    gd_update(&g, 0.15f);
+    CHECK(gd_poll(&g) == GD_RES_FIRST && !g.open, "Accept closes the sheet with the first result");
+    gd_spec_help(&hs, 0, NULL, 0, "Body text.", 0, NULL);
+    gd_open(&g, &hs);
+    gd_input(&g, GD_IN_BACK);                                     /* Back dismisses too */
+    gd_update(&g, 0.15f);
+    CHECK(gd_poll(&g) == GD_RES_CANCEL, "Back closes the sheet with GD_RES_CANCEL");
+    gd_open(&g, &hs);
+    CHECK(!gd_pointer_click(&g, 171, 87) && !g.closing, "tap left of the caption is inert");
+    CHECK(gd_pointer_click(&g, 220, 87) && g.closing, "tap on the caption row dismisses the sheet");
+    gd_update(&g, 0.2f);
+    CHECK(gd_poll(&g) == GD_RES_FIRST, "tap closes the sheet with the first result");
+    {   /* the 0.9-scale body estimate: 42 characters a line [inferred] */
+        static const char rep[43] = "01234567890123456789012345678901234567890";
+        char buf[512];
+        GdSpec s1, s2, s3;
+        gd_spec_help(&s1, 0, NULL, 0, rep, 0, NULL);               /* exactly one line */
+        snprintf(buf, sizeof buf, "%s%s", rep, rep);
+        gd_spec_help(&s2, 0, NULL, 0, buf, 0, NULL);              /* two lines */
+        snprintf(buf, sizeof buf, "%s%s%s", rep, rep, rep);
+        gd_spec_help(&s3, 0, NULL, 0, buf, 0, NULL);              /* three lines */
+        CHECK(!strcmp(s1.package, "HelpDialog_SMALL.fng"), "one 42-char line fits SMALL");
+        CHECK(!strcmp(s2.package, "HelpDialog_MED.fng"), "two lines promote to MED");
+        CHECK(!strcmp(s3.package, "HelpDialog_LARGE.fng"), "three lines promote to LARGE");
+        snprintf(buf, sizeof buf, "%s^^%s", rep, rep);            /* an empty explicit line counts */
+        gd_spec_help(&s1, 0, NULL, 0, buf, 0, NULL);
+        CHECK(!strcmp(s1.package, "HelpDialog_LARGE.fng"), "empty explicit line counts in help too");
+        gd_spec_help(&s1, 0, NULL, 0, rep, 0x00000639u, "OK");
+        CHECK(s1.back_key == 0x00000639u && s1.title_key == 0x00169268u, "explicit back key kept, title defaulted");
+    }
+    {   /* help tap target: the authored caption extent 172..268, +/-10 around btn_y [data] */
+        static const char rep[43] = "01234567890123456789012345678901234567890";
+        char buf[128];
+        float he[4];
+        GdSpec hm;
+        snprintf(buf, sizeof buf, "%s%s", rep, rep);              /* two lines -> MED, btn_y 137 */
+        gd_spec_help(&hm, 0, NULL, 0, buf, 0, NULL);
+        gd_spec_button_extent(&hm, 0, he);
+        CHECK(NEAR(he[0], 172, 0.001) && NEAR(he[2], 268, 0.001) && NEAR(he[1], 127, 0.001) && NEAR(he[3], 147, 0.001), "MED caption extent");
+        gd_spec_button_extent(&hm, 1, he);
+        CHECK(NEAR(he[0], 0, 0.001) && NEAR(he[3], 0, 0.001), "a help sheet has no second target");
+    }
+    /* the two-button extents of a framed spec keep the old pills, shifted to the frame's row line */
+    {
+        float a[4], b[4];
+        gd_spec(&q, GD_QUIT, &career);
+        gd_button_extent(GD_QUIT, 0, a);
+        gd_spec_button_extent(&q, 0, b);
+        CHECK(!memcmp(a, b, sizeof a), "the in-game dialog frame keeps the historic pill extents");
+    }
 }
 
 /* ---- tvg11: transitions ---------------------------------------------------------------------------- */

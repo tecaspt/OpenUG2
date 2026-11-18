@@ -683,6 +683,18 @@ pause-menu-test: build/pause_menu_test
 	./build/pause_menu_test confirm
 .PHONY: pause-menu-test
 
+# Retail-dialog checks (TASK-AL): binds GenericDialog_ThreeButton / HelpDialog / GenericDialog with
+# the user-supplied resources through the pause adapter, drives keyboard and touch, and screenshots
+# each family. This one REQUIRES the data root (it never silently skips).
+DIALOG_RETAIL_SRC = src/pause_menu.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+build/dialog_retail_test: tools/dialog_retail_test.c $(DIALOG_RETAIL_SRC) $(HDRS)
+	@mkdir -p build/dialog-shots
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/dialog_retail_test.c $(DIALOG_RETAIL_SRC) -o $@ $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+dialog-retail-test: build/dialog_retail_test
+	@test -n "$(OPENUG2_DATA)" || { echo "dialog-retail-test: OPENUG2_DATA (or NFSU2_DATA) is required" >&2; exit 1; }
+	SDL_VIDEODRIVER=offscreen ./build/dialog_retail_test "$(OPENUG2_DATA)" build/dialog-shots
+.PHONY: dialog-retail-test
+
 build/pause_menu_gl_test: tools/pause_menu_gl_test.c $(HDRS) $(UGUI_SRC)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc $< $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl_state.c -o $@ $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) -lm

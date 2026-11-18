@@ -46,10 +46,12 @@ int pause_menu_visual_available(const PauseMenu *p);
 const char *pause_menu_status(const PauseMenu *p);
 /* M9: the in-game language table entry for `key` (retail string), or `fallback` when the key or table is missing. */
 const char *pause_menu_text(const PauseMenu *p, uint32_t key, const char *fallback);
-/* M6: show one two-button dialog (GdKind, e.g. GD_ENGAGE_RACE) on its own over the running game. While it is
- * up pause_menu_is_open() is true, so the host routes input and draws as for the pause screen; it closes with
- * FE_ACTION_RESUME from pause_menu_update, and pause_menu_take_confirm() then returns the answer once
- * (GdResult: 1 first button / Yes, 2 second / No / Back, 0 none). Returns 0 if the menu is already open. */
+/* M6: show one dialog on its own over the running game (GdKind: a two-button kind like GD_ENGAGE_RACE,
+ * or GD_DELETE_PROFILE for the three-row GenericDialog_ThreeButton.fng, or GD_HELP for a HelpDialog sheet).
+ * While it is up pause_menu_is_open() is true, so the host routes input and draws as for the pause screen;
+ * it closes with FE_ACTION_RESUME from pause_menu_update, and pause_menu_take_confirm() then returns the
+ * answer once (GdResult: 1 first button / Yes, 2 second / No / Back, 3 third row, 4 cancelled with Back on
+ * a three-row or help dialog, 0 none). Returns 0 if the menu is already open. */
 int pause_menu_confirm(PauseMenu *p, int kind);
 int pause_menu_take_confirm(PauseMenu *p);
 /* Confirmation dialog over the pause screen or the options screens (UI_InGameDialog.fng OK/Cancel,
@@ -57,6 +59,9 @@ int pause_menu_take_confirm(PauseMenu *p);
 int pause_menu_dialog_open(const PauseMenu *p);
 int pause_menu_dialog_visual_available(const PauseMenu *p);
 const char *pause_menu_dialog_status(const PauseMenu *p);
+/* Binds the dialog currently on screen against the retail resources (after pause_menu_confirm or an
+ * entry that opened one). Returns 1 when the authored package bound; the dialog then draws. */
+int pause_menu_dialog_prepare(PauseMenu *p);
 /* Empty unless the language table is unavailable (English fallback captions are used). */
 const char *pause_menu_caption_status(const PauseMenu *p);
 FeAction pause_menu_update(PauseMenu *p, float seconds);

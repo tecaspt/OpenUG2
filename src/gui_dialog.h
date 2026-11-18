@@ -1,9 +1,12 @@
-/* gui_dialog.h -- generic two-button dialogs (SPEC_GUI_ART 2.4 and 6, SPEC_GUI 6, tvg10, tvg06).
+/* gui_dialog.h -- generic two- and three-button dialogs and the help sheet (SPEC_GUI_ART 2.4 and 6,
+ * SPEC_GUI 6, tvg10, tvg06; three-button rows and the help caption measured from retail [data]).
  *
  * Pure state machine, no GL/SDL: describes the dialogs the pause menu opens (UI_InGameDialog.fng:
- * OK / Cancel) and the Default Settings confirmation (GenericDialog_SMALL.fng: Yes / No), owns the
- * button focus and delivers the result after the dialog's exit script (140 ms). The picture is the
- * view's business (gui_view.h). */
+ * OK / Cancel), the Default Settings confirmation (GenericDialog_SMALL.fng: Yes / No), the retail
+ * three-button frame (GenericDialog_ThreeButton.fng: three vertically stacked rows) and the help
+ * sheet (HelpDialog_SMALL/MED/LARGE: title, body, back caption), owns the button focus and delivers
+ * the result after the dialog's exit script (140 ms). The picture is the view's business
+ * (gui_view.h). */
 #ifndef OPENUG2_GUI_DIALOG_H
 #define OPENUG2_GUI_DIALOG_H
 
@@ -21,9 +24,18 @@ typedef enum {
     GD_CONTROLS_RESET,                                            /* same package: OK / Cancel (CONTROLS_SPEC 4.6) */
     GD_ENGAGE_RACE,                                               /* M6: same package, Yes / No: "Would you like to race this event?" */
     GD_ENGAGE_BODY, GD_ENGAGE_PAINT, GD_ENGAGE_PERF, GD_ENGAGE_SPECIALTY,
-    GD_ENGAGE_SHOP                                                /* M6: same package, Yes / No: ASK_ENTER_CAR_LOT.
+    GD_ENGAGE_SHOP,                                               /* M6: same package, Yes / No: ASK_ENTER_CAR_LOT.
                                                                    * Every kind above keeps the frame it always used;
                                                                    * gd_frame_fit() picks a retail frame by text. */
+    GD_DELETE_PROFILE,                                            /* GenericDialog_ThreeButton.fng: three rows.
+                                                                   * The retail PC frontend has no three-button
+                                                                   * host; this is the profile-delete question the
+                                                                   * package's Yes/No/Cancel row stack is built for
+                                                                   * [inferred]; the host call is documented in
+                                                                   * docs/parity/DIALOGS.md */
+    GD_HELP                                                       /* HelpDialog_SMALL/MED/LARGE: title, body and
+                                                                   * back caption; opened with a caller-chosen title,
+                                                                   * body and language keys (gd_spec_help) */
 } GdKind;
 
 /* Dialog size, as retail names it (GenericDialog_SMALL / _MED / _LARGE, HelpDialog_SMALL, ...). */
@@ -78,21 +90,35 @@ typedef struct GdContext {
     int flag;                     /* extra online flag */
 } GdContext;
 
+#define GD_MAX_BUTTONS 3          /* L1 / L2 / L3 of GenericDialog_ThreeButton; two-button kinds use [0] and [1] */
+
 typedef struct GdSpec {
     GdKind kind;
-    const char *package;          /* "UI_InGameDialog.fng" / "GenericDialog_SMALL.fng" */
+    const char *package;          /* "UI_InGameDialog.fng" / "GenericDialog_SMALL.fng" / "GenericDialog_ThreeButton.fng" / "HelpDialog_MED.fng" */
     uint32_t package_key;
     const GdFrame *frame;         /* the retail frame `package` names; NULL when no table frame matches */
+    uint32_t title_key;           /* help sheet title (T); 0 for the other kinds */
+    const char *title;            /* English text of that key (fallback when the table lacks it) */
     uint32_t message_key;
     const char *message;          /* English text of that key (fallback when the table lacks it) */
-    uint32_t label_key[2];        /* first / second button label */
-    const char *label[2];
-    uint32_t result_msg[2];       /* message posted for the first / second button */
+    uint32_t label_key[GD_MAX_BUTTONS];   /* button labels; [2] = the third row (L3) */
+    const char *label[GD_MAX_BUTTONS];
+    uint32_t back_key;            /* help caption (B) text key; 0 for the other kinds */
+    const char *back_text;        /* English text of that key (fallback when the table lacks it) */
+    uint32_t result_msg[GD_MAX_BUTTONS];  /* message posted for each button */
     uint32_t back_msg;            /* message posted by Back (the cancel message) */
-    int initial_focus;            /* 1 = the second button (6) */
+    int initial_focus;            /* focus on open: the second button of a two-button dialog (6);
+                                   * the middle row of a three-button dialog; ignored by the help sheet */
 } GdSpec;
 
 void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx);
+/* Opens a help sheet (HelpDialog_SMALL/MED/LARGE chosen by the body's line estimate): `title_key`
+ * and `title` are the T texts, `body_key` and `body` the M texts, `back_key` and `back` the B
+ * caption; a key of 0 or text of "" leaves the authored retail sample. The sheet has no buttons:
+ * Accept or a tap on the caption closes it (GD_RES_FIRST), Back closes it (GD_RES_CANCEL). */
+void gd_spec_help(GdSpec *out, uint32_t title_key, const char *title,
+                  uint32_t body_key, const char *body,
+                  uint32_t back_key, const char *back);
 /* Re-picks the frame of a spec whose default is already right for its text, and promotes it to the
  * retail frame that fits when the text does not fit the default. A kind that has always opened one
  * frame keeps it unless its message no longer fits that frame's box (the rule the brief fixes); so
@@ -102,12 +128,15 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx);
 const GdFrame *gd_spec_fit(GdSpec *spec, GdFamily family);
 
 typedef enum { GD_IN_NONE = 0, GD_IN_UP, GD_IN_DOWN, GD_IN_LEFT, GD_IN_RIGHT, GD_IN_ACCEPT, GD_IN_BACK, GD_IN_START } GdInput;
-typedef enum { GD_RES_NONE = 0, GD_RES_FIRST, GD_RES_SECOND } GdResult;    /* SECOND = Cancel / No / Back */
+typedef enum { GD_RES_NONE = 0, GD_RES_FIRST, GD_RES_SECOND,   /* FIRST / SECOND button; SECOND is also
+                                                                * the Back result of a two-button dialog */
+               GD_RES_THIRD,                                   /* the third row (L3) of a three-button dialog */
+               GD_RES_CANCEL } GdResult;                       /* Back on a three-button dialog or help sheet */
 
 typedef struct GuiDialog {
     GdSpec spec;
     int open;                     /* logically open: owns all input */
-    int focus;                    /* 0 first button, 1 second button */
+    int focus;                    /* focused button: 0 first / 1 second / 2 third; the help sheet has none */
     int closing;                  /* exit script running */
     float exit_left_ms;
     GdResult pending;             /* chosen, delivered when the exit completes */
@@ -115,19 +144,33 @@ typedef struct GuiDialog {
     int deliveries;
 } GuiDialog;
 
-/* Opens a fresh dialog: focus on the second button, nothing pending. */
+/* Opens a fresh dialog: two-button kinds focus the second button (6), the three-button frame the
+ * middle row, the help sheet nothing; nothing pending. */
 void gd_open(GuiDialog *d, const GdSpec *spec);
-/* Left/Right move between the two buttons without wrapping; Accept chooses the focused button; Back
- * chooses Cancel; Up/Down/Start do nothing. Input is ignored while the exit runs. */
+/* Two-button: Left/Right move between the buttons without wrapping; Accept chooses the focused
+ * button; Back chooses Cancel; Up/Down/Start do nothing.
+ * Three-button: Up/Down step through the rows (L1 bottom to L3 top) without wrapping; Left/Right
+ * do nothing (the rows are stacked vertically); Accept chooses the focused row; Back chooses
+ * GD_RES_CANCEL. Help: Accept closes with GD_RES_FIRST, Back with GD_RES_CANCEL. Input is ignored
+ * while the exit runs. */
 void gd_input(GuiDialog *d, GdInput in);
-/* Primary click at centred virtual coordinates: a click on a button's extent focuses and chooses it.
- * Returns 1 when a button was hit. */
+/* Primary click at centred virtual coordinates: a click on a button's extent focuses and chooses it
+ * (on a help sheet, a click on the caption row closes it). Returns 1 when handled. */
 int gd_pointer_click(GuiDialog *d, float x, float y);
 void gd_update(GuiDialog *d, float seconds);
 /* Exactly-once result, after the 140 ms exit; the dialog is closed when it is returned. */
 GdResult gd_poll(GuiDialog *d);
-/* Button extents (centred coordinates, edges inclusive): x0,y0,x1,y1. */
+/* Button extents (centred coordinates, edges inclusive): x0,y0,x1,y1.
+ * Two-button kinds (unchanged): the authored pill boxes, x149 wide around +/-150 (GenericDialog_
+ * SMALL family) or +/-151, y 53..95, shifted with the frame's button row.
+ * Three-button and help: gd_spec_button_extent below. `button` indexes the frame's buttons. */
 void gd_button_extent(GdKind kind, int button, float e[4]);
+/* Extent of one button of any frame family, derived from the spec's retail frame [data]:
+ * three-button rows: x -256..256 (the authored 512-unit strips), row centres y 76/120/164 for
+ * button 0/1/2 (L1 bottom, L2 middle, L3 top), each +/-21 (the authored 42-unit row height).
+ * Help: button 0 is the caption row, x 172..268 (the B caption's authored extent), y = the
+ * caption row centre +/-10; other buttons are empty. */
+void gd_spec_button_extent(const GdSpec *spec, int button, float e[4]);
 
 #ifdef __cplusplus
 }

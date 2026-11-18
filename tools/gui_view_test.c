@@ -651,6 +651,109 @@ static void test_controls_view(void) {
     fake_free(&f);
 }
 
+/* ---- TASK-AL: the three-row dialog binds all three rows and moves focus as data ------------------ */
+static void test_three_button_view(void) {
+    Fake f;
+    fake_init(&f, NULL, 0);
+    strtab_put(&f.a.strings, 0x2C8EC31Du, "Delete the profile? (table)");
+    strtab_put(&f.a.strings, 0x56B00632u, "Delete (table)");
+    Pkg *p = (Pkg *)calloc(1, sizeof *p);
+    build_three_button_pkg(p);
+    GuiDialog d;
+    GdSpec spec;
+    gd_spec(&spec, GD_DELETE_PROFILE, NULL);
+    gd_open(&d, &spec);
+    CHECK(d.spec.frame && d.spec.frame->buttons == 3, "three-button spec carries the row frame");
+    GvDialog v;
+    CHECK(gv_dialog_attach(&v, &p->pk, &f.a, &d), "three-button attach: %s", v.scr.status);
+    const UgScene *sc = &v.scr.scene;
+    CHECK(v.b3 >= 0 && v.lbl3 >= 0 && !sc->nodes[v.b3].app_hidden && !sc->nodes[v.lbl3].app_hidden,
+          "the third row binds and stays visible on a three-button dialog");
+    CHECK(!strcmp(sc->nodes[v.msg].text_override, "Delete the profile? (table)") &&
+          !strcmp(sc->nodes[v.lbl1].text_override, "Delete (table)") &&
+          !strcmp(sc->nodes[v.lbl2].text_override, "No") &&
+          !strcmp(sc->nodes[v.lbl3].text_override, "Cancel"), "three-button texts: table first, English fallback");
+    CHECK(sc->focus == v.b2, "initial scene focus on the middle row");
+    CHECK(ug_scene_script_id(sc, v.b2) == hn("Focus"), "the authored row focus response ran");
+    gd_input(&d, GD_IN_UP);                                    /* toward L3 (top) */
+    gv_dialog_sync(&v, &d, 0);
+    CHECK(sc->focus == v.b3 && ug_scene_script_id(sc, v.b3) == hn("Focus") &&
+          ug_scene_script_id(sc, v.b2) == hn("UnFocus"), "Up moves the scene focus to the top row (scripts run)");
+    gd_input(&d, GD_IN_DOWN);
+    gd_input(&d, GD_IN_DOWN);                                  /* past the bottom: no wrap, stays L1 */
+    gv_dialog_sync(&v, &d, 0);
+    CHECK(sc->focus == v.b1, "Down steps to the bottom row and stops there");
+    gd_input(&d, GD_IN_ACCEPT);                                /* focus on L1 -> first result */
+    gv_dialog_sync(&v, &d, 0);
+    CHECK(v.scr.exit_started && ug_scene_script_id(sc, v.scr.handler) == hn("FORWARD"), "a row choice plays the authored exit");
+    gv_dialog_sync(&v, &d, 141);
+    CHECK(v.scr.exit_done, "three-button exit-complete at 140 ms");
+    gv_dialog_close(&v);
+    CHECK(!v.bound && !v.scr.loaded, "three-button closed");
+    /* a package missing the third row fails closed for a three-button spec */
+    memset(p, 0, sizeof *p);
+    add(p, UG_OBJ_TEXT, "message_blurb", 0, 0, 1, 1);
+    UgFngObject *b1 = add(p, UG_OBJ_GROUP, "button1", 0, 0, 1, 1); b1->flags = UG_OF_BUTTON;
+    UgFngObject *b2 = add(p, UG_OBJ_GROUP, "Button2", 0, 0, 1, 1); b2->flags = UG_OF_BUTTON;
+    add(p, UG_OBJ_TEXT, NULL, 0, 0, 1, 1)->name_hash = 0xDA473D2Fu;
+    add(p, UG_OBJ_TEXT, NULL, 0, 0, 1, 1)->name_hash = 0xDA473D30u;
+    finish(p);
+    gd_open(&d, &spec);
+    CHECK(!gv_dialog_attach(&v, &p->pk, &f.a, &d) && strstr(v.scr.status, "dialog binding"),
+          "a three-button spec on a two-row package fails closed: %s", v.scr.status);
+    free(p);
+    fake_free(&f);
+}
+
+/* ---- TASK-AL: a help sheet binds T/M/B, hides the glyph hint and has no focus -------------------- */
+static void test_help_view(void) {
+    Fake f;
+    fake_init(&f, NULL, 0);
+    strtab_put(&f.a.strings, 0x001335F0u, "Back (table)");
+    Pkg *p = (Pkg *)calloc(1, sizeof *p);
+    build_help_pkg(p);
+    GuiDialog d;
+    GdSpec spec;
+    /* an empty body keeps the package's own text; the retail default title and table caption set */
+    gd_spec_help(&spec, 0, NULL, 0, NULL, 0, NULL);
+    gd_open(&d, &spec);
+    CHECK(d.focus == -1, "a help spec opens without focus");
+    GvDialog v;
+    CHECK(gv_dialog_attach(&v, &p->pk, &f.a, &d), "help attach: %s", v.scr.status);
+    const UgScene *sc = &v.scr.scene;
+    CHECK(v.title >= 0 && v.back >= 0 && v.glyph >= 0, "the help title, caption and glyph nodes bind");
+    CHECK(!strcmp(sc->nodes[v.title].text_override, "Help") && sc->nodes[v.msg].text_override == NULL,
+          "the retail default title sets, an empty body leaves the package text");
+    CHECK(!strcmp(sc->nodes[v.back].text_override, "Back (table)"), "the caption uses the language table");
+    CHECK(sc->nodes[v.glyph].app_hidden, "the console controller-glyph hint is hidden on PC");
+    CHECK(sc->focus < 0, "a help sheet has no scene focus");
+    gd_input(&d, GD_IN_ACCEPT);
+    gv_dialog_sync(&v, &d, 0);
+    CHECK(v.scr.exit_started && ug_scene_script_id(sc, v.scr.handler) == hn("FORWARD"), "Accept plays the sheet's authored exit");
+    gv_dialog_sync(&v, &d, 141);
+    CHECK(v.scr.exit_done, "help exit-complete at 140 ms");
+    gv_dialog_close(&v);
+    /* explicit title/body text overrides reach the nodes */
+    GdSpec s2;
+    gd_spec_help(&s2, 0x00169268u, "Help", 0, "Body from the host.", 0, NULL);
+    gd_open(&d, &s2);
+    memset(p, 0, sizeof *p);
+    build_help_pkg(p);
+    CHECK(gv_dialog_attach(&v, &p->pk, &f.a, &d), "help attach (text): %s", v.scr.status);
+    CHECK(!strcmp(v.scr.scene.nodes[v.msg].text_override, "Body from the host."), "an explicit body overrides");
+    gv_dialog_close(&v);
+    /* a sheet without the B caption fails closed */
+    memset(p, 0, sizeof *p);
+    add(p, UG_OBJ_TEXT, "message_blurb", 0, 0, 1, 1);
+    add(p, UG_OBJ_TEXT, NULL, 0, 0, 1, 1)->name_hash = 0x426C7B4Du;    /* T present, B absent */
+    finish(p);
+    gd_open(&d, &spec);
+    CHECK(!gv_dialog_attach(&v, &p->pk, &f.a, &d) && strstr(v.scr.status, "dialog binding"),
+          "a help sheet without its caption fails closed: %s", v.scr.status);
+    free(p);
+    fake_free(&f);
+}
+
 int main(void) {
     test_synth_roundtrip();
     test_controls_view();
@@ -658,6 +761,8 @@ int main(void) {
     test_carousel_view();
     test_list_view();
     test_dialog_view();
+    test_three_button_view();
+    test_help_view();
     printf("gui_view_test: %d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
