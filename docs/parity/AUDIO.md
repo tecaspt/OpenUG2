@@ -221,10 +221,14 @@ inventory: 21 used, 63 unused, each with a reason. The unused ones fall into:
   Toyota Trueno AE86 / Sprinter GTS, VW Cabriolet and Scirocco. A recording with
   no car to receive it stays unused; inventing an owner for it would be a guess
   with no supporting data at all.
-- **the S2000 family (12 recordings, 3 of them without the `GIN_` prefix).**
-  There is no `CARS/S2000/GEOMETRY.BIN` in this install, so the model is not
-  drivable and nothing can be mapped to it. If a S2000 body is ever installed,
-  this is the first family to revisit.
+- **the S2000 family (12 recordings; three of them — `HondaS2000_APEX_V1`,
+  `S2000_5Zigen_v2`, `S2000_ApexChurch2F2F_v3_SH` — are named without the
+  `GIN_` prefix).** The loader keys on the `Gnsu20` magic and the explicit map,
+  never on a filename prefix, so the naming is only a cataloguing note, not a
+  reason for exclusion. The reason is that there is no
+  `CARS/S2000/GEOMETRY.BIN` in this install: the model is not drivable, so
+  nothing can receive the recordings. If a S2000 body is ever installed, this is
+  the first family to revisit.
 - **competition variants of a mapped car** — `Eclip2000_v1_CD` (Eclipse ramp),
   `FordFocus_comp2` (Focus competition), `VW_Jetta_M4` (TT upgrade tier),
   `VW_Drag_GTi` (Golf drag). Road takes win per the brief.
