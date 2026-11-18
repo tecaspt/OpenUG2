@@ -80,7 +80,7 @@ static void wpad(Buf *b, size_t to)   { while (b->at < to) w8(b, 0); }
 static void wpt(Buf *b, size_t end_at, uint32_t frames, int with_rate, uint32_t rate,
                 uint32_t data_off, int with_chan, uint32_t chan, int with_codec, uint32_t codec) {
     b->at += 4;                                            /* caller patches "PT\0\0" */
-    w8(b, 0x06); w8(b, 1); w8(b, 90);                      /* tags the library ignores */
+    w8(b, 0x06); w8(b, 1); w8(b, 90);                      /* authored level */
     w8(b, 0x13); w8(b, 1); w8(b, 127);
     if (with_chan)  { w8(b, 0x82); w8(b, 1); w8(b, (unsigned)chan); }
     if (with_codec) { w8(b, 0x83); w8(b, 1); w8(b, (unsigned)codec); }
@@ -202,6 +202,11 @@ static void test_two_samples(void) {
     CHECK(sfx_bank_decode(&b, 2, out) == 0);
     sfx_bank_close(&b);
     CHECK(b.count == 0 && b.file == NULL && b.samples == NULL);
+    /* Unknown tags are skipped, and an absent level defaults to unity. */
+    file[BANK_OFF + PT0 + 4] = 0x07;
+    CHECK(sfx_bank_open_mem(&b, file, len) == 1);
+    CHECK(b.samples[0].level == 100 && b.samples[1].level == 90);
+    sfx_bank_close(&b);
 }
 
 static void test_tags_that_block_decode(void) {
