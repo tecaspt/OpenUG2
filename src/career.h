@@ -7,7 +7,8 @@
 #include "career_data.h"
 #include "garage.h"
 
-#define CR_SCHEMA       3u            /* 3: + TLV 6 per-owned-car configurations; old saves migrate to stock */
+#define CR_SCHEMA       4u            /* 3: + TLV 6 per-owned-car configurations; 4: + TLV 7 performance parts and paint */
+#define CR_PAINT_SLOTS  9             /* 0 body, 1 rims, 2 calipers, 3 muffler, 4..8 reserved; value = part key, 0 = stock */
 #define CR_MAGIC        0x5243554Fu   /* 'OUCR' little-endian */
 #define CR_FILE_NAME    "openug2_career.bin"
 #define CR_HIDE_WON     1             /* [inferred] won races disappear from the map */
@@ -28,6 +29,9 @@ typedef struct CareerState {
     uint8_t  nowned, active, region;     /* owned cars, index of the driven one, unlock column 0 = A, 1 = B */
     GarageConfig config[CR_MAX_OWNED]; /* schema 3: career-only installed configurations */
     char     owned[CR_MAX_OWNED][32];    /* car folder names */
+    /* schema 4 (TLV 7): per owned car, installed performance components (bit i = CareerData.perf_comp[i]) and paint */
+    uint32_t perf[CR_MAX_OWNED][3];
+    uint32_t paint[CR_MAX_OWNED][CR_PAINT_SLOTS];
 } CareerState;
 
 typedef struct CrResult { uint32_t race_hash; int place, ncars, failed, aborted; double seconds; } CrResult;
@@ -85,6 +89,23 @@ int32_t cr_rule_part_price(const CareerData *, int shop, int slot, int value);
  * Returns ST_OK / ST_E_ARG; the host saves transactionally after renderer acknowledgement. */
 int cr_shop_install(CareerState *, const CareerData *, int shop, const GarageConfig *);
 const GarageConfig *cr_car_config(const CareerState *);
+
+/* ---- performance shop (docs/parity/PERF-PAINT.md) ---- */
+enum { CR_PERF_OK = 0, CR_PERF_E_ARG = -1, CR_PERF_E_LOCKED = -2, CR_PERF_E_FUNDS = -3, CR_PERF_E_OWNED = -4 };
+/* Unlock record 0x34A1C `id`, level 1..3: type 6 start, 0 never, 1 shop open [inferred: retail unlocks on discovery],
+ * 2/3/4 {u16 count, u16 stage}: past that stage, or in it with count wins / sponsor wins / URL wins [inferred]. */
+int  cr_unlock_ok(const CareerState *s, const CareerData *cd, uint32_t id, int lvl);
+int  cr_perf_unlock_id(int cat);                                           /* category -> 0x34A1C id [inferred] */
+int  cr_perf_level_open(const CareerState *s, const CareerData *cd, int cat, int lvl);
+int  cr_perf_owned(const CareerState *s, int comp);                        /* on the active car */
+/* comp >= 0: one component; comp < 0: the whole cat/lvl package (components not owned yet, 10% off [inferred]). */
+int32_t cr_perf_price(const CareerState *s, const CareerData *cd, int cat, int lvl, int comp);
+/* Validates shop (an open performance shop), unlock, funds and ownership; installs (exclusive components are
+ * replaced), debits the bank. Returns CR_PERF_*; *charged = amount paid. */
+int  cr_perf_buy(CareerState *s, const CareerData *cd, int shop, int cat, int lvl, int comp, int32_t *charged);
+/* Upgrade fraction per category/axis in [0,1]: clamped sum of the installed components' axis shares [data]. */
+void cr_perf_fraction(const CareerState *s, const CareerData *cd, float u[CD_PERF_CATS][4]);
+int  cr_perf_level_of(float u);                                            /* 0..3 at 0.325/0.655/0.995 [inferred] */
 
 /* ---- car lot ---- */
 typedef struct CrLotCar { char name[32]; int32_t price; uint8_t owned, starter; } CrLotCar;

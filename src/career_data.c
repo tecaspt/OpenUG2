@@ -16,6 +16,9 @@
 #define CD_ID_SHOPS    0x00034A12u
 #define CD_ID_UNLOCKS  0x00034A1Fu
 #define CD_ID_SMS      0x00034A17u
+#define CD_ID_PERF     0x00034A15u
+#define CD_ID_BRANDS   0x00034A14u
+#define CD_ID_ULK      0x00034A1Cu
 #define CD_ID_ZONES    0x0003414Au
 #define CD_ID_MARKERS  0x00034146u
 #define CD_MAX_FILE    (256u * 1024u * 1024u)
@@ -140,6 +143,70 @@ static void parse_sms(CareerData *cd, const uint8_t *buf, size_t co, size_t cs, 
     cd->nsms = (int)n;
 }
 
+
+/* 0x34A15 performance packages, 0x34A14 brands, 0x34A1C unlock table. Missing or malformed -> counts 0. */
+static void parse_perf(CareerData *cd, const uint8_t *buf, size_t co, size_t cs) {
+    size_t o, sz;
+    unsigned i, k, j, n;
+    memset(cd->perf_comp, 0, sizeof cd->perf_comp); memset(cd->perf_pkg, 0, sizeof cd->perf_pkg);
+    cd->nperf_comp = 0; cd->nbrand = 0; cd->nulk = 0;
+    if (find_chunk(buf, co, co + cs, CD_ID_PERF, &o, &sz) && sz % CD_PERF_PKG_BYTES == 0) {
+        n = (unsigned)(sz / CD_PERF_PKG_BYTES);
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_PERF_PKG_BYTES;
+            int32_t cat = (int32_t)rd32(r), lvl = (int32_t)rd32(r + 4), cnt = (int32_t)rd32(r + 8);
+            if (cat < 0 || cat >= CD_PERF_CATS || lvl < 1 || lvl > CD_PERF_LEVELS || cnt < 0 || cnt > 4) continue;
+            CdPerfPkg *pk = &cd->perf_pkg[cat][lvl - 1];
+            pk->n = 0;
+            for (k = 0; k < (unsigned)cnt; k++) {
+                const uint8_t *q = r + 12 + k * CD_PERF_DESC_BYTES;
+                int32_t c = (int32_t)rd32(q);
+                if (c < 0 || c >= CD_PERF_COMPS) continue;
+                CdPerfComp *d = &cd->perf_comp[c];
+                if (!d->valid) cd->nperf_comp++;
+                d->valid = 1; d->cat = (uint8_t)cat; d->lvl = (uint8_t)lvl;
+                d->name_key = rd32(q + 4); d->price = (int32_t)rd32(q + 8);
+                d->nbrand = (uint8_t)(rd32(q + 12) > 8 ? 8 : rd32(q + 12));
+                for (j = 0; j < 8; j++) d->brand[j] = rd32(q + 16 + 4 * j);
+                for (j = 0; j < 4; j++) d->axis[j] = rdf(q + 48 + 4 * j);
+                for (j = 0; j < 5; j++) { int32_t e = (int32_t)rd32(q + 64 + 4 * j); d->excl[j] = (int8_t)(e >= 0 && e < CD_PERF_COMPS ? e : -1); }
+                pk->comp[pk->n++] = (int8_t)c;
+            }
+        }
+    }
+    if (find_chunk(buf, co, co + cs, CD_ID_BRANDS, &o, &sz) && sz % CD_BRAND_BYTES == 0) {
+        n = (unsigned)(sz / CD_BRAND_BYTES); if (n > CD_MAX_BRANDS) n = CD_MAX_BRANDS;
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_BRAND_BYTES;
+            CdBrand *d = &cd->brand[i];
+            memcpy(d->key, r, 31); d->key[31] = 0;
+            memcpy(d->display, r + 32, 31); d->display[31] = 0;
+            d->hash = rd32(r + 64);
+        }
+        cd->nbrand = (int)n;
+    }
+    if (find_chunk(buf, co, co + cs, CD_ID_ULK, &o, &sz) && sz % CD_ULK_BYTES == 0) {
+        n = (unsigned)(sz / CD_ULK_BYTES); if (n > CD_MAX_ULK) n = CD_MAX_ULK;
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_ULK_BYTES;
+            CdUnlock *d = &cd->ulk[i];
+            d->id = rd32(r);
+            for (k = 0; k < 3; k++) {
+                const uint8_t *q = r + 4 + 12 * k;
+                d->l[k].a = rd16(q); d->l[k].b = rd16(q + 2);
+                d->l[k].type = q[4]; d->l[k].level = q[5];
+                d->l[k].value = rd32(q + 8);
+            }
+        }
+        cd->nulk = (int)n;
+    }
+}
+
+int cd_find_ulk(const CareerData *cd, uint32_t id) {
+    for (int i = 0; i < cd->nulk; i++) if (cd->ulk[i].id == id) return i;
+    return -1;
+}
+
 int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     size_t co, cs, ro, rs, so, ss, bo, bs;
     unsigned i, nr, ns;
@@ -198,6 +265,7 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     parse_shops(cd, buf, co, cs);
     parse_unlocks(cd, buf, co, cs);
     parse_sms(cd, buf, co, cs, bo, bs);
+    parse_perf(cd, buf, co, cs);
     return (int)nr;
 }
 
