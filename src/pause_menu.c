@@ -329,7 +329,7 @@ static int controls_resources_ok(PauseMenu *p) {
         0x35B9F571u, 0x4A1341B3u, 0x1E7E3391u, 0x58BAEBBAu, 0x735B2E6Cu, 0x6FC04E6Fu, 0xA081F0CCu, 0x64730AACu, 0x6F99F62Au
     };
     static const uint32_t textures[] = {
-        0xA04A7B26u,                                           /* OPTIONS_ICON_CONTROLS */
+        0xA04A7B26u,                                           /* texture "OPTIONS_ICON_CONTROLS" */
         0xA67C3FE2u, 0xC8C5F8A6u, 0x367B3E04u, 0x9C7C3C73u, 0xDA10B4A1u, 0x014245E2u, 0xD253B8F3u, 0xAD749E02u
     };
     if (!p->assets_open || !p->compatible || !p->gl || !p->assets.have_strings) return 0;

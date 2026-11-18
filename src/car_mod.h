@@ -137,7 +137,7 @@ static int n2_mod_traffic_plate_hit(const N2Scene *car,float y,float z,
     float best=INFINITY,dz=0;
     for(int i=0;i<car->count;i++) {
         const N2Mesh *m=car->meshes+i;
-        if(m->car_material!=0x19e0ecbeu || m->car_mount!=N2_MOUNT_BODY)continue; /* TRAFFIC */
+        if(m->car_material!=0x19e0ecbeu || m->car_mount!=N2_MOUNT_BODY)continue; /* material "TRAFFIC" */
         for(int j=0;j+2<m->nidx;j+=3) {
             if(m->idx[j]>=m->nverts || m->idx[j+1]>=m->nverts || m->idx[j+2]>=m->nverts)return -1;
             const float *a=m->verts+m->idx[j]*5,*b=m->verts+m->idx[j+1]*5,*c=m->verts+m->idx[j+2]*5;
@@ -158,7 +158,7 @@ static int n2_mod_traffic_plate_hit(const N2Scene *car,float y,float z,
 }
 
 static int n2_mod_plate_frame(const unsigned char *data,long len,const N2Scene *car,float socket[16]) {
-    int found=n2_car_socket_frame(data,len,car,0xc805f7e0u,socket,1); /* REAR_LICENSE_PLATE */
+    int found=n2_car_socket_frame(data,len,car,0xc805f7e0u,socket,1); /* socket "REAR_LICENSE_PLATE" */
     if(found)return found;
     float cy=0,cz=.58f,scale=1;
     /* Host placement hints: these indexed faces bound the visible plate recess.

@@ -1001,9 +1001,11 @@ fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	$(CC) -std=c99 -Wall -Wextra -Werror -ffunction-sections -fdata-sections $(SDL_CFLAGS) -Isrc tools/fe_track_test.c src/fe_track.c src/fe_car.c src/race_rules.c -lm -Wl,--gc-sections -o build/fe_track_test
 	./build/fe_track_test
 .PHONY: fe-lot-test
-fe-lot-test: tools/fe_lot_test.c $(SCREENS_TEST_SRC) $(HDRS)
+# src/resource.c is the retail block's reader of the installed-car directory (res_list_cars), which is
+# the reachable set of fe_lot.c's run-time CAR_NAME_<model> key; the rest of the test needs no data root.
+fe-lot-test: tools/fe_lot_test.c src/resource.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_lot_test.c $(SCREENS_TEST_SRC) -o build/fe_lot_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_lot_test.c src/resource.c $(SCREENS_TEST_SRC) -o build/fe_lot_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_lot_test
 # Task AA: the SMS mailbox. The target copies the fe-lot-test shape (the shared GUI_ART_SRC + ugui blob)
 # plus src/options_menu.c and src/settings.c, which gui_view's option list reaches, and the libpng /

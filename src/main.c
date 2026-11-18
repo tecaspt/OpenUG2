@@ -1677,8 +1677,8 @@ static int wm_snapshot(const CareerHost *ch, FeMapIcon out[FWM_MAX_ICONS])
         if (visual[k].kind!=HMI_SHOP) return -1;
         out[k]=(FeMapIcon){visual[k].x,visual[k].y,FWM_ICON_SHOP,
                           visual[k].variant,ch->cd.shop[i].hash,
-            ch->cd.shop[i].type==CD_SHOP_CAR_LOT ? 0x7edc9715u :
-            ch->cd.shop[i].type==CD_SHOP_CRIB ? 0x7ce21662u :
+            ch->cd.shop[i].type==CD_SHOP_CAR_LOT ? ug_hash_upper("MINIMAP_CARLOT") :
+            ch->cd.shop[i].type==CD_SHOP_CRIB ? ug_hash_upper("MINIMAP_GARAGE") :
             ch->cd.shop[i].type==CD_SHOP_BODY ? ug_hash_upper("MINIMAP_BODY") :
             ch->cd.shop[i].type==CD_SHOP_PAINT ? ug_hash_upper("MINIMAP_GRAPHICS") :
             ch->cd.shop[i].type==CD_SHOP_PERF ? ug_hash_upper("MINIMAP_PERFORMANCE") : 0xa4e5ee6cu};
@@ -6531,7 +6531,7 @@ int main(int argc, char **argv) {
 
     RhiTexture texTerr = world2 ? active_resident->resources.terrain_texture
         : (world.neighborhood.have_grass
-           ? upload_tex_keyed(0x5671B2B5u /* TRN_GRASSC */, NULL, &world.neighborhood.grass)
+           ? upload_tex_keyed(0x5671B2B5u /* texture "TRN_GRASSC" */, NULL, &world.neighborhood.grass)
            : (RhiTexture){0});
     RhiTexture texWheel = make_wheel_tex();   /* radial alloy-rim look for the tyres */
 
