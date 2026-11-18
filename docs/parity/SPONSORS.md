@@ -49,6 +49,25 @@ reputation; it does not fabricate a visual rating.
 | 5 | NEUSPEED | 3050 | 14500 | 250 | 1,1,1 |
 | 5 | GREDDY | 3000 | 15000 | 275 | 5,5,5 |
 
+## Sources and evidence levels
+
+Tags: [data] read directly from retail data; [inferred] our reading of data or
+authored text; [recomp] a fact taken from a recompilation project.
+
+[recomp] https://github.com/TalhaMudo/NFSU2Recomp was read for facts only (no
+code used). Its `runtime/overrides.c` confirms that `UI_SponsorPopup.fng`
+("Select a sponsor!") and `UI_Sponsorship_new.fng` (the sponsor list) are the
+two retail sponsor screens and that retail offers only Back on them, which is
+consistent with our popup/choice split. It contains no eligibility, reward or
+table facts, so none of the contract rules above are [recomp].
+
+A later experiment tied eligibility to per-stage reputation averages and a
+per-offer world-win count (stage record bytes 0x1C..0x27). It was dropped: no
+source supports the byte meaning or the formula, so it would be an unverified
+invention and would add a save schema for derived data. The eligibility rule
+stays the [inferred] lifetime reputation per entered race, which needs no new
+persisted state; schema 6 and its migration are unchanged.
+
 ## Rules and persistence
 
 [inferred] Offer the stage's contracts on entering free roam in stages 2–5,
