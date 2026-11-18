@@ -4,6 +4,7 @@
 #include "fe_screen.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 static int checks, fails;
 #define CK(v) do { checks++; if(!(v)){fails++;fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#v);} } while(0)
 static FemRequest key(FeMenu *m,SDL_Keycode k) {
@@ -44,5 +45,26 @@ int main(void) {
  fem_paint_refresh(m,&shop,FPT_MSG_SAVE);key(m,SDLK_ESCAPE);CK(!fem_paint_preview(m,0));
  CK(key(m,SDLK_ESCAPE).kind==FEM_REQ_CAREER_ROAM);
  fem_close(m);CK(!fem_paint_preview(m,0));fem_destroy(m);
+ const char *data=getenv("OPENUG2_DATA");
+ if(data) {
+  static UgAssets assets;GvScreen screen={0};char error[256];
+  CK(ug_assets_open(&assets,data,"English",error,sizeof error));
+  fpt_open(&p,&shop);fpt_input(&p,FES_IN_ACCEPT);
+  CK(fpt_bind(&p,&screen,&assets));CK(fpt_sync(&p,&screen,0));
+  int swatches=0,visible=0;
+  for(int i=0;i<screen.scene.n;i++) {
+   UgNode *v=&screen.scene.nodes[i];
+   if(v->obj->parent_guid==0xdf227u && v->obj->type==UG_OBJ_IMAGE) {
+    swatches++;if(v->visible && v->wcolor.a)visible++;
+   }
+   if(v->obj->name_hash==0xb04669e3u) {
+    CK(v->tex_override==gv_texture(&assets,ug_hash_upper("PAINT_ICON_1")));
+   }
+  }
+  CK(swatches==60 && visible==60);
+  gv_screen_update(&screen,1000);CK(fpt_sync(&p,&screen,1000));
+  for(int i=0;i<screen.scene.n;i++)if(screen.scene.nodes[i].obj->guid==0xe00fbu)CK(screen.scene.nodes[i].wcolor.a==255);
+  gv_screen_free(&screen);ug_assets_close(&assets);
+ }
  printf("fe_paint_test: %d checks, %d failures\n",checks,fails);return fails?1:0;
 }

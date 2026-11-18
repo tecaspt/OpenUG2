@@ -84,8 +84,23 @@ int fpt_sync(FePaint *p,GvScreen *s,float ms) {
  snprintf(p->mark,sizeof p->mark,"%s",c && c->installed?"Installed":"");
  text(s,0x42adb44cu,p->caption);text(s,0xeb406fecu,NULL);text(s,0xeb3a688au,p->cash);
  text(s,0x2f5e7da3u,p->total);text(s,0x5e7b09c9u,p->label);
- hide(s,0xa2f11b13u,!(c && !c->open));
- if(!p->page){hide(s,0x9ff84a88u,1);return 1;}
+ /* [data] PAINT_ICON_1..6 are numbered paint-drop icons, inspected from FrontB.
+  * [inferred] Body shares 1 across finishes; the other five groups use 2..6. */
+ int icon=node(s,0xb04669e3u);
+ if(icon>=0 && p->ncats) {
+  char name[24];int group=p->cats[p->cat_sel];
+  snprintf(name,sizeof name,"PAINT_ICON_%d",group<3?1:group-1);
+  s->scene.nodes[icon].tex_override=ug_assets_texture_by_name(s->assets,name)+1;
+  s->scene.nodes[icon].app_hidden=s->scene.nodes[icon].tex_override<=0;
+ }
+ int category_locked=1;
+ for(int i=0;i<p->nrows;i++)if(p->shop.color[p->rows[i]].open)category_locked=0;
+ hide(s,0xa2f11b13u,p->page?!(c && !c->open):!category_locked);
+ if(!p->page){hide(s,0x9ff84a88u,1);ug_scene_relayout(&s->scene);return 1;}
+ /* [data] The palette root's idle script starts transparent. The host owns its
+  * visibility while this page is active, as the shared carousel owns its rail. */
+ int palette=node(s,0xdb285767u);
+ if(palette>=0){float alpha=255;ug_scene_app_write(&s->scene,palette,UG_P_COLOR+3,1,&alpha);}
  text(s,0xef653affu,p->label);text(s,0x0013c45eu,p->mark);
  hide(s,0x23a43844u,!(c && !c->open));
  /* Retail palette: 60 mini icons; index order is spatially reversed in its middle row. */
@@ -112,7 +127,9 @@ int fpt_sync(FePaint *p,GvScreen *s,float ms) {
   /* Convert palette-local coordinates through its parent into the root highlight. */
   UgNode *v=&s->scene.nodes[slots[p->sel]];
   ug_scene_relayout(&s->scene);
-  float pos[3]={v->we,v->wf,0};ug_scene_app_write(&s->scene,hi,UG_P_POS,3,pos);
+  float pos[3]={v->we,v->wf,0},alpha=255;
+  ug_scene_app_write(&s->scene,hi,UG_P_POS,3,pos);
+  ug_scene_app_write(&s->scene,hi,UG_P_COLOR+3,1,&alpha);
  }
  ug_scene_relayout(&s->scene);return 1;
 }
