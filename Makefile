@@ -1200,3 +1200,14 @@ career-shop-dialog-test: tools/career_shop_dialog_test.c src/gui_dialog.c src/gu
 	$(CC) -O2 -std=c99 -Wall -Wextra -Werror -Isrc tools/career_shop_dialog_test.c src/gui_dialog.c -o build/career_shop_dialog_test
 	./build/career_shop_dialog_test
 .PHONY: career-shop-dialog-test
+
+# Deterministic synthetic audio checks and dummy callback evidence capture.
+audio-ae-test: tools/audio_ae_test.c src/audio.c src/audio.h src/sfx_game.c src/sfx_play.c src/sfx_bank.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/audio_ae_test.c src/sfx_play.c src/sfx_bank.c -o build/audio_ae_test $(SDL_LIBS) -lm
+	./build/audio_ae_test
+
+audio-ae-capture: tools/audio_ae_capture.c src/audio.c src/audio.h src/sfx_game.c src/sfx_play.c src/sfx_bank.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/audio_ae_capture.c src/sfx_play.c src/sfx_bank.c -o build/audio_ae_capture $(SDL_LIBS) -lm
+.PHONY: audio-ae-test audio-ae-capture

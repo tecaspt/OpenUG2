@@ -29,6 +29,7 @@ struct SfxGame {
     SfxBank bimpact, bskid, broad, bshift;
     int have_impact, have_skid, have_road, have_shift;
     SfxClip impact[SFG_MAX_IMPACTS]; int nimpact;
+    float impact_gain[SFG_MAX_IMPACTS];
     int light[SFG_MAX_IMPACTS], nlight, medium[SFG_MAX_IMPACTS], nmedium, heavy[SFG_MAX_IMPACTS], nheavy;
     SfxClip skid, road, up, down;
     int vskid, vroad, last_gear, skid_quiet;
@@ -60,6 +61,10 @@ SfxGame *sfg_create(const char *dataroot, uint32_t out_rate)
             if (!sfx_clip_from_bank(c, &g->bimpact, i)) continue;
             float s = c->rate ? (float)c->frames / (float)c->rate : 0.0f;
             int k = g->nimpact++;
+            /* [inferred] PT 0x06 is authored percentage level (50 for every
+             * collision clip). Scope its use to impacts until other buses
+             * have independent balance evidence. */
+            g->impact_gain[k] = fminf(1.0f, g->bimpact.samples[i].level / 100.0f);
             if (s < SFG_LIGHT_S) g->light[g->nlight++] = k;
             else if (s > SFG_HEAVY_S) g->heavy[g->nheavy++] = k;
             else g->medium[g->nmedium++] = k;
@@ -105,9 +110,11 @@ void sfg_render(SfxGame *g, const SfgInput *in, int16_t *out, int n)
         float s = clamp01(in->hit / SFG_HIT_FULL);
         const int *set = s < 0.35f ? g->light : s < 0.7f ? g->medium : g->heavy;
         int nset = s < 0.35f ? g->nlight : s < 0.7f ? g->nmedium : g->nheavy;
-        const SfxClip *c = &g->impact[set[rnd(g) % (uint32_t)nset]];
-        float pitch = 0.92f + 0.16f * (float)(rnd(g) % 1000u) / 1000.0f;
-        sfx_play(g->mix, c, master * (0.25f + 0.55f * s), pitch, 0);
+        int k = set[rnd(g) % (uint32_t)nset];
+        const SfxClip *c = &g->impact[k];
+        /* Preserve the recording's duration and timbre. No data establishes
+         * the old random +/-8% pitch modulation. */
+        sfx_play(g->mix, c, master * g->impact_gain[k] * (0.25f + 0.55f * s), 1.0f, 0);
         g->since_impact = 0;
     }
     /* tyre slide: one loop, level and pitch follow the slide */
