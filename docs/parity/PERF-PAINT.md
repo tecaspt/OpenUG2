@@ -40,20 +40,61 @@ RIM, CALIPER, MUFFLER, HOSE, VINYL colours: 10 / 20 / 30 at L1 / L2 / L3. Each h
 
 ## Effects on the car (src/drive_stage1.c stage1_car_read_upgraded, per-car record [data])
 
+The car table is one 0x890-byte record per vehicle (46 = 31 player cars + 15 traffic, whose fields are
+shared template constants). NULL or an all-zero DrvUpgrade reproduces the stock reader byte for byte.
+
 | Category | Effect | Evidence |
 |---|---|---|
-| Engine | primary torque += u x master add-curve 0x530 (9 samples); shift/max rpm += level block header (0x560/0x5A0/0x5E0 +4/+8) | L1..L3 blocks are 0.34/0.68/1.00 x master; headers are floats (e.g. GOLF 500/1000/1500 rpm) |
-| Transmission | gearbox block of the level (0x460/0x4A0/0x4E0, same layout as stock 0x2C0); level from axis 2 | L3 adds a 6th gear on 5-speed cars |
-| Tires | axle grip lerps stock 0x1E0/0x200 -> max 0x650/0x670 by u | max >= stock on every car |
-| Turbo, suspension, brakes, weight, nitrous, ECU | NOT IMPLEMENTED (no decoded per-car target; 0x620 is not a torque curve) | |
+| Engine 3/0 | primary torque += u x master add-curve 0x530 (9 samples); shift/max rpm += level block header (0x560/0x5A0/0x5E0 +4/+8) | L1..L3 blocks are 0.34/0.68/1.00 x master; headers are floats (GOLF +500/+1000/+1500, 240SX +500/+1000/+2000 rpm) |
+| Transmission 1/2 | gearbox block of the level (0x460/0x4A0/0x4E0, same layout as stock 0x2C0); level from axis 2 | L3 adds a 6th gear on 5-speed cars; ratios only differ from stock at the last gear |
+| Tires 8/0 | axle grip lerps stock 0x1E0/0x200 -> max 0x650/0x670 by u | max >= stock on all 31 player cars; refused where it is not (all 15 traffic rear blocks: 1.60 -> 1.50) |
+| Suspension 5/0 | carried, applied to nothing (data-only) | the 0x6A0-0x6CC block is not a stock/max pair, see ruled-out list |
+| Weight 0/0, Nitrous 2/0, Turbo 4/0, Brakes 6/0, ECU 7/0 | NOT IMPLEMENTED (no justified per-car target) | see ruled-out list |
 
-Example, fully upgraded: GOLF +50% peak torque, 5 -> 6 gears, +1500 rpm, front grip 1.62 -> 1.95;
-350Z +10%; SUPRA +25%.
+Fully upgraded (engine 3/3, gearbox L3, tires 1.0) vs stock, printed by `make drive-stage1-test` on the
+retail records - torque is the sum of the nine primary samples, mu the front peak/slide pair:
+
+| Car | gears | shift / max rpm | torque curve | front mu | mass |
+|---|---|---|---|---|---|
+| GOLF | 5 -> 6 | 6500/7000 -> 8000/8500 | 1.464 -> 2.270 (+55%) | 1.62/1.30 -> 1.95/1.75 | 1.330 (unchanged) |
+| 240SX | 5 -> 6 | 6500/7000 -> 8500/9000 | 1.569 -> 1.961 (+25%) | 1.70/1.40 -> 1.88/1.65 | 1.220 |
+| SUPRA | 6 -> 6 | 7000/7500 -> 8000/8500 | 2.248 -> 2.810 (+25%) | 1.60/1.35 -> 1.95/1.65 | 1.550 |
+| 350Z | 6 -> 6 | 7000/7500 -> 8000/8500 | 2.756 -> 3.032 (+10%) | 1.68/1.58 -> 1.85/1.58 | 1.450 |
+| TAXI (traffic) | 5 -> 5 | 6000/7000 (unchanged) | 1.380 (unchanged) | 2.00/1.60 (unchanged) | 1.800 |
+
+Traffic is the interesting control: their engine add-curve and rpm headers are all zero and their tyre max
+block is below stock, so an engine/tyre purchase changes nothing - while their gearbox template (final drive
+3.00 against stock 3.55) *does* replace the stock block. This cannot reach a player: career_drv_upgrade
+returns stock for any car the active career does not own, and the traffic models are not ownable.
+
+Ruled out as effect targets (census over all 46 records; the scan is in handoffs/TASK-AK-LOG.md):
+- Suspension 5/0 - 0x6A0..0x6CC reads as four 16-byte groups, and the second group repeats the first's
+  spring and damper (0x6B4 == 0x6A4, 0x6B8 == 0x6A8 on 46/46), so it is a per-axle or retune layout, not
+  a stock/max pair. Body stiffness even *falls* (0x6C0 -> 0x6C4 on 30 of 31 player cars), and 0x6AC is 0.0
+  everywhere. Traffic zeroes the spring/damper slots and shares one stiffness constant set. Nothing in
+  Stage1-5 reads 0x6A4..0x6CC: the readers consume mass, gearbox, grip and rpm only [data: stage*_car_read].
+- Weight 0/0 - mass 0x220 has no copy and no partner anywhere in the record (searched all 0x890 bytes for
+  16-byte exact repeats and for value duplicates). The nearest candidate, 0x778 -> 0x7D8, has the shape of
+  a reduction (per-car 2.9% NAVIGATOR to 29.1% PEUGOT106, i.e. inverse to mass, and identical 1.50 on all
+  15 traffic cars) but unknown units: it equals mass on GOLF alone and sits below mass on the rest
+  (SUPRA 1.267 vs 1.550), and 0x7D4 next to it is a different quantity again (-0.16 MIATA .. 0.75 PEUGOT).
+  Applying an unknown-unit value to mass would break the physics parity this branch protects, so it stays
+  unapplied [inferred, low confidence].
+- Brakes 6/0 - the 0x384 trio (service/handbrake/rear_share, read by stage3_car_read) has no max block and
+  no level triplet. 0x370..0x3A0 is the resistance/stage-limit block.
+- Turbo 4/0 / ECU 7/0 - 0x454 and 0x450 sit inside the engine domain, 0x604..0x640 pairs are inside the
+  torque-curve domain, and 0x620 is not a torque curve (it does not scale with the master add-curve). ECU
+  would double-count the engine/gearbox blocks, which are the only level triplets in the record besides the
+  gearbox. No third block family exists to hold them.
+- Nitrous 2/0 - no per-car field, and no drive-path input: drivetrain.c defers nitrous entirely, so there
+  is nothing to feed even if a field were found. The 1.000 fits on axis 1 come from the share-fitting in
+  cr_perf_fraction, not from the car record.
 
 ## Still unknown
-Effect targets for brakes, weight, nitrous, ECU, turbo, suspension axes; whether retail uses u or the package level;
-exact discount formula; unlock record `a`/`b` meaning; graphics ids 37-68 and 80-84; vinyl colour channel count;
-unlock on discovery vs shop open.
+Effect targets for brakes, weight, nitrous, ECU, turbo axes, and the meaning of the 0x6A0-0x6CC suspension
+block (per-axle retune vs a stage the port has not modelled yet); units of the 0x778/0x7D8 pair; whether
+retail uses u or the package level; exact discount formula; unlock record `a`/`b` meaning; graphics ids
+37-68 and 80-84; vinyl colour channel count; unlock on discovery vs shop open.
 
 ## Career paint screen and rendering
 
