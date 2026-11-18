@@ -100,3 +100,9 @@ Set `ActiveProfile="Driver"` in the isolated settings INI. Launch with isolated 
 then cold restart with `@tools/gate_inputs/sponsors-cold.txt`. The expected signed
 bank is 2525; a fifth argument to the fixture tool checks the existing save
 without replacing it. Runtime screenshots and logs are external report artifacts.
+
+The full empty-profile run uses `--career-dev 1` with
+`@tools/gate_inputs/sponsors-story.txt`: the car lot and crib objectives plus
+all five stage-1 race result loops run before signing. Verify its log with
+`tools/log_specs/sponsors_story.spec`; verify the subsequent cold restart with
+`tools/log_specs/sponsors_cold.spec` using `tools/log_assert.py`.
