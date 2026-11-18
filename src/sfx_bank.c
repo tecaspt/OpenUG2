@@ -122,6 +122,7 @@ static int pt_read(const unsigned char *bank, size_t len, size_t p, SfxSample *s
     int have_frames = 0, have_off = 0;
 
     if (p + PT_HDR > len || memcmp(bank + p, "PT\0\0", PT_HDR) != 0) return 0;
+    s->level = 100;
     s->rate = DEF_RATE;
     s->frames = 0;
     s->channels = 1;
@@ -143,6 +144,7 @@ static int pt_read(const unsigned char *bank, size_t len, size_t p, SfxSample *s
         q += vlen;
         ntlv++;
         switch (tag) {
+            case 0x06:         s->level    = v; break;
             case TAG_RATE:     s->rate     = v; break;
             case TAG_FRAMES:   s->frames   = v; have_frames = 1; break;
             case TAG_CHAN:     s->channels = v; break;

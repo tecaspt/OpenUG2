@@ -45,3 +45,41 @@ The brighter result is the selected recording, not added equalization or a gain
 boost. This establishes a GOLF routing fault; it does not establish that every
 car's audio is retail-identical. Cars without matching sweeps retain the existing
 fallback. Authored per-car event routing is not fully decoded.
+
+## Impacts
+
+[data] `SOUND/EVT_SYS/UG2_STITCH_AEMS.csi` names `AEMS_StichCollision`;
+`SOUND/IG_GLOBAL/MB_Stich_Collision.abk` contains 94 mono EA-XA one-shots,
+all at 36000 Hz, all carrying PT level tag 0x06 = 50. No loop tags occur.
+The game already routed wall and vehicle hit controls to this bank.
+
+[inferred] Interpret the level as a percentage, restricted to impacts. Playback
+now applies 0.5 authored level, preserving the existing strength envelope
+`0.25 + 0.55 * clamp(hit / 0.45)`. Pitch is 1 instead of random 0.92–1.08;
+there is no demonstrated data basis for that modulation. Decoder, channel and
+endianness are unchanged. Other effects do not consume the new level field.
+
+[inferred] A wall contact rearms only after 120 ms with no inward contact,
+in addition to the existing 180 ms cooldown. The old cooldown alone permitted
+11 crash events during 120 ticks (2 s) of sustained high contact; now exactly
+one plays. Brief gaps below 120 ms do not rearm. The 2.5 m/s inward-speed
+threshold and hit strength `min(0.45, (inward - 2.5) * 0.025)` stay unchanged.
+Consequently the light/medium/heavy boundaries correspond to 8.8 and 15.1 m/s
+for walls. Separate vehicle contacts still supply their existing physics hit
+value. The effects player retains its 80 ms global inter-impact guard.
+
+The existing duration classes (<0.20 / 0.20–0.45 / >0.45 s) contain 28/41/25
+clips. These remain **inferred**, as does random selection within each class;
+duration does not establish surface or material. The input API carries no
+surface identifier, so material-specific routing cannot be claimed. Authored
+collision-event graph semantics are unresolved; this change preserves the
+recordings' rate/level and fixes repeated-wall bursts, not a complete recreation
+of the event graph. Embedded executable content in bank prefixes was excluded
+from analysis.
+
+Synthetic impact validation: 1 kHz input amplitude 10000 gives output amplitude
+3999.742 at hit 0.45/master 1, expected 4000. Every rendered sample matches
+native-rate PCM times 0.4 within one integer step. This verifies frequency,
+gain, no random pitch, cooldown suppression and master mute. A 120-tick wall
+contact produces one event and a separated contact rearms. Bank/parser and
+player tests and the installed-bank sanitizer check also pass.

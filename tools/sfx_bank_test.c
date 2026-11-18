@@ -182,6 +182,7 @@ static void test_two_samples(void) {
     CHECK(b.samples[0].rate == 32000 && b.samples[0].frames == 28);
     CHECK(b.samples[1].rate == 22050 && b.samples[1].frames == 28);
     CHECK(b.samples[0].channels == 1 && b.samples[0].codec == 0);
+    CHECK(b.samples[0].level == 90 && b.samples[1].level == 90);
     CHECK(b.samples[0].data_off == DATA_EE && b.samples[1].data_off == DATA_ADPCM);
     CHECK(b.samples[0].decodable == 1 && b.samples[1].decodable == 1);
 

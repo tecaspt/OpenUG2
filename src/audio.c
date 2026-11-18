@@ -30,13 +30,20 @@ volatile int g_sfx_gear = 0;
 volatile float g_sfx_master = 1.0f;
 
 void audio_wall_contact(float inward_mps,float tangent_mps,float dt) {
-    static float cooldown=0;
+    static float cooldown=0, separated=.12f;
+    static int armed=1;
     cooldown=fmaxf(0,cooldown-fmaxf(0,dt));
+    /* [inferred] Rearm after 120 ms clear of the wall. Solver impulses in
+     * one sustained contact must not play a fresh crash every cooldown. */
+    if(inward_mps<=.001f) {
+        separated+=fmaxf(0,dt);
+        if(separated>=.12f) armed=1;
+    } else separated=0;
     g_scrape=inward_mps>0.001f ? .06f*fminf(1,fmaxf(0,tangent_mps)/12) : 0;
     /* Small, repeated engine impulses against a wall are friction, not crashes. */
-    if(inward_mps>2.5f && cooldown<=0) {
+    if(inward_mps>2.5f && cooldown<=0 && armed) {
         g_hit=fmaxf(g_hit,fminf(.45f,(inward_mps-2.5f)*.025f));
-        cooldown=.18f;
+        cooldown=.18f; armed=0;
     }
 }
 
@@ -599,6 +606,8 @@ void audio_selftest(void) {
     assert(g_hit==0 && g_scrape>0 && g_scrape<.02f);
     audio_wall_contact(.15f,0,1.0f/60);assert(g_scrape==0);
     audio_wall_contact(0,20,1.0f/60);assert(g_scrape==0);
+    audio_wall_contact(20,4,1);assert(g_hit==0); /* still touching */
+    audio_wall_contact(0,0,.12f);
     audio_wall_contact(20,4,1);assert(g_hit>.3f);
     audio_wall_contact(0,0,1);g_hit=0;
     float w[3];

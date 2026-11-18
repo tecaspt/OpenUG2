@@ -1,5 +1,6 @@
 /* Synthetic audio regression checks; includes the private callback for offline rendering. */
 #include "../src/audio.c"
+#include "../src/sfx_game.c"
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -55,7 +56,50 @@ static void test_sine(void) {
     assert(fabs(amp/expected-1)<.01);
     memset(g,0,sizeof *g);
 }
+static void test_impact(void) {
+    int16_t sine[4410],out[4410]={0};
+    for(int i=0;i<4410;i++)sine[i]=(int16_t)(10000*sin(6.283185307179586*1000*i/44100));
+    SfxGame g;memset(&g,0,sizeof g);
+    g.mix=sfx_player_create(44100);assert(g.mix);
+    g.rate=g.since_impact=44100;g.have_impact=1;
+    g.nlight=g.nmedium=g.nheavy=1;
+    g.impact[0].pcm=sine;g.impact[0].rate=44100;g.impact[0].frames=4410;
+    g.impact_gain[0]=.5f;
+    SfgInput in;memset(&in,0,sizeof in);in.master=1;in.hit=.45f;
+    sfg_render(&g,&in,out,4410);
+    double re=0,im=0;
+    for(int i=0;i<4410;i++) {
+        double phase=6.283185307179586*1000*i/44100;
+        re+=out[i]*cos(phase);im+=out[i]*sin(phase);
+        assert(abs(out[i]-(int)(sine[i]*.4f))<=1);
+    }
+    double amp=2*hypot(re,im)/4410;
+    assert(fabs(amp-4000)<2);
+    printf("impact sine: 1000 Hz in/out, amplitude %.3f, expected 4000, gain %.6f\n",amp,amp/10000);
+    /* A burst within the 80 ms guard cannot add another impact. */
+    g.since_impact=0;memset(out,0,sizeof out);
+    sfg_render(&g,&in,out,441);
+    for(int i=0;i<441;i++)assert(out[i]==0);
+    g.since_impact=44100;in.master=0;memset(out,0,sizeof out);
+    sfg_render(&g,&in,out,441);
+    for(int i=0;i<441;i++)assert(out[i]==0);
+    sfx_player_destroy(g.mix);
+}
+static void test_wall_burst(void) {
+    audio_wall_contact(0,0,1);g_hit=0;
+    int events=0;
+    for(int i=0;i<120;i++) {
+        audio_wall_contact(20,4,1.0f/60);
+        if(g_hit>0)events++;
+        g_hit=0;
+    }
+    assert(events==1);
+    audio_wall_contact(0,0,.05f);audio_wall_contact(20,4,.02f);assert(g_hit==0);
+    audio_wall_contact(0,0,.13f);audio_wall_contact(20,4,.02f);assert(g_hit>0);
+    audio_wall_contact(0,0,1);g_hit=0;
+    puts("wall: one event in 120 contact ticks; separation rearms: PASS");
+}
 int main(void) {
-    test_selection();test_sine();audio_selftest();
+    test_selection();test_sine();test_impact();test_wall_burst();audio_selftest();
     puts("audio_ae_test: PASS");return 0;
 }

@@ -18,6 +18,7 @@ typedef struct SfxSample {
     uint32_t frames;      /* sample count (tag 0x85) */
     uint32_t channels;    /* tag 0x82 if present, else 1 */
     uint32_t codec;       /* tag 0x83 if present, else 0 (EA-XA) */
+    uint32_t level;       /* tag 0x06; default 100, percentage gain [inferred] */
     uint32_t data_off;    /* tag 0x88, relative to the bank */
     int      decodable;   /* 1 if this library can decode it */
 } SfxSample;
