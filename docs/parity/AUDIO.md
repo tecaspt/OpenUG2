@@ -33,8 +33,8 @@ range it pitches the endpoint grain; idle at 1000 and redline at 8000 are thus
 extrapolations, not recordings at those speeds. Gains and auxiliary sounds stay
 unchanged. There is no engine low-pass stage. Linear 32000→44100 interpolation
 measures 1839.644 amplitude for a 1 kHz input of amplitude 10000, versus the bus
-scale expectation 1846.313 (−0.031 dB), so it does not explain the large loss of
-upper harmonics in the hashed fallback.
+scale expectation 1846.313 (−0.031 dB). The frequency audit below quantifies its remaining
+rolloff across the upper band.
 
 Full-throttle callback output (RMS in s16 units; >2 kHz energy from DC-removed Hann FFT):
 
@@ -49,6 +49,27 @@ The brighter result is the selected recording, not added equalization or a gain
 boost. This establishes a GOLF routing fault; it does not establish that every
 car's audio is retail-identical. Cars without matching sweeps retain the existing
 fallback. Authored per-car event routing is not fully decoded.
+
+## Interpolation frequency audit
+
+Synthetic tones at 24/32 kHz input, 44.1 kHz output; wanted-frequency gain
+relative to the unchanged engine bus scale. Every tone's measured amplitude
+agrees with the first-order-hold `sinc²(pi*f/source_rate)` response within 1%.
+
+| Tone | 32000→44100 loss dB | 24000→44100 loss dB |
+|---:|---:|---:|
+|1000 Hz|-0.031|-0.053|
+|2000 Hz|-0.118|-0.203|
+|6000 Hz|-1.036|-1.831|
+|10000 Hz|-2.936|-5.293|
+
+Linear interpolation does attenuate the top of the recorded band, especially
+near a 24 kHz recording's Nyquist limit. This quality limit remains explicit;
+there is no claim of a transparent resampler. No DATA metadata identifies the
+retail interpolation kernel. Retain the current algorithm while correcting the
+demonstrated recording-selection and RPM faults. There is no added low-pass,
+EQ or engine bus gain change. `make audio-ae-test` measures all eight tones,
+the coast endpoint tone, collision gain/frequency and contact lifetime.
 
 ## Descending sweep endpoint pitch
 
