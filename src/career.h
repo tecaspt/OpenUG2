@@ -7,7 +7,7 @@
 #include "career_data.h"
 #include "garage.h"
 
-#define CR_SCHEMA       4u            /* 3: + TLV 6 per-owned-car configurations; 4: + TLV 7 performance parts and paint */
+#define CR_SCHEMA       5u            /* 5: + TLV 8 ordered SMS receipts and read state */
 #define CR_PAINT_SLOTS  9             /* 0 body, 1 rims, 2 calipers, 3 muffler, 4..8 reserved; value = part key, 0 = stock */
 #define CR_MAGIC        0x5243554Fu   /* 'OUCR' little-endian */
 #define CR_FILE_NAME    "openug2_career.bin"
@@ -29,6 +29,8 @@ typedef struct CareerState {
     uint8_t  nowned, active, region;     /* owned cars, index of the driven one, unlock column 0 = A, 1 = B */
     GarageConfig config[CR_MAX_OWNED]; /* schema 3: career-only installed configurations */
     char     owned[CR_MAX_OWNED][32];    /* car folder names */
+    uint16_t nsms; uint8_t sms_ready; /* false: host must migrate after loading CareerData */
+    struct { uint32_t hash; uint8_t read; } sms[CD_MAX_SMS];
     /* schema 4 (TLV 7): per owned car, installed performance components (bit i = CareerData.perf_comp[i]) and paint */
     uint32_t perf[CR_MAX_OWNED][3];
     uint32_t paint[CR_MAX_OWNED][CR_PAINT_SLOTS];
@@ -119,6 +121,16 @@ int32_t cr_paint_price(const CareerData *cd, int paint);   /* 0x34A1C level `b` 
  * Returns CR_PERF_* codes (OWNED = that colour is already in the slot). */
 int  cr_paint_buy(CareerState *s, const CareerData *cd, int shop, int paint, int32_t *charged);
 uint32_t cr_paint_installed(const CareerState *s, int slot);   /* part key or 0 (stock) on the active car */
+
+/* Ordered, unique receipts keyed by name hash, stable across table reorderings.
+ * Receive returns 1 only for a new receipt. Read returns 1 only for a held message. */
+int cr_sms_receive(CareerState *, uint32_t hash, int read);
+int cr_sms_read(CareerState *, uint32_t hash);
+int cr_sms_unread(const CareerState *);
+/* Evaluate progress-backed conditions. shop is a discovered shop index, or -1.
+ * migrate marks implied receipts read; elapsed is seconds in this roam session.
+ * Timing and trigger mappings are [inferred], documented in SMS-MAILBOX.md. */
+int cr_sms_deliver(CareerState *, const CareerData *, int shop, double elapsed, int migrate);
 
 /* ---- car lot ---- */
 typedef struct CrLotCar { char name[32]; int32_t price; uint8_t owned, starter; } CrLotCar;

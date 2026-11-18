@@ -23,6 +23,7 @@ typedef struct CareerHost {
     CareerData cd;
     CareerState st;
     const GameCatalog *cat;
+    double sms_elapsed;
     int  loaded;          /* career data parsed */
     int  active;          /* a career is being played (free roam or a career race) */
     int  race;            /* race index of the engaged career event, -1 when none */
@@ -77,6 +78,9 @@ int  ch_lot_buy(CareerHost *ch, const char *car, GfLaunch *out);
 int  ch_crib_done(CareerHost *ch, GfLaunch *out);
 /* Renderer-acknowledged career installation; rolls state back if the save fails. */
 int ch_shop_install(CareerHost *,const char *car,const GarageConfig *);
+/* Roam delivery/discovery and transactional read + save. */
+int ch_sms_tick(CareerHost *, float x, float y, double seconds);
+int ch_sms_read(CareerHost *, uint32_t hash);
 /* Takes a pending spawn (1) and clears it. */
 int  ch_take_spawn(CareerHost *ch, float spawn[4]);
 #endif

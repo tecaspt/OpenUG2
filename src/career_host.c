@@ -130,6 +130,7 @@ int ch_begin(CareerHost *ch, int new_career, const char *root, const char *profi
     if (!ch || !ch->loaded || !root || !profile || !out) return CH_BEGIN_FAIL;
     snprintf(ch->root, sizeof ch->root, "%s", root);
     snprintf(ch->profile, sizeof ch->profile, "%s", profile);
+    ch->sms_elapsed = 0;
     ch->race = -1; ch->resolved = 0; ch->spawn_valid = 0; ch->at_shop = -1;
     int ret = CH_BEGIN_ROAM;
     if (new_career) {
@@ -149,6 +150,10 @@ int ch_begin(CareerHost *ch, int new_career, const char *root, const char *profi
         }
         if (ch->st.car[0]) car = ch->st.car;   /* [inferred] continue in the career car */
         if (ch->st.stage == 0 && ch->st.nowned == 0) ret = CH_BEGIN_LOT;   /* Stage 0 car not chosen yet */
+    }
+    if (!ch->st.sms_ready) {
+        cr_sms_deliver(&ch->st, &ch->cd, -1, 0, 1);
+        if (!ch_save(ch)) return CH_BEGIN_FAIL;
     }
     ch->active = 1;
     free_roam_launch(car, out);
@@ -364,4 +369,30 @@ int ch_shop_install(CareerHost *ch,const char *car,const GarageConfig *cfg)
     snprintf(ch->last,sizeof ch->last,"career: installation %s car %s shop %d price 0",
              rc == ST_OK ? "saved" : "refused",car,ch->at_shop);
     return rc;
+}
+
+
+int ch_sms_tick(CareerHost *ch, float x, float y, double seconds)
+{
+    if (!ch || !ch->active || ch->race >= 0) return 0;
+    if (seconds > 0 && seconds < 1) ch->sms_elapsed += seconds;
+    CareerState before = ch->st;
+    int first = ch->st.nsms;
+    int n = cr_sms_deliver(&ch->st, &ch->cd, ch_shop_zone(ch,x,y,0), ch->sms_elapsed, 0);
+    if (n && !ch_save(ch)) { ch->st = before; return 0; }
+    for (int i = first; i < ch->st.nsms; i++) {
+        int at = cd_find_sms(&ch->cd, ch->st.sms[i].hash);
+        if (at >= 0) printf("career: sms received %s\n",ch->cd.sms[at].name);
+    }
+    return n;
+}
+int ch_sms_read(CareerHost *ch, uint32_t hash)
+{
+    if (!ch || !ch->active) return 0;
+    CareerState before = ch->st;
+    if (!cr_sms_read(&ch->st,hash)) return 0;
+    if (!ch_save(ch)) { ch->st = before; return 0; }
+    int at = cd_find_sms(&ch->cd,hash);
+    if (at >= 0) printf("career: sms read %s unread %d\n",ch->cd.sms[at].name,cr_sms_unread(&ch->st));
+    return 1;
 }
