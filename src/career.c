@@ -914,7 +914,7 @@ static int sms_condition(const CareerState *s, const CareerData *cd, int i, int 
     if (!strcmp(m->name, "SMS_LOC_GO_TO_CAR_LOT_NOW")) return !s->nowned;
     if (!strcmp(m->name, "SMS_LOC_GO_TO_GARAGE")) return s->nowned > 0;
     if (!strcmp(m->name, "SMS_LOC_EVENTS_OUT_THERE")) return s->stage >= 1 &&
-        (migrate || (shop >= 0 && shop < cd->nshop && cd->shop[shop].hash == m->arg));
+        (migrate || (shop >= 0 && shop < cd->nshop && cd->shop[shop].type == CD_SHOP_CRIB));
     if (!strcmp(m->name, "SMS_END_OF_GAME_MESSAGE")) return race_done(s, m->arg);
     return 0;
 }

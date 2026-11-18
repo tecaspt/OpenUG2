@@ -12,6 +12,8 @@
 #include <SDL.h>
 #include "race_rules.h"
 #include "fe_lot.h"
+#include "fe_sms.h"
+#include "career.h"
 #include "fe_perf.h"
 #include "fe_paint.h"
 #include "fe_worldmap.h"
@@ -30,7 +32,7 @@ typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_Q
 } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; FeMapDestination destination;
                             int paint_index; int perf_cat, perf_lvl, perf_comp; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP, FEM_SCR_CAREER_PERF, FEM_SCR_CAREER_PAINT } FemScreen;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP, FEM_SCR_CAREER_PERF, FEM_SCR_CAREER_PAINT, FEM_SCR_SMS } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -89,6 +91,8 @@ void fem_paint_refresh(FeMenu *, const FePaintShop *, int msg);
 const CdPaint *fem_paint_preview(const FeMenu *, int slot);
 void fem_open_perf(FeMenu *, const FePerfShop *shop);
 void fem_perf_refresh(FeMenu *, const FePerfShop *shop, int msg);
+/* Career mailbox, with host-owned transactional read/save callback. */
+void fem_open_sms(FeMenu *, const CareerData *, const CareerState *, int (*read)(void *,uint32_t), void *);
 /* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */
 void fem_open_career_garage(FeMenu *);
 void fem_open_career_shop(FeMenu *,int type,uint32_t slots,
