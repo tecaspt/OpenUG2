@@ -141,3 +141,124 @@ explicit message when unset — a skip is not a pass. The retail check builds fi
 `SMS_END_OF_GAME_MESSAGE`), prints their subject lines, and requires text for all five, the
 newest-unread start, wrap-around and the unread→read transition. The
 target links no GL: `fe_sms_test` never draws a package.
+
+## 9. Career host
+
+This section supersedes the standalone module's table-order, 40-row and sender
+assumptions above. The host uses receipt order and holds up to `CD_MAX_SMS` (192)
+records, including all 167 retail records. Unknown table hashes remain in the
+save and are omitted from the visible list until their data is available.
+
+### State and migration
+
+Schema 5 adds TLV 8: `u16 count, u8 initialized, u8 reserved`, followed by
+`count` entries `{u32 name_hash, u8 read, u8 reserved[3]}`. Receipt hashes are
+nonzero and unique, flags are Boolean, and lengths/counts are checked before
+writing the destination state. Existing unknown TLVs still round trip. Name
+hashes keep identity independent of table order. The initialized byte preserves
+an explicitly empty mailbox and a pending legacy migration across serialization.
+
+The save parser needs no CareerData. `ch_begin` migrates an older save after
+loading that data, adds every message implied by the delivery rules below as
+received and read, then saves. [inferred] Legacy receipts use authored table
+order because the older save contains no receipt history. New careers start initialized and receive live
+messages unread. `ch_sms_tick` evaluates delivery only in career roam and saves
+new receipts before logging `career: sms received <NAME>`. `ch_sms_read` saves
+before the menu marks an item read; failure rolls the career state back.
+
+### Delivery policy
+
+- [data] Part notices carry stage/count pairs. [inferred] Trigger 12 maps to
+  ordinary wins, 10 to sponsor wins and 9 to URL wins. A notice requires an exact
+  type/value match in `0x34A1C`, then calls `cr_unlock_ok` for that entry/level.
+  `SMS_UNLOCK_27` has no such match and remains undelivered.
+- [data] Cars unlock at the regional race references in `0x34A1F`; these are
+  `S<stage>_URL_<number>` races. [inferred] A notice's ordinal enumerates the
+  distinct regional unlock races in ascending numeric URL order within its
+  stage. Several cars sharing one event produce one notice. Delivery requires
+  that exact event to be won, with no additional sponsor-win threshold. This
+  also handles stage 3, where unlock groups begin at URL 4 rather than URL 1.
+- [inferred] The four control tutorials (trigger 3) use their ascending arguments
+  10/40/70/100 as seconds of active roam in the current session. Pausing stops
+  this clock. Legacy migration marks all four read. Receipts prevent redelivery
+  across sessions; the clock itself is not persisted.
+- [inferred] GPS introduction and the garage direction arrive after buying a car;
+  the car-lot direction arrives while no car is owned; the outrun introduction
+  arrives at stage 1. The events direction arrives on visiting an open crib
+  after stage 0. The raw `CRIB_1` reference is not the career shop's `CC_CRIB`
+  identity, so shop type is used for this discovery. Older saves at stage 1 or
+  later receive that direction read without requiring another crib visit.
+- [inferred] Tips unlock in table order: the first at stage 1, then one per
+  lifetime win. Their self hashes and weight fields give no deterministic
+  timing rule. The weight is not interpreted as a timer or probability.
+- [data] The end message's race reference is checked against the won records.
+- Undelivered: the four `SMS_LOC_TEXT_*` district notices (no district discovery
+  state or decoded district polygons); `SMS_LOC_X_SPONSOR` (sponsor selection is
+  absent); `SMS_OUTRUN_VICTORY` / `SMS_OUTRUN_DEFEAT` (no career outcome hook in
+  this scope); all `SMS_MAG_*`, `SMS_UNIQUE_*`, and `SMS_DVD_COVER_*` records
+  (their opportunity/cover conditions are unsupported); and the unmatched part
+  notice above. No progress threshold is substituted for geographic discovery.
+
+### Retail presentation and controls
+
+[data] `GLOBAL/InGameFreeRoam.bun` / `HUD_SingleRace.fng` authors root image
+`0x4b9b8f5a`, `Engage_SMS_mail.tga`, at (-195,-112), 64 by 32. The existing HUD
+binding renders this envelope and the right d-pad highlight when the career has
+unread messages. The host now supplies its real unread state through
+`HudState.message_waiting`; there is no additional notice text or banner.
+
+[data] `GLOBAL/InGameCommon.lzc` / `UI_EngageMessageDialog.fng` authors the
+message panel, subject (`0x2c167533`), sender (`0xfeced617`), and the actions
+`Go to Mailboxes` (`0xe202f7c4`) and `Return to Gameplay` (`0x00169268`). This
+is the in-game mailbox route used here; the pause package does not expose an
+SMS entry. The list binds `UI_SMS_Mailbox.fng`. Opening a row uses the authored
+message panel and its actions. Subject and sender come from the message's
+language keys, including its actual sender key. Placeholder and event-handler
+text nodes are hidden. The host draws wrapped body text inside the authored
+panel using the retail font, shrinking only when needed to fit. It resolves the
+full language body, so the standalone item's 511-byte limit does not truncate
+long tutorials in the game.
+
+[inferred] Input adaptations:
+
+- The existing configurable Read SMS action opens the list in career roam;
+  its default keyboard bindings are Tab and F3. Pressing the controller right stick also
+  opens it. This shortcut avoids taking d-pad right away from its existing
+  steering binding; a configured controller Read SMS binding also works.
+- Tapping/clicking the unread envelope opens the same list. The hit area follows
+  the HUD's selected 4:3/wide fit policy, with a small touch margin.
+- Arrows/d-pad and mouse wheel browse; Enter/controller A reads. Touch selects
+  and reads the row at its bound scene position. The selected row is amber.
+- Escape/controller B or the touch Back target returns from a message to the
+  inbox, then to roam. Accept on a message returns directly to gameplay. The
+  message's left/right action areas offer the same choices on touch.
+- An empty list remains navigable back to gameplay. Reading does not run any
+  garage or shop exit side effects. Help and three-button dialogs are unchanged.
+
+The menu owns a separate lazily loaded in-game asset set, so opening messages
+preserves the frontend's package and texture identities. All writes remain
+inside the current profile's career save.
+
+The live retail check corrected two assumptions in the original binding:
+subject nodes 14–21 have hashes `0x0c6e41a0` down to `0x0c6e4199`, and node 58
+has `0x0c6e4198`. They form a closed range, not a repeated single hash. Scene Y
+increases downward, so subjects and envelopes are sorted by ascending authored
+Y. The retail unit check now loads and binds the actual package, exercises the
+opened/list visibility transition, and requires one populated row per receipt.
+
+
+### Host validation
+
+Fresh builds pass with the existing warning baselines: desktop 24, GLES 29,
+iOS host 29. Final checks pass: mailbox 43; career 1255; career host 362; game
+flow 252; touch controls 406; binding 1770 identities; paint 37; performance 35.
+The final M1 gate passes all 17 steps with no FAIL, SKIP or NOT RUN, and both
+INV captures remain unchanged.
+
+The isolated SMS run, cold restart and controller-only run all exit 0. Four
+receipts persist in order; reading survives restart; keyboard, controller and
+touch reach the inbox and message body; reading all four removes the retail
+pending envelope. Save-container checksums and the final zero-unread state
+were independently checked. All 14 task captures and 70 captures across the
+two gate runs were inspected. Logs, scripts, screenshots and the machine
+validation summary are under `$OPENUG2_DEV/reports/parity/smshost/`.

@@ -1620,6 +1620,8 @@ static int track_authored_focus(const char *troot, const char *track, float xy[2
 /* M6 career: one career host; a one-shot focus override lets a career return load the city around the
  * pre-race pose instead of the authored focus (consumed by the next prepare_map_switch). */
 static CareerHost g_career;
+static int career_sms_read(void *user,uint32_t hash) { return ch_sms_read((CareerHost *)user,hash); }
+
 
 static int wm_resolve(const CareerHost *ch, int kind, uint32_t id,
                       FeMapDestination *canonical, int *zone_out)
@@ -6922,6 +6924,7 @@ int main(int argc, char **argv) {
     tm_load_textures(dataroot);
     GpsMarker *gps_marker = gps_marker_load(dataroot);   /* M9: 3D GPS arrow; NULL omits the solid, retaining the minimap destination */
     FeMapDestination wm_destination={0};
+    int sms_open=0;
     int wm_destination_valid=0, wm_from_pause=0, wm_owned_request=0;
     int gps_marker_on = 0; float gps_marker_bearing = 0.0f;   /* last frame's HUD guidance */
     {   /* streamed vertex/colour buffers; static up-normals and quad indices */
@@ -7070,6 +7073,9 @@ int main(int argc, char **argv) {
         sim_counter=resident_frame_counter;
         float frame_scale=deterministic_sim?1:(float)fmin(frame_seconds*PHYS_TICKRATE,8);
         int sim_reset=0,presentation_snap=0;
+        if(g_career.active && g_career.race<0 && gflow.launch.free_run && !world.city.race.active &&
+           !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem)))
+            ch_sms_tick(&g_career,carpos[0],carpos[1],deterministic_sim?1.0/PHYS_TICKRATE:fmin(frame_seconds,.1));
         int pause_frame = pause_menu_is_open(pause_menu) || (fem && fem_is_open(fem)) || pr_is_open(post);
         static long script_frame = 0; const long sf = script_frame++;
         if (script_spec && is_quit(&g_script, sf)) running = 0;
@@ -7152,6 +7158,30 @@ int main(int argc, char **argv) {
                                e.cbutton.button == SDL_CONTROLLER_BUTTON_START) ||
                               (e.type == SDL_JOYBUTTONDOWN &&
                                cx_joy_button_is(&g_cx, e.jbutton.which, e.jbutton.button, CB_ACT_PAUSE));
+            if(fem && g_career.active && g_career.race<0 && !pause_frame &&
+               gflow.launch.free_run && !world.city.race.active) {
+                int sms_key=e.type==SDL_KEYDOWN && !e.key.repeat &&
+                    cx_key_is(&g_cx,(int)e.key.keysym.scancode,CB_ACT_READ_SMS);
+                int sms_pad=(pad_edge & (1u<<CB_ACT_READ_SMS)) ||
+                    (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+                int sms_touch=0;
+                int ww=1,wh=1;SDL_GetWindowSize(win,&ww,&wh);
+                double target[3];ha_fit_point(hud_settings.fit_policy,ww,wh,-195,-195,-112,target);
+                if(cr_sms_unread(&g_career.st)>0) {
+                    double x=-10000,y=-10000;
+                    if(e.type==SDL_MOUSEBUTTONUP && e.button.button==SDL_BUTTON_LEFT){x=e.button.x;y=e.button.y;}
+                    if(e.type==SDL_FINGERUP){x=e.tfinger.x*ww;y=e.tfinger.y*wh;}
+                    sms_touch=fabs(x-target[1])<=40*target[0] && fabs(y-target[2])<=24*target[0];
+                }
+                if(sms_key || sms_pad || sms_touch) {
+                    fem_open_sms(fem,&g_career.cd,&g_career.st,career_sms_read,&g_career);
+                    sms_open=1;pause_frame=1;
+                    pause_cursor=SDL_ShowCursor(SDL_QUERY);SDL_ShowCursor(SDL_ENABLE);
+                    SDL_SetRelativeMouseMode(SDL_FALSE);mlook=0;
+                    if(adev)SDL_PauseAudioDevice(adev,1);
+                    continue;
+                }
+            }
             if (pause_allowed && (pause_key || pause_start) && !pause_menu_is_open(pause_menu)) {
                 if (pause_key && e.key.repeat) continue;
                 /* Consume the whole opening frame so no queued input reaches driving. */
@@ -7537,6 +7567,13 @@ int main(int argc, char **argv) {
                 garage_current.rim_style=wheel_style;
                 fem_garage_current(fem,carname,&garage_current);}
             FemRequest frq = fem_update(fem, (float)fmin(frame_seconds, .1));
+            if(sms_open && fem_screen(fem)==FEM_SCR_SMS && frq.kind==FEM_REQ_CAREER_ROAM) {
+                sms_open=0;fem_close(fem);frq.kind=FEM_REQ_NONE;
+                SDL_ShowCursor(pause_cursor);
+                SDL_SetRelativeMouseMode(g_dbg.freecam && race_state!=3?SDL_TRUE:SDL_FALSE);
+                if(adev)SDL_PauseAudioDevice(adev,0);
+                sim_reset=1;
+            }
             if (wm_from_pause && fem_screen(fem)==FEM_SCR_WORLD_MAP &&
                 (frq.kind==FEM_REQ_CAREER_ROAM || frq.kind==FEM_REQ_SET_DESTINATION)) {
                 if (frq.kind==FEM_REQ_SET_DESTINATION) {
@@ -12748,6 +12785,7 @@ int main(int argc, char **argv) {
             hud_host_context(&hs);
             if (g_career.active && !hs.racing) {   /* M6: the career's live bank in the free-roam widget */
                 hs.career_context = 1; hs.have_money = 1; hs.money = (long)g_career.st.bank;
+                hs.message_waiting = cr_sms_unread(&g_career.st)>0;
                 if (career_shop >= 0) hs.engage_icon = 1 + g_career.cd.shop[career_shop].type;
                 else if (career_zone >= 0) hs.engage_icon = 7 + g_career.cd.race[career_zone].kind;
             }
@@ -13683,9 +13721,10 @@ int main(int argc, char **argv) {
                     sf,wm_destination_valid,wm_destination.kind,wm_destination.id,g_dbg.gps_n,
                     hud_active && wm_destination_valid,carpos[0],carpos[1]);
                 const char *scr_names[] = {"NONE","MAIN","QR_MODE","QR_TRACK","QR_OPTIONS","QR_CAR","LOADING",
-                                           "OPTIONS","PROFILE","CAREER","GARAGE","CAREER_LOT","WORLD_MAP"};
+                                           "OPTIONS","PROFILE","CAREER","GARAGE","CAREER_LOT","WORLD_MAP",
+                                           [FEM_SCR_SMS]="SMS"};
                 int scr = fem && fem_is_open(fem) ? (int)fem_screen(fem) : 0;
-                if (scr < 0 || scr > FEM_SCR_WORLD_MAP) scr = 0;
+                if (scr < 0 || scr > FEM_SCR_SMS || !scr_names[scr]) scr = 0;
                 printf("SCRIPT f=%ld screen=%s rs=%d ract=%d ev=%d trk=%s car=%s spd=%.1f held=0x%x\n", sf,
                        pause_menu_is_open(pause_menu) ? "PAUSE" : scr_names[scr], race_state, world.city.race.active,
                        world.city.race.active && world.city.race.ev >= 0 ? world.city.ev[world.city.race.ev].id : 0,

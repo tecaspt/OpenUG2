@@ -416,6 +416,79 @@ static void test_perf(void)
     }
 }
 
+static void test_sms(void)
+{
+    CareerState s, t;
+    static uint8_t buf[16384], block[4096], a[8];
+    build_data(); cr_new(&s,&cd,"CAR_X");
+    CHECK(s.sms_ready && !s.nsms);
+    CHECK(cr_sms_receive(&s,123,0));
+    CHECK(!cr_sms_receive(&s,123,1) && cr_sms_unread(&s)==1);
+    CHECK(cr_sms_receive(&s,456,1));
+    CHECK(!cr_sms_read(&s,789));
+    size_t n=cr_serialize(&s,buf,sizeof buf);
+    CHECK(n && cr_parse(&t,buf,n)==ST_OK && t.nsms==2);
+    CHECK(t.sms[0].hash==123 && !t.sms[0].read && t.sms[1].hash==456 && t.sms[1].read);
+    CHECK(cr_sms_read(&t,123) && !cr_sms_unread(&t));
+    for (int i=2;i<CD_MAX_SMS;i++) CHECK(cr_sms_receive(&s,1000+i,i&1));
+    CHECK(!cr_sms_receive(&s,9999,0));
+    n=cr_serialize(&s,buf,sizeof buf);
+    CHECK(n && cr_parse(&t,buf,n)==ST_OK && t.nsms==CD_MAX_SMS);
+    StContainerView v; CHECK(st_container_parse(buf,n,&v)==ST_OK);
+    memcpy(a,v.a,8); memcpy(block,v.b,v.size_b);
+    size_t pos=0; while(pos<v.size_b && block[pos]!=8) pos+=8+((unsigned)block[pos+4]|((unsigned)block[pos+5]<<8));
+    CHECK(pos<v.size_b);
+    block[pos+12+8]=block[pos+12]; /* duplicate hash */
+    memcpy(block+pos+12+8,block+pos+12,4);
+    n=st_container_build(buf,sizeof buf,a,8,block,v.size_b);
+    CHECK(cr_parse(&t,buf,n)==ST_E_CORRUPT);
+    a[4]=4;
+    n=st_container_build(buf,sizeof buf,a,8,block,(uint32_t)pos);
+    CHECK(cr_parse(&t,buf,n)==ST_OK && !t.sms_ready && !t.nsms);
+    cd.nsms=3;
+    strcpy(cd.sms[0].name,"SMS_INSTRUCTION"); cd.sms[0].name_hash=123; cd.sms[0].kind=CD_SMS_MSG; cd.sms[0].trigger=3; cd.sms[0].arg=10;
+    cd.sms[1]=cd.sms[0]; strcpy(cd.sms[1].name,"ENGAGE_TIPS_SMS"); cd.sms[1].name_hash=456; cd.sms[1].kind=CD_SMS_TIP;
+    cd.sms[2]=cd.sms[0]; strcpy(cd.sms[2].name,"SMS_UNLOCK_01"); cd.sms[2].name_hash=789; cd.sms[2].kind=CD_SMS_UNLOCK; cd.sms[2].trigger=12; cd.sms[2].arg=0x10001;
+    cd.nulk=1; cd.ulk[0].id=1; cd.ulk[0].l[0].type=CD_ULK_WINS; cd.ulk[0].l[0].value=0x10001;
+    CHECK(cr_sms_deliver(&t,&cd,-1,0,1)==2 && t.sms_ready && !cr_sms_unread(&t));
+    cr_new(&s,&cd,"CAR_X");
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[0].hash==456);
+    CHECK(cr_sms_deliver(&s,&cd,-1,9,0)==0);
+    CHECK(cr_sms_deliver(&s,&cd,-1,10,0)==1 && s.sms[1].hash==123);
+    s.rec[0].hash=H_A; s.rec[0].flags=CR_REC_WON; s.nrec=1;
+    CHECK(cr_sms_deliver(&s,&cd,-1,10,0)==1 && s.sms[2].hash==789);
+    CHECK(cr_sms_deliver(&s,&cd,-1,1000,0)==0);
+    /* Car messages follow actual regional URL unlock groups, independently of
+     * sponsor wins. Two cars in one event must not consume two ordinals. */
+    memset(&cd,0,sizeof cd);
+    mk(0,"S2_URL_3",H_A,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);
+    mk(1,"S2_URL_1",H_B,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);
+    mk(2,"S2_URL_2",H_C,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);cd.nrace=3;
+    cd.nunlock=4;
+    cd.unlock[0].race[0]=H_A;cd.unlock[1].race[0]=H_B;
+    cd.unlock[2].race[0]=H_B;cd.unlock[3].race[0]=H_C;
+    cd.unlock[0].race[1]=H_C;cd.unlock[1].race[1]=H_A;
+    cd.nsms=3;
+    for(int j=0;j<3;j++) {
+        snprintf(cd.sms[j].name,sizeof cd.sms[j].name,"SMS_CAR_UNLOCK_%d",j+1);
+        cd.sms[j].name_hash=800+j;cd.sms[j].kind=CD_SMS_MSG;cd.sms[j].arg=0x20001+j;
+    }
+    cr_new(&s,&cd,"CAR_X");s.stage=2;s.region=0;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==0);
+    s.nrec=1;s.rec[0].hash=H_B;s.rec[0].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[0].hash==800);
+    CHECK(s.won==0 && cr_sms_deliver(&s,&cd,-1,0,0)==0);
+    s.nrec=2;s.rec[1].hash=H_A;s.rec[1].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[1].hash==802);
+    s.nrec=3;s.rec[2].hash=H_C;s.rec[2].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[2].hash==801);
+    cr_new(&s,&cd,"CAR_X");s.stage=2;s.region=1;
+    s.nrec=1;s.rec[0].hash=H_B;s.rec[0].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==0); /* region B does not unlock cars at URL 1 */
+    s.nrec=2;s.rec[1].hash=H_C;s.rec[1].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,1)==1 && s.sms[0].hash==800 && !cr_sms_unread(&s));
+}
+
 int main(void)
 {
     static CareerState s, s2, s3;
@@ -426,6 +499,7 @@ int main(void)
     size_t len;
     char root[256], prof[300], path[400];
 
+    test_sms();
     test_perf();
     build_data();
     cr_new(&s, &cd, "CAR_X");

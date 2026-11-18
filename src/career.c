@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define CR_BUF_MAX 16384u
-#define CR_B_MAX   (8u + 48u * CR_MAX_OWNED + 8u + 88u * CR_MAX_OWNED + 8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
+#define CR_B_MAX   (12u + 8u * CD_MAX_SMS + 8u + 48u * CR_MAX_OWNED + 8u + 88u * CR_MAX_OWNED + 8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
 
 /* ---- lookups (static; no dependency on career_data.c) ---- */
 static int find_race(const CareerData *cd, uint32_t hash)
@@ -115,6 +115,7 @@ void cr_new(CareerState *s, const CareerData *cd, const char *car)
 {
     (void)cd;
     memset(s, 0, sizeof *s);
+    s->sms_ready = 1;
     s->started = 1; s->stage = 1; s->intro_done = 1;
     s->region = CR_REGION_UNKNOWN;
     if (car) { strncpy(s->car, car, sizeof s->car - 1); s->car[sizeof s->car - 1] = 0; }
@@ -125,6 +126,7 @@ void cr_new_stage0(CareerState *s, const CareerData *cd, int region)
 {
     (void)cd;
     memset(s, 0, sizeof *s);
+    s->sms_ready = 1;
     s->started = 1; s->stage = 0; s->intro_done = 0;
     s->region = (region == 0 || region == 1) ? (uint8_t)region : (uint8_t)CR_REGION_UNKNOWN;
 }
@@ -661,6 +663,14 @@ size_t cr_serialize(const CareerState *s, uint8_t *out, size_t cap)
         for (int j = 0; j < 3; j++) p32(p + 4*j, s->perf[i][j]);
         for (int j = 0; j < CR_PAINT_SLOTS; j++) p32(p + 12 + 4*j, s->paint[i][j]);
     }
+    if (s->nsms > CD_MAX_SMS || s->sms_ready > 1) return 0;
+    p = tlv(p, 8, 4u + 8u * s->nsms);
+    p16(p, s->nsms); p[2] = s->sms_ready; p[3] = 0; p += 4;
+    for (i = 0; i < s->nsms; i++, p += 8) {
+        if (!s->sms[i].hash || s->sms[i].read > 1) return 0;
+        for (int j = 0; j < i; j++) if (s->sms[j].hash == s->sms[i].hash) return 0;
+        p32(p, s->sms[i].hash); p[4] = s->sms[i].read; memset(p + 5, 0, 3);
+    }
     memcpy(p, s->extra, s->nextra); p += s->nextra;
     n = st_container_build(out, cap, a, 8, b, (uint32_t)(p - b));
     return n;
@@ -672,7 +682,7 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
     CareerState t;
     uint32_t schema;
     size_t pos = 0;
-    int have_owned = 0, config_count = -1, perf_count = -1;
+    int have_sms = 0, have_owned = 0, config_count = -1, perf_count = -1;
     int rc = st_container_parse(buf, len, &v);
     if (rc != ST_OK) return ST_E_CORRUPT;
     if (v.size_a < 8 || g32(v.a) != CR_MAGIC) return ST_E_CORRUPT;
@@ -746,6 +756,16 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
                 for (int j = 0; j < 3; j++) t.perf[i][j] = g32(q + 4*j);
                 for (int j = 0; j < CR_PAINT_SLOTS; j++) t.paint[i][j] = g32(q + 12 + 4*j);
                 if (t.perf[i][2] >> (CD_PERF_COMPS - 64)) return ST_E_CORRUPT;   /* bits past component 67 */
+            }
+            break;
+        case 8:
+            if (schema < 5) break;
+            if (have_sms++ || l < 4 || g16(d) > CD_MAX_SMS ||
+                l != 4u + 8u * g16(d) || d[2] > 1 || d[3]) return ST_E_CORRUPT;
+            t.sms_ready = d[2];
+            for (unsigned i = 0; i < g16(d); i++) {
+                const uint8_t *q = d + 4 + 8*i;
+                if (q[4] > 1 || q[5] || q[6] || q[7] || !cr_sms_receive(&t, g32(q), q[4])) return ST_E_CORRUPT;
             }
             break;
         default:
@@ -837,4 +857,83 @@ int cr_copy_file(const char *root, const char *from, const char *to)
     rc = read_file(src, buf, sizeof buf, &n);
     if (rc != ST_OK) return rc;
     return write_atomic(dst, tmp, buf, n);
+}
+
+
+int cr_sms_receive(CareerState *s, uint32_t hash, int read)
+{
+    if (!s || !hash || s->nsms >= CD_MAX_SMS) return 0;
+    for (int i = 0; i < s->nsms; i++) if (s->sms[i].hash == hash) return 0;
+    s->sms[s->nsms].hash = hash; s->sms[s->nsms++].read = read != 0;
+    return 1;
+}
+int cr_sms_read(CareerState *s, uint32_t hash)
+{
+    if (!s) return 0;
+    for (int i = 0; i < s->nsms; i++) if (s->sms[i].hash == hash) { s->sms[i].read = 1; return 1; }
+    return 0;
+}
+int cr_sms_unread(const CareerState *s)
+{
+    int n = 0;
+    if (s) for (int i = 0; i < s->nsms; i++) n += !s->sms[i].read;
+    return n;
+}
+/* [inferred] SMS trigger 12 = world wins, 10 = sponsor wins, 9 = URL wins.
+ * Match the exact 0x34A1C type/value before consulting the common unlock rule. */
+static int sms_condition(const CareerState *s, const CareerData *cd, int i, int shop, double elapsed, int migrate)
+{
+    const CdSms *m = &cd->sms[i];
+    if (m->kind == CD_SMS_UNLOCK) {
+        int type = m->trigger == 12 ? CD_ULK_WINS : m->trigger == 10 ? CD_ULK_SPONSOR_WINS :
+                   m->trigger == 9 ? CD_ULK_URL_WINS : -1;
+        for (int u = 0; u < cd->nulk; u++) for (int l = 0; l < 3; l++)
+            if (cd->ulk[u].l[l].type == type && cd->ulk[u].l[l].value == m->arg &&
+                cr_unlock_ok(s, cd, cd->ulk[u].id, l+1)) return 1;
+        return 0;
+    }
+    if (!strncmp(m->name, "SMS_CAR_UNLOCK_", 15)) {
+        /* [data] Cars reference URL races. [inferred] A notice's per-stage
+         * ordinal enumerates distinct regional unlock races in numeric URL order;
+         * multiple cars unlocked by one event share one notice. */
+        int race[CD_MAX_UNLOCKS], ordinal[CD_MAX_UNLOCKS], n = 0;
+        int stage = CD_SMS_ARG_HI(m->arg), which = CD_SMS_ARG_LO(m->arg);
+        for (int u = 0; u < cd->nunlock && n < CD_MAX_UNLOCKS; u++) {
+            int r = find_race(cd, cd->unlock[u].race[s->region == 1 ? 1 : 0]);
+            int named_stage, number, duplicate = 0; char tail;
+            if (r < 0 || cd->race[r].stage != stage ||
+                sscanf(cd->race[r].name,"S%d_URL_%d%c",&named_stage,&number,&tail) != 2 ||
+                named_stage != stage || number < 1) continue;
+            for (int k = 0; k < n; k++) if (race[k] == r) duplicate = 1;
+            if (!duplicate) {race[n] = r; ordinal[n++] = number;}
+        }
+        for (int j = 0; j < n; j++) for (int k = j+1; k < n; k++) if (ordinal[k] < ordinal[j]) {
+            int tmp = ordinal[j]; ordinal[j] = ordinal[k]; ordinal[k] = tmp;
+            tmp = race[j]; race[j] = race[k]; race[k] = tmp;
+        }
+        return which > 0 && which <= n && race_done(s,cd->race[race[which-1]].name_hash);
+    }
+    if (m->kind == CD_SMS_TIP) {
+        int ordinal = 0;
+        for (int k = 0; k < i; k++) if (cd->sms[k].kind == CD_SMS_TIP) ordinal++;
+        return s->stage >= 1 && s->won >= (unsigned)ordinal;
+    }
+    if (m->trigger == 3 && m->kind == CD_SMS_MSG) return migrate || elapsed >= m->arg;
+    if (!strcmp(m->name, "SMS_OUTRUN_INTRO")) return s->stage >= 1;
+    if (!strcmp(m->name, "SMS_GPS_INTRO")) return s->nowned > 0;
+    if (!strcmp(m->name, "SMS_LOC_GO_TO_CAR_LOT_NOW")) return !s->nowned;
+    if (!strcmp(m->name, "SMS_LOC_GO_TO_GARAGE")) return s->nowned > 0;
+    if (!strcmp(m->name, "SMS_LOC_EVENTS_OUT_THERE")) return s->stage >= 1 &&
+        (migrate || (shop >= 0 && shop < cd->nshop && cd->shop[shop].type == CD_SHOP_CRIB));
+    if (!strcmp(m->name, "SMS_END_OF_GAME_MESSAGE")) return race_done(s, m->arg);
+    return 0;
+}
+int cr_sms_deliver(CareerState *s, const CareerData *cd, int shop, double elapsed, int migrate)
+{
+    int n = 0;
+    if (!s || !cd || !s->started) return 0;
+    for (int i = 0; i < cd->nsms; i++) if (sms_condition(s, cd, i, shop, elapsed, migrate))
+        n += cr_sms_receive(s, cd->sms[i].name_hash, migrate);
+    s->sms_ready = 1;
+    return n;
 }

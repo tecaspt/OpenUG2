@@ -22,7 +22,7 @@ extern "C" {
  * docs/parity/SMS-MAILBOX.md 6 records the change. */
 #define LangTable UgStrTab
 
-#define FE_SMS_MAX 40                /* list slots: the 10 authored rows plus the scroll window */
+#define FE_SMS_MAX CD_MAX_SMS                /* every possible data record; the authored view still has ten rows */
 #define FE_SMS_WINDOW 10             /* [data] UI_SMS_Mailbox.fng authors 10 subject rows (node 0x0c6e4198
                                       * plus 0x9a3674c8 and the 0x949f4946..0x949f494e row groups) */
 #define FE_SMS_SUBJECT_FILL 96       /* room for one filled subject line: the size of FeSmsItem.subject,
@@ -45,15 +45,14 @@ typedef struct FeSms {
 /* Builds the list from the SMS table. `received` selects the records the player holds: nreceived
  * indices into cd->sms[] (out of range or negative entries are ignored), or, when nreceived is
  * FE_SMS_ALL (-1), every record of the table. Copies at most `cap` items (FE_SMS_MAX at most) and
- * returns how many were written, in table order - the order the records were authored in [data],
- * which is also the order retail lists them (SMS-TABLE.md). Texts come from the language file, keyed
+ * returns how many were written, in receipt order (table order for FE_SMS_ALL). Texts come from the language file, keyed
  * by the record name (NAME_SUBJECT / NAME_BODY, plus the retail generic fall-backs); a record with no
  * text keeps its name and an empty subject and body, so the caller can always show a row. */
 #define FE_SMS_ALL (-1)
 int fe_sms_build(const CareerData *cd, const LangTable *lang, const int *received, int nreceived,
                  FeSmsItem *out, int cap);
 /* (Re)opens the mailbox over `n` built items: the browsed row is the newest unread message (the last
- * unread in table order), else the first row. */
+ * unread in receipt order), else the first row. */
 void fe_sms_open_list(FeSms *s, const FeSmsItem *items, int n);
 /* List navigation with wrap-around: `delta` rows either way (0 and |delta| >= n leave the row alone). */
 void fe_sms_select(FeSms *s, int delta);

@@ -67,6 +67,11 @@ struct FeMenu {
     int career_garage;           /* M6: Garage opened from career roam; leaving it requests FEM_REQ_CAREER_ROAM */
     FeWorldMap world_map;
     int map_pressed;
+    UgAssets sms_assets; UgSkin sms_skin; UgGL *sms_gl; int sms_assets_open;
+    FeSms sms;
+    const CareerData *sms_cd;
+    int (*sms_read)(void *,uint32_t); void *sms_user;
+    char sms_body[2048], sms_subject[192], sms_sender[128];
     FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
     FePaint paint;
     FePerf perf;                 /* career Performance Shop state (fe_perf.h) */
@@ -91,6 +96,7 @@ struct FeMenu {
 
 static const char *screen_name(FemScreen s) {
     switch (s) {
+    case FEM_SCR_SMS: return "SMS";
     case FEM_SCR_WORLD_MAP: return "WORLD_MAP";
     case FEM_SCR_MAIN: return "MAIN";
     case FEM_SCR_QR_MODE: return "QR_MODE";
@@ -110,6 +116,7 @@ static const char *screen_name(FemScreen s) {
 }
 static const char *package_of(FemScreen s) {
     switch (s) {
+    case FEM_SCR_SMS:return "UI_SMS_Mailbox.fng";
     case FEM_SCR_WORLD_MAP:return "UI_CareerWorldMap.fng";
     case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
     case FEM_SCR_CAREER_LOT: return "UI_CareerCarLot.fng";
@@ -174,6 +181,21 @@ static void build_screen(FeMenu *m) {
     if (!pkg) {set_status(m,"%s: unknown screen",screen_name(m->screen));return;}
     if (!m->assets_open || !m->compatible || !m->gl) {
         snprintf(m->status, sizeof m->status, "%s: front-end resources unavailable (%.180s)", screen_name(m->screen), m->res_status);
+        return;
+    }
+    if(m->screen==FEM_SCR_SMS) {
+        if(!m->sms_assets_open) {
+            m->sms_assets_open=ug_assets_open_ingame(&m->sms_assets,m->dataroot,NULL,m->status,sizeof m->status);
+            if(m->sms_assets_open) {
+                ug_skin_resolve(&m->sms_skin,&m->sms_assets);
+                m->sms_gl=ug_gl_create();
+                if(m->sms_gl)ug_gl_set_texlib(m->sms_gl,&m->sms_assets.tex);
+            }
+        }
+        if(!m->sms_assets_open || !m->sms_gl) {snprintf(m->status,sizeof m->status,"SMS assets unavailable");return;}
+        m->visual=fe_sms_showing(&m->sms)?gv_screen_load(&m->scr,&m->sms_assets,"UI_EngageMessageDialog.fng"):
+                  fe_sms_bind(&m->sms,&m->scr,&m->sms_assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
         return;
     }
     if(m->screen==FEM_SCR_WORLD_MAP) {
@@ -274,7 +296,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP || m->screen==FEM_SCR_SMS)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -293,6 +315,20 @@ static void entries_to_view(FeMenu *m, GvEntry out[GC_MAX]) {
 static void views_update(FeMenu *m, float ms) {
     if (!m->visual || !m->scr.loaded) return;
     gv_screen_update(&m->scr, ms);
+    if(m->screen==FEM_SCR_SMS) {
+        if(!fe_sms_showing(&m->sms))fe_sms_sync(&m->sms,&m->scr);
+        else {
+            for(int i=0;i<m->scr.scene.n;i++) {
+                UgNode *n=&m->scr.scene.nodes[i]; uint32_t hash=n->obj->name_hash;
+                if(n->obj->type!=UG_OBJ_TEXT)continue;
+                if(hash==0x42adb44cu)n->text_override=gv_text(&m->assets,ug_hash_upper("SMS_HEADER"),"");
+                else if(hash==0x2c167533u)n->text_override=m->sms_subject;
+                else if(hash==0xfeced617u)n->text_override=m->sms_sender;
+                else if(hash!=0x00169268u && hash!=0xe202f7c4u)n->app_hidden=1;
+            }
+            ug_scene_relayout(&m->scr.scene);
+        }
+    }
     if(m->screen==FEM_SCR_WORLD_MAP && !fwm_sync(&m->world_map,&m->scr)) {
         m->visual=0;
         snprintf(m->status,sizeof m->status,"%s",m->world_map.status);
@@ -392,8 +428,10 @@ FeMenu *fem_create(const char *dataroot, const struct GameCatalog *cat, int allo
 void fem_destroy(FeMenu *m) {
     if (!m) return;
     drop_view(m);
+    ug_gl_destroy(m->sms_gl);
     ug_gl_destroy(m->gl);
     ug_cv_free(&m->canvas);
+    ug_assets_close(&m->sms_assets);
     ug_assets_close(&m->assets);
     fet_free(&m->choice);
     fwm_destroy(&m->world_map);
@@ -503,6 +541,23 @@ const char *fem_status(const FeMenu *m) {
  * Use the same retail pill kit as pause, kept below the screen content. */
 static int back_hit(float x, float y) { return x >= 24 && x <= 170 && y >= 440 && y <= 472; }
 static int choice_hit(FeMenu *m,float x,float y,int select_row) {
+    if(m->screen==FEM_SCR_SMS) {
+        if(fe_sms_showing(&m->sms))return x<320?FES_IN_BACK:FES_IN_ACCEPT;
+        for(int i=0;i<m->scr.scene.n;i++) {
+            const UgNode *node=&m->scr.scene.nodes[i];
+            if(node->app_hidden || !node->text_override ||
+               (node->obj->name_hash!=0x9a3674c8u &&
+                (node->obj->name_hash<0x0c6e4198u || node->obj->name_hash>0x0c6e41a0u)))continue;
+            if(x>=40 && x<=600 && fabsf(y-240-node->wf)<=14) {
+                for(int row=0;row<m->sms.n;row++)
+                    if(node->text_override==m->sms.item[row].subject || node->text_override==m->sms.item[row].name) {
+                        if(select_row)m->sms.sel=row;
+                        return FES_IN_ACCEPT;
+                    }
+            }
+        }
+        return x<180?FES_IN_LEFT:x>460?FES_IN_RIGHT:FES_IN_ACCEPT;
+    }
     if(m->screen==FEM_SCR_QR_OPTIONS)for(int row=0;row<fet_row_count(&m->choice);row++) {
         if(!fet_row_enabled(&m->choice,row))continue;
         float top=gl_row_top(&m->choice.list.anchors,row);
@@ -724,6 +779,26 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         if(m->screen==FEM_SCR_OPTIONS && m->opt_shown!=om_screen(&m->options))build_screen(m);
     }
     int in=m->pending_input;m->pending_input=0;
+    if(m->screen==FEM_SCR_SMS && in && !m->locked) {
+        if(in==FES_IN_BACK) {
+            if(fe_sms_showing(&m->sms)){fe_sms_close(&m->sms);build_screen(m);}
+            else {req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+        } else if(in==FES_IN_ACCEPT) {
+            if(fe_sms_showing(&m->sms)){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+            else if(m->sms.n && m->visual) {
+                const FeSmsItem *it=fe_sms_text(&m->sms);
+                if(m->sms_read && m->sms_read(m->sms_user,cd_hash(it->name))) {
+                    fe_sms_open(&m->sms);
+                    char key[64];snprintf(key,sizeof key,"%s_BODY",it->name);
+                    snprintf(m->sms_body,sizeof m->sms_body,"%s",gv_text(&m->assets,ug_hash_upper(key),it->body));
+                    snprintf(m->sms_subject,sizeof m->sms_subject,"%s",it->subject);
+                    int at=cd_find_sms(m->sms_cd,cd_hash(it->name));
+                    snprintf(m->sms_sender,sizeof m->sms_sender,"%s",at>=0?gv_text(&m->assets,m->sms_cd->sms[at].sender,""):"");
+                    build_screen(m);
+                } else snprintf(m->status,sizeof m->status,"SMS read could not be saved");
+            }
+        } else if(!fe_sms_showing(&m->sms))fe_sms_select(&m->sms,in==FES_IN_LEFT || in==5?-1:1);
+    }
     if(m->screen==FEM_SCR_WORLD_MAP && in && !m->locked) {
         int event=(m->visual || in==FES_IN_BACK)?fwm_input(&m->world_map,in,&req.destination):FWM_EV_NONE;
         if(event==FWM_EV_DESTINATION){req.kind=FEM_REQ_SET_DESTINATION;m->locked=1;}
@@ -833,8 +908,9 @@ void fem_draw(FeMenu *m, int w, int h) {
     const UgSkin *old = ug_kit_skin();
     UgSkin saved;
     if (old) saved = *old;
-    ug_text_set_face(ug_assets_main_face(&m->assets));
-    ug_kit_set_skin(&m->skin);
+    const UgAssets *draw_assets=m->screen==FEM_SCR_SMS?&m->sms_assets:&m->assets;
+    ug_text_set_face(ug_assets_main_face(draw_assets));
+    ug_kit_set_skin(m->screen==FEM_SCR_SMS?&m->sms_skin:&m->skin);
     UgCanvas *cv = &m->canvas;
     ug_cv_clear(cv);
     if (m->visual && !gv_screen_draw(&m->scr, &m->ui, cv)) {
@@ -844,15 +920,22 @@ void fem_draw(FeMenu *m, int w, int h) {
         ug_cv_clear(cv);
         cv->visual_status = UG_VIS_UNAVAILABLE;
     }
+    if(m->screen==FEM_SCR_SMS && m->visual && fe_sms_showing(&m->sms)) {
+        /* Host text uses the retail dialog's body area and retail font. */
+        float width=0,height=0,scale=.7f;
+        ug_text_measure(m->sms_body,scale,550/scale,0,UG_GLYPHS_MOUSE,&width,&height);
+        if(height>230)scale*=230/height;
+        ug_text_draw(cv,m->sms_body,-277,-55,scale,(UgColor){230,230,230,255},0,550/scale,0,UG_GLYPHS_MOUSE);
+    }
     if(m->screen==FEM_SCR_WORLD_MAP && m->visual && !fwm_draw(&m->world_map,&m->scr,cv)) {
         m->visual=0;
         snprintf(m->status,sizeof m->status,"%s",m->world_map.status);
         ug_cv_clear(cv);       /* fail closed, retaining only the reachable Back adaptation below */
     }
     if(m->screen==FEM_SCR_OPTIONS && m->opt_dialog.open)gv_screen_draw(&m->opt_dialog.scr,&m->ui,cv);
-    if(m->screen!=FEM_SCR_LOADING)gv_touch_back(cv,&m->assets);
-    ug_text_set_face(ug_assets_main_face(&m->assets));
-    if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->gl, cv, w, h);
+    if(m->screen!=FEM_SCR_LOADING)gv_touch_back(cv,draw_assets);
+    ug_text_set_face(ug_assets_main_face(draw_assets));
+    if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->screen==FEM_SCR_SMS?m->sms_gl:m->gl, cv, w, h);
     ug_text_set_face(face);
     ug_kit_set_skin(old ? &saved : NULL);
 }
@@ -954,4 +1037,19 @@ void fem_open_career_shop(FeMenu *m,int type,uint32_t slots,
     if(!feg_shop(m->garage,type,slots))return;
     m->career_parts_save=save;m->career_save_user=user;
     fem_open_career_garage(m);
+}
+
+void fem_open_sms(FeMenu *m,const CareerData *cd,const CareerState *st,int (*read)(void *,uint32_t),void *user)
+{
+    if(!m || !cd || !st)return;
+    FeSmsItem items[FE_SMS_MAX];int n=0;
+    for(int i=0;i<st->nsms && n<FE_SMS_MAX;i++) {
+        int at=cd_find_sms(cd,st->sms[i].hash);
+        if(at<0)continue;
+        if(fe_sms_build(cd,&m->assets.strings,&at,1,&items[n],1))items[n++].unread=!st->sms[i].read;
+    }
+    fe_sms_open_list(&m->sms,items,n);
+    m->sms_cd=cd;m->sms_read=read;m->sms_user=user;
+    fem_open(m,FEM_SCR_SMS);
+    printf("career: sms mailbox opened received %d unread %d\n",n,fe_sms_unread(&m->sms));
 }

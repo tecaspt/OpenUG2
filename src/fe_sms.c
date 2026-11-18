@@ -107,13 +107,14 @@ int fe_sms_build(const CareerData *cd, const LangTable *lang, const int *receive
     if (!cd || !out || cap <= 0) return 0;
     if (cap > FE_SMS_MAX) cap = FE_SMS_MAX;
     int n = 0;
-    for (int i = 0; i < cd->nsms && n < cap; i++) {
-        if (nreceived != FE_SMS_ALL) {
-            if (!received || nreceived <= 0) return 0;             /* no receipt list: nothing received */
-            int keep = 0;
-            for (int k = 0; k < nreceived && !keep; k++) if (received[k] == i) keep = 1;
-            if (!keep) continue;
-        }
+    int total = nreceived == FE_SMS_ALL ? cd->nsms : nreceived;
+    if (nreceived != FE_SMS_ALL && !received) return 0;
+    for (int k = 0; k < total && n < cap; k++) {
+        int i = nreceived == FE_SMS_ALL ? k : received[k];
+        if (i < 0 || i >= cd->nsms) continue;
+        int duplicate = 0;
+        for (int j = 0; j < k && nreceived != FE_SMS_ALL; j++) if (received[j] == i) duplicate = 1;
+        if (duplicate) continue;
         FeSmsItem *it = &out[n++];
         memset(it, 0, sizeof *it);
         sms_copy(it->name, sizeof it->name, cd->sms[i].name);
@@ -141,7 +142,7 @@ void fe_sms_open_list(FeSms *s, const FeSmsItem *items, int n) {
     s->n = n;
     s->opened = -1;
     s->header_scale = 1;
-    /* [inferred] Retail opens on the newest message; the table order is the receipt order, so that is
+    /* [inferred] The host supplies receipt order, so the newest message is
      * the last unread record. With nothing unread the browsed row is the first. */
     s->sel = newest >= 0 ? newest : 0;
 }
@@ -184,7 +185,8 @@ int fe_sms_unread(const FeSms *s) { return s ? s->unread_total : 0; }
 #define FES_SELECT_CAP  0x001335f0u   /* node 140: hint "Read Message" (key SMS_READ_MESSAGE) */
 #define FES_COUNT       0x980822b3u   /* node 113: x=44 y=8 centred, sample "Unread Messages" */
 #define FES_ROW_TOP     0x9a3674c8u   /* node 13:  x=-242 y=155, the top subject row */
-#define FES_ROW         0x0c6e4198u   /* nodes 14..21 and 58: the nine other subject rows */
+#define FES_ROW         0x0c6e4198u   /* lowest subject-row hash; closed range through 0x0c6e41a0 */
+#define FES_ROW_HI      0x0c6e41a0u
 #define FES_MAIL_TOP    0xe7afbca7u   /* node 2: Engage_SMS_mail.tga at y=165, the top envelope */
 #define FES_MAIL_LO     0x6bde8997u   /* nodes 3..11: envelopes at y=136..-88; the name id steps by */
 #define FES_MAIL_HI     0x6bde899fu   /* one per row, so this closed range is exactly the nine */
@@ -195,7 +197,7 @@ typedef struct FesRows { int subject[FE_SMS_WINDOW]; int mail[FE_SMS_WINDOW]; in
 static void rows_sort_top_down(GvScreen *s, int *at, int n) {
     for (int a = 0; a < n; a++)
         for (int b = a + 1; b < n; b++)
-            if (s->scene.nodes[at[a]].obj->pos[1] < s->scene.nodes[at[b]].obj->pos[1]) {
+            if (s->scene.nodes[at[a]].obj->pos[1] > s->scene.nodes[at[b]].obj->pos[1]) {
                 int t = at[a]; at[a] = at[b]; at[b] = t;
             }
 }
@@ -207,7 +209,7 @@ static int fes_rows(const GvScreen *s, FesRows *r) {
     nf = 0;
     for (int i = 0; i < s->scene.n && nf < FE_SMS_WINDOW; i++) {
         uint32_t g = s->scene.nodes[i].obj->name_hash;
-        if (g == FES_ROW_TOP || g == FES_ROW) found[nf++] = i;
+        if (g == FES_ROW_TOP || (g >= FES_ROW && g <= FES_ROW_HI)) found[nf++] = i;
     }
     if (nf != FE_SMS_WINDOW) return 0;
     rows_sort_top_down((GvScreen *)s, found, nf);
@@ -265,8 +267,8 @@ void fe_sms_sync(FeSms *s, GvScreen *scr) {
         snprintf(line, sizeof line, "%s", fmt);
         const char *p1 = strstr(line, "%d"), *p2 = p1 ? strstr(p1 + 2, "%d") : NULL;
         if (p1 && p2)
-            snprintf(s->header, sizeof s->header, "%.*s%d%s%d", (int)(p1 - line), line,
-                     s->sel + 1, p1 + 2, s->n);
+            snprintf(s->header, sizeof s->header, "%.*s%d%.*s%d%s", (int)(p1-line),line,
+                     s->sel+1,(int)(p2-p1-2),p1+2,s->n,p2+2);
         else sms_copy(s->header, sizeof s->header, line);
     } else {
         sms_copy(s->header, sizeof s->header, ug_strtab_or(lang, 0xaaabbd7au, "Incoming Mobile Message"));
@@ -324,6 +326,9 @@ void fe_sms_sync(FeSms *s, GvScreen *scr) {
                     text = s->item[at].subject[0] ? s->item[at].subject : s->item[at].name;
                 n->text_override = text;
                 n->app_hidden = text ? 0 : 1;
+                float colour[4] = { at == s->sel ? 255.0f : 192.0f, 192.0f,
+                                    at == s->sel ? 64.0f : 192.0f, 255.0f };
+                ug_scene_app_write(&scr->scene,i,UG_P_COLOR,4,colour);
             }
             if (i == r.mail[q]) {
                 /* [data] The row envelope (Engage_SMS_mail.tga) is the unread marker; read rows and the
