@@ -91,6 +91,23 @@
      "env": {"SDL_AUDIODRIVER": "dummy"},
      "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720",
               "--input-script", "10:key=Left,20:key=Return,40:key=Return,100:key=Right,120:key=Return,130:shot=s7m_confirm.png,140:key=Return,300:shot=s7m_roam.png,301:quit"],
-     "spec": "tools/log_specs/s7m_lot.spec", "shots_min": 2}
+     "spec": "tools/log_specs/s7m_lot.spec", "shots_min": 2},
+
+    {"id": "s7s_shop_ask", "kind": "game", "binary": "nfsu2", "timeout": 1500, "xdg": "s7s",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720", "--career-place-raw",
+              "--input-script", "@tools/gate_inputs/s7s_shop_ask.txt"],
+     "spec": "tools/log_specs/s7s_shop_ask.spec", "shots_min": 5},
+
+    {"id": "mirror_on", "kind": "game", "binary": "nfsu2", "timeout": 600,
+     "args": ["${OPENUG2_DATA}", "--resolution", "640x480", "--car", "GOLF", "--track", "STREAML4RA",
+              "--rear-mirror", "on", "--shot", "mirror-on-STREAML4RA.png", "--frames", "120"],
+     "spec": "tools/log_specs/mirror_on.spec", "shots_min": 1},
+
+    {"id": "worldmap_gps", "kind": "game", "binary": "nfsu2", "timeout": 1800, "xdg": "wmgps",
+     "env": {"SDL_AUDIODRIVER": "dummy"},
+     "args": ["--path", "${OPENUG2_DATA}", "--resolution", "640x480", "--world-map-dev",
+              "--input-script", "@tools/gate_inputs/worldmap_gps.txt"],
+     "spec": "tools/log_specs/worldmap_gps.spec", "shots_min": 3}
   ]
 }
