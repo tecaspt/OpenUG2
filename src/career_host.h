@@ -79,6 +79,7 @@ int  ch_crib_done(CareerHost *ch, GfLaunch *out);
 /* Renderer-acknowledged career installation; rolls state back if the save fails. */
 int ch_shop_install(CareerHost *,const char *car,const GarageConfig *);
 /* Roam delivery/discovery and transactional read + save. */
+int ch_sponsor_choose(CareerHost *, int sponsor);
 int ch_sms_tick(CareerHost *, float x, float y, double seconds);
 int ch_sms_read(CareerHost *, uint32_t hash);
 /* Takes a pending spawn (1) and clears it. */

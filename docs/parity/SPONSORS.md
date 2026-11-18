@@ -69,3 +69,34 @@ advance. Loss, failure, abort and replay pay no sponsor bonus.
 
 DVD covers remain the career module's existing inferred satisfied condition;
 free-car capacity and promotional covers are outside this sponsor slice.
+
+## Retail presentation
+
+All three packages have full runtime identity sets (hash, GUID, parent, type,
+resource) in `fe_binding.h`, appended to preserve existing binding indexes.
+The popup and choice use the in-game asset set, the reward uses FrontB.
+The name, signing bonus, URL bonus and contract lines replace authored examples;
+controller tokens and event-handler samples are suppressed. Contract text is
+measured and wrapped as one block in the authored column, using its retail font. The selected brand logo uses the
+runtime `DECAL_ICON_NAME` texture when present. The race description is the
+retail `SPONSOR_INFO_NAME` string. Keyboard arrows/Return/Escape, controller
+directions/A/B, and touch left/centre/right plus Back share the menu input path.
+
+[inferred] Back defers the offer until the next career session; entering the
+next stage offers its new contract. Signing opens the reward summary before
+returning to free roam. Save failure reopens the unsigned choice, with bank
+and contract rolled back. The post-race cash total includes the bonus and its
+player caption separately identifies the sponsor amount when paid.
+
+## Reproduction
+
+`make sponsor-check fe-sponsor-test career-test` covers all twenty retail
+contracts, UI input routing, once-only payouts, eligibility, stage progress,
+save round-trip and migration. The host check exercises save-failure rollback.
+For screenshots, create an isolated profile with
+`build/sponsor_check "$OPENUG2_DATA" "$PROFILE_ROOT" Driver`: it wins the five
+stage-1 races using the production rules and saves at stage 2, bank 1250.
+Set `ActiveProfile="Driver"` in the isolated settings INI. Launch with isolated XDG roots and `--input-script @tools/gate_inputs/sponsors.txt`,
+then cold restart with `@tools/gate_inputs/sponsors-cold.txt`. The expected signed
+bank is 2525; a fifth argument to the fixture tool checks the existing save
+without replacing it. Runtime screenshots and logs are external report artifacts.

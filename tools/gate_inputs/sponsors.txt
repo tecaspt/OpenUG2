@@ -1,0 +1,14 @@
+# Isolated stage-2 profile produced by sponsor_check DATA PROFILE_ROOT Driver.
+10:key=Left
+20:key=Return
+40:key=Return
+600:shot=sponsor-popup.png
+620:key=Return
+650:pad=dpright
+670:pad=dpleft
+700:shot=sponsor-choice.png
+720:key=Return
+800:shot=sponsor-signed.png
+820:click=0.5:0.5
+1100:shot=sponsor-bank.png
+1101:quit

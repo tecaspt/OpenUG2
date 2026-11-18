@@ -13,7 +13,9 @@ reputation are paid → Continue → back in the city at the pre-race spot → a
 events appear on the map. Quit to Main saves the free-roam pose; Career then continues the saved career.
 
 Headless proof (`--career-dev 1`): new career, the 5 Stage-1 races won, bank 1250, reputation 500, stage 2 opens,
-the first stage-2 sponsor race pays its own purse (1000); a second run continues the saved career.
+the stage-2 sponsor popup now asks for a contract. Signing Streetglow adds 1275 (bank 2525);
+selected sponsor races pay their existing purse, and URL wins add the contract bonus. A second run
+continues the saved career and selected sponsor.
 
 ## Modules (pure C99, no SDL/GL)
 
@@ -63,5 +65,15 @@ Data checks exit 77 (SKIP) without `OPENUG2_DATA`.
 
 ## Not yet (next slices)
 
-Stage 0 intro and car lot, UI_CareerSelect / world map, ENGAGE dialog art, SMS, sponsors choice, multi-heat
+Stage 0 intro and car lot, UI_CareerSelect / world map, ENGAGE dialog art, SMS, multi-heat
 URL tournaments and per-race AI count (M7 race rules), DVD/magazine covers, car/part unlocks, shops, retail save import.
+
+
+## Sponsor contracts
+
+Stages 2–5 now offer their five retail contracts through `UI_SponsorPopup`,
+`UI_Sponsorship_new` and `UI_RewardsSponsor`. Selection and signing credit save
+atomically; schema 6 migrates older careers to unsigned contracts. Selected
+sponsor events unlock and count toward stage progression; first URL wins add
+and display the contract bonus. See [SPONSORS.md](SPONSORS.md) for decoded
+fields, inferred eligibility/race selection, and remaining DVD-cover limitations.

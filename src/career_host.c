@@ -155,6 +155,9 @@ int ch_begin(CareerHost *ch, int new_career, const char *root, const char *profi
         cr_sms_deliver(&ch->st, &ch->cd, -1, 0, 1);
         if (!ch_save(ch)) return CH_BEGIN_FAIL;
     }
+    int sponsor = cr_sponsor_current(&ch->st, &ch->cd);
+    if (sponsor >= 0) printf("career: sponsor restored %s stage %d bank %lld\n",
+        ch->cd.sponsor[sponsor].name, ch->st.stage, (long long)ch->st.bank);
     ch->active = 1;
     free_roam_launch(car, out);
     if (ret == CH_BEGIN_LOT) {   /* the lot screen opens over the lot marker */
@@ -394,5 +397,17 @@ int ch_sms_read(CareerHost *ch, uint32_t hash)
     if (!ch_save(ch)) { ch->st = before; return 0; }
     int at = cd_find_sms(&ch->cd,hash);
     if (at >= 0) printf("career: sms read %s unread %d\n",ch->cd.sms[at].name,cr_sms_unread(&ch->st));
+    return 1;
+}
+
+int ch_sponsor_choose(CareerHost *ch, int sponsor)
+{
+    if (!ch || !ch->active || ch->race >= 0) return 0;
+    CareerState before = ch->st;
+    if (!cr_sponsor_choose(&ch->st, &ch->cd, sponsor)) return 0;
+    if (!ch_save(ch)) { ch->st = before; return 0; }
+    snprintf(ch->last, sizeof ch->last, "career: sponsor %s signing %u bank %lld stage %d",
+             ch->cd.sponsor[sponsor].name, ch->cd.sponsor[sponsor].signing, (long long)ch->st.bank, ch->st.stage);
+    printf("%s\n", ch->last);
     return 1;
 }

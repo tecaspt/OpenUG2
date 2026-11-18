@@ -4,6 +4,7 @@
 #include "race.h"
 #include "gui_view.h"
 #include "fe_binding.h"
+#include "fe_sponsor.h"
 #include "pause_menu_layout.h"
 #include "fe_worldmap.h"
 #include "ugui/ugui_gl.h"
@@ -16,6 +17,7 @@ struct PostRace {
     UgAssets assets;UgSkin skin;UgGL *gl;UgCanvas canvas;UgCtx ui;
     GvScreen result,menu,family,mapbase;FeWorldMap map;GvCarousel view;GuiCarousel carousel;GvEntry entries[3];PostRaceInfo info;
     int open,visual,pending,pressed,phase,flow[7],flow_count,flow_at;
+    int32_t sponsor_bonus;
     char values[12][64];
     char status[256],place[16],time[32],title[384];
     char row_points[RR_MAX_CARS][32],row_places[RR_MAX_CARS][16],row_times[RR_MAX_CARS][32];
@@ -103,7 +105,10 @@ static void family_open(PostRace *p) {
         snprintf(p->values[0],64,"%u",info->reward.reputation);
         snprintf(p->values[1],64,"%u",info->reward.cash);
         hash_text(s,0x18d97a23u,p->values[0]);hash_text(s,0x18d97a24u,p->values[1]);
-        hash_text(s,0xeb406fecu,info->car);
+        if(p->sponsor_bonus>0) {
+            snprintf(p->values[2],64,"%s +$%d",gv_text(&p->assets,0x34e6adbau,"Sponsor"),(int)p->sponsor_bonus);
+            hash_text(s,0xeb406fecu,p->values[2]);
+        } else hash_text(s,0xeb406fecu,info->car);
     } else if(p->phase==PR_SCREEN_STATS) {
         /* [data] The stats package stores its reusable rows below the viewport.
          * [inferred] Bring only measured player rows into its authored frame. */
@@ -198,6 +203,7 @@ PostRace *pr_create(const char *root) {
 void pr_open(PostRace *p,const PostRaceInfo *info) {
     if(!p || !info)return;
     gv_screen_free(&p->result);p->info=*info;p->info.car[31]=0;
+    p->sponsor_bonus=0;
     p->title[0]=0;
     p->flow_count=pr_flow(info,p->flow);p->flow_at=0;p->phase=p->flow[0];p->open=1;p->pending=0;p->pressed=0;p->visual=0;
     if(!p->gl){snprintf(p->status,sizeof p->status,"postrace: renderer unavailable");return;}
@@ -413,3 +419,5 @@ void pr_draw(PostRace *p,int w,int h) {
 int pr_is_open(const PostRace *p){return p && p->open;}
 const char *pr_status(const PostRace *p){return p?p->status:"postrace allocation unavailable";}
 void pr_destroy(PostRace *p){if(!p)return;gv_screen_free(&p->result);gv_screen_free(&p->menu);gv_screen_free(&p->family);gv_screen_free(&p->mapbase);fwm_destroy(&p->map);ug_gl_destroy(p->gl);ug_cv_free(&p->canvas);ug_assets_close(&p->assets);free(p);}
+
+void pr_sponsor_reward(PostRace *p,int32_t bonus) { if(p)p->sponsor_bonus=bonus>0?bonus:0; }
