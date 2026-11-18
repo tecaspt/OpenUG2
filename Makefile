@@ -1003,6 +1003,16 @@ fe-lot-test: tools/fe_lot_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_lot_test.c $(SCREENS_TEST_SRC) -o build/fe_lot_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_lot_test
+# Task AA: the SMS mailbox. The target copies the fe-lot-test shape (the shared GUI_ART_SRC + ugui blob)
+# plus src/options_menu.c and src/settings.c, which gui_view's option list reaches, and the libpng /
+# libcrypto the ugui art reader reaches. No GL is needed - fe_sms_test never draws a package.
+# Retail text is read from LANGUAGES/English.bin at run time, so $OPENUG2_DATA only affects the retail
+# check, never the build.
+SMS_TEST_SRC = src/fe_sms.c src/career_data.c $(GUI_ART_SRC) src/gui_view.c src/options_menu.c src/settings.c $(UGUI_SRC)
+fe-sms-test: tools/fe_sms_test.c $(SMS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_sms_test.c $(SMS_TEST_SRC) -o build/fe_sms_test $(SDL_LIBS) $(SETTINGS_LIBS) $(UGUI_IMAGE_LIBS) -lz -lm
+	./build/fe_sms_test
 postrace-test: tools/postrace_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_test.c $(SCREENS_TEST_SRC) -o build/postrace_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
