@@ -12265,7 +12265,7 @@ int main(int argc, char **argv) {
             (const float (*)[4])world.neighborhood.mbb,obstsrc,nobst,
             g_dbg.freecam?cam:render_player.pos,render_player.pos,MVP);
         render_target_present(&scene_target);   /* upscale; HUD/FE/pause/touch below draw on the physical drawable */
-        if(mirror_draw)rear_mirror_draw(&rear_mirror,W,H);
+        if(mirror_draw && !pr_is_open(post))rear_mirror_draw(&rear_mirror,W,H);
 
         if(!hud && (world.city.race.active || (ai_race && race_state!=3))) {
             hud=hud_init(dataroot);
@@ -12303,7 +12303,7 @@ int main(int argc, char **argv) {
         int draw_race_hud = g_devui;
 #endif
         /* the stage-8 HUD REPLACES the diagnostic overlay; never both at once */
-        if (hud_active) draw_race_hud = 0;
+        if (hud_active || pr_is_open(post)) draw_race_hud = 0;
         if (ai_race && nai > 0 && race_state != 3 && draw_race_hud) {
             rhi_cmd_bind_pipeline(ovp->screen);   /* screen space, no depth test */
             rp.p->uUnlit = 1.0f; rp.p->uUseTex = 0.0f;
@@ -12412,7 +12412,7 @@ int main(int argc, char **argv) {
 #else
         int draw_menu_hud = g_devui;
 #endif
-        if (hud_active) draw_menu_hud=0;
+        if (hud_active || pr_is_open(post)) draw_menu_hud=0;
         if (race_state == 3 && draw_menu_hud) {
             /* car selector (Left/Right): a tight row of pips, chosen lit white */
             float cw = 0.02f, cx0 = -((ncars-1)*cw)/2.0f;
@@ -12851,9 +12851,9 @@ int main(int argc, char **argv) {
                 }
             }
             hud_last_state = hs;
-            if (!shop_loading) hud_draw(hud, &rp, &quad, &hs, W, H);
+            if (!shop_loading && !pr_is_open(post)) hud_draw(hud, &rp, &quad, &hs, W, H);
         }
-        if (shop_loading && hud) hud_draw_loading(hud,SDL_GetTicks()-shop_loading_start,W,H);
+        if (shop_loading && hud && !pr_is_open(post)) hud_draw_loading(hud,SDL_GetTicks()-shop_loading_start,W,H);
 #ifdef DEBUG_UI     /* debug readouts + ImGui overlay, drawn on top of everything */
         g_dbg.cam[0]=cam[0]; g_dbg.cam[1]=cam[1]; g_dbg.cam[2]=cam[2];
         g_dbg.car[0]=carpos[0]; g_dbg.car[1]=carpos[1]; g_dbg.car[2]=carpos[2];
@@ -13715,7 +13715,7 @@ int main(int argc, char **argv) {
             rhi_drawable_size(&ow, &oh);
             if (uflat && !pause_menu_is_open(pause_menu) && !(fem && fem_is_open(fem)) && !pr_is_open(post)) tc_draw(&g_touch, uflat, ow, oh);
             if (fem && fem_is_open(fem)) fem_draw(fem, ow, oh);
-            if (hud && fem && fem_screen(fem)==FEM_SCR_LOADING && g_career.active && g_career.race>=0)
+            if (hud && fem && fem_screen(fem)==FEM_SCR_LOADING && g_career.active && g_career.race>=0 && !pr_is_open(post))
                 hud_draw_loading(hud,SDL_GetTicks(),ow,oh);
             if (pr_is_open(post)) pr_draw(post, ow, oh);
         }
