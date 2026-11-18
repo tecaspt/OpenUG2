@@ -78,6 +78,7 @@ int stage1_car_read_upgraded(const unsigned char *data,long length,const char *n
         READ(rs,hb+4);READ(rm,hb+8);
         if(isfinite(rs) && isfinite(rm) && rs>=0.0f && rm>=0.0f && rs<=3000.0f && rm<=3000.0f){c.shift_rpm+=rs;c.max_rpm+=rm;}
     }
+    /* Suspension (category 5) carries no field here on purpose: see the DrvUpgrade note in the header. */
 #undef READ
     if(!valid_car(&c) || drv_car_finalize(&c))return 0;
     *out=c;return 1;
@@ -94,6 +95,7 @@ int stage2_car_read(const unsigned char *data,long length,const char *name,ResCa
        !isfinite(c.rear)||c.rear<0||!isfinite(c.limit_mph)||c.limit_mph<0)return 0;
     *out=c;return 1;
 }
+
 int stage3_car_read(const unsigned char *data,long length,const char *name,BrkCar *out) {
     if(!data || !name || !out)return 0;
     long row=n2_global_car_record(data,length,name);

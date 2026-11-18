@@ -44,8 +44,16 @@ typedef struct Stage1Drive {
 /* Read only approved stock S1-1 fields via independent GLOBALB framing. */
 int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCar *out);
 /* Career performance upgrades applied while reading (fractions 0..1 from cr_perf_fraction, levels 0..3);
- * NULL or all-zero = stock, identical to stage1_car_read. */
-typedef struct DrvUpgrade { float engine; int engine_level; int gear_level; float tires; } DrvUpgrade;
+ * NULL or all-zero = stock, identical to stage1_car_read. Decoded and applied (docs/parity/PERF-PAINT.md):
+ * engine 3/0 (master add-curve 0x530 + rpm headers 0x560/0x5A0/0x5E0), transmission 1/2 (gearbox blocks
+ * 0x460/0x4A0/0x4E0 replace stock 0x2C0) and tires 8/0 (grip lerps 0x1E0/0x200 -> 0x650/0x670).
+ * suspension 5/0 is carried but data-only: the 0x6A0-0x6CC block is a per-axle/retune layout, not a
+ * stock->max pair (0x6B4==0x6A4 and 0x6B8==0x6A8 on all 46 records; front stiffness 0x6C0->0x6C4 falls
+ * on 30/31 player cars), and Stage1-5 readers consume only mass/gearbox/grip/rpm, so no field moves on
+ * this fraction yet (the block's intended outputs are not among them). Weight 0/0, nitrous 2/0,
+ * turbo 4/0, brakes 6/0 and ECU 7/0 stay unapplied: no justified per-car target (ruled-out census in
+ * docs/parity/PERF-PAINT.md; the 0x778->0x7D8 reduction pair has unknown units). */
+typedef struct DrvUpgrade { float engine; int engine_level; int gear_level; float tires; float suspension; } DrvUpgrade;
 int stage1_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,DrvCar *out);
 /* Read only approved S2-1 stock fields from the same independent framing. */
 int stage2_car_read(const unsigned char *data,long length,const char *name,ResCar *out);

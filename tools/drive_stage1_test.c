@@ -3,6 +3,7 @@
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "drive_stage1.h"
 #ifdef NDEBUG
@@ -311,4 +312,118 @@ static void braking_integration(void) {
     assert(t.drive.drivetrain.wheel[0].dir==DRV_DIR_BACKWARD&&!t.drive.prepared);
     assert(stage3_drive_brakes(&t.drive,&brakes,16,0)<0);
 }
-int main(void){parser_test();numeric_boundaries();tests();resistance_integration();braking_integration();phys_selftest();puts("Stage 1 gameplay adapter tests passed");return 0;}
+/* Synthetic regressions cannot prove the decoded upgrade offsets, only that a pattern is read the way
+ * it is written. This section opens the retail car table and checks the applied categories against
+ * numbers read out of the record itself, on four player cars and one traffic car. The data root is
+ * argv[1] or OPENUG2_DATA; without either the section is skipped, never silently passed. No path is
+ * baked in. */
+static const unsigned char *g_data;
+static long g_len;
+static float rec_f(const unsigned char *b,long row,int off){float v;memcpy(&v,b+row+off,4);return v;}
+static int   rec_n(const unsigned char *b,long row,int off){unsigned v;memcpy(&v,b+row+off,4);return (int)v;}
+static int same_car(const DrvCar *a,const DrvCar *b){return !memcmp(a,b,sizeof *a);}
+/* One car, stock baseline plus every implemented effect at fraction 1.0 / level 3. */
+static void retail_car(long row,const char *name){
+    DrvCar stock,up;DrvUpgrade full={0},part={0};
+    unsigned char *rec=malloc(0x890);assert(rec);
+    assert(stage1_car_read(g_data,g_len,name,&stock));
+    assert(stage1_car_read_upgraded(g_data,g_len,name,NULL,&up)&&same_car(&up,&stock));
+    DrvUpgrade z={0};
+    assert(stage1_car_read_upgraded(g_data,g_len,name,&z,&up)&&same_car(&up,&stock));
+    memcpy(rec,g_data+row,0x890);
+    /* tyres: the max block is the lerp ceiling, axle by axle, where the guard allows it */
+    for(int a=0;a<2;a++){
+        float pk=rec_f(rec,0x650+0x20*a+0xc,0),sl=rec_f(rec,0x650+0x20*a+0x10,0);
+        part=(DrvUpgrade){0};part.tires=1.0f;
+        assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
+        if(pk>=stock.mu_peak[a]&&sl>=stock.mu_slide[a]){
+            assert(fabsf(up.mu_peak[a]-pk)<1e-6f&&fabsf(up.mu_slide[a]-sl)<1e-6f);
+            assert(up.mu_peak[a]>=stock.mu_peak[a]&&up.mu_slide[a]>=stock.mu_slide[a]);
+            part.tires=.5f;
+            assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
+            assert(fabsf(up.mu_peak[a]-(stock.mu_peak[a]+.5f*(pk-stock.mu_peak[a])))<1e-5f);
+        } else {   /* max below stock (every traffic car): refused, stock stands */
+            assert(fabsf(up.mu_peak[a]-stock.mu_peak[a])<1e-6f&&fabsf(up.mu_slide[a]-stock.mu_slide[a])<1e-6f);
+        }
+    }
+    /* gearbox: the level block replaces the stock block wholesale */
+    for(int lv=1;lv<=3;lv++){
+        int gb=0x460+0x40*(lv-1);
+        part=(DrvUpgrade){0};part.gear_level=lv;
+        assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
+        assert(up.gear_count==rec_n(rec,gb+0x18,0));
+        assert(fabsf(up.final_front-rec_f(rec,gb+0x8,0))<1e-6f&&fabsf(up.final_rear-rec_f(rec,gb+0xc,0))<1e-6f);
+        assert(fabsf(up.rear_share-rec_f(rec,gb+0x10,0))<1e-6f&&fabsf(up.clutch_k-rec_f(rec,gb+0x14,0))<1e-6f);
+        assert(fabsf(up.clutch_rate-rec_f(rec,gb+0x1c,0))<1e-6f&&fabsf(up.launch_fraction-rec_f(rec,gb,0))<1e-6f);
+        for(int k=0;k<6;k++)assert(fabsf(up.ratio[k]-rec_f(rec,gb+0x20,4*k))<1e-6f);
+    }
+    /* engine: fraction 1.0 = the whole master add-curve; the level header alone raises rpm only */
+    part=(DrvUpgrade){0};part.engine=1.0f;
+    assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
+    for(int k=0;k<9;k++)assert(fabsf(up.torque_primary[k]-(stock.torque_primary[k]+rec_f(rec,0x530,4*k)))<1e-6f);
+    assert(fabsf(up.shift_rpm-stock.shift_rpm)<1e-4f&&fabsf(up.max_rpm-stock.max_rpm)<1e-4f);
+    part=(DrvUpgrade){0};part.engine_level=3;
+    assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
+    assert(fabsf(up.shift_rpm-(stock.shift_rpm+rec_f(rec,0x5e4,0)))<1e-3f);
+    assert(fabsf(up.max_rpm-(stock.max_rpm+rec_f(rec,0x5e8,0)))<1e-3f);
+    assert(fabsf(up.torque_primary[0]-stock.torque_primary[0])<1e-6f); /* level alone adds no torque */
+    /* the suspension fraction must not move any Stage 1 field (docs/parity/PERF-PAINT.md) */
+    part=(DrvUpgrade){0};part.suspension=1.0f;
+    assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up)&&same_car(&up,&stock));
+    /* fully upgraded against stock, the table for docs/parity/PERF-PAINT.md */
+    full.engine=1.0f;full.engine_level=3;full.gear_level=3;full.tires=1.0f;full.suspension=1.0f;
+    assert(stage1_car_read_upgraded(g_data,g_len,name,&full,&up));
+    float tp0=0,tp1=0,add0=0;
+    for(int k=0;k<9;k++){tp0+=stock.torque_primary[k];tp1+=up.torque_primary[k];add0+=rec_f(rec,0x530,4*k);}
+    printf("  %-6s gears %d->%d  shift %.0f->%.0f max %.0f->%.0f  torque %.3f->%.3f (+%.1f%%)  "
+           "mu %.2f/%.2f->%.2f/%.2f  mass %.3f->%.3f\n",name,stock.gear_count,up.gear_count,
+           stock.shift_rpm,up.shift_rpm,stock.max_rpm,up.max_rpm,tp0,tp1,100*add0/tp0,
+           stock.mu_peak[0],stock.mu_slide[0],up.mu_peak[0],up.mu_slide[0],stock.mass,up.mass);
+    assert(up.mass==stock.mass);   /* weight upgrade stays unapplied */
+    assert(up.gear_count>=stock.gear_count);
+    free(rec);
+}
+static void retail_test(void){
+    const char *root= getenv("OPENUG2_DATA");
+    if(!root||!root[0])root= getenv("OPENUG2_TEST_DATA");
+    if(!root||!root[0]){puts("stage1 retail: no data root, skipped");return;}
+    char path[1024];
+    int n=snprintf(path,sizeof path,"%s/GLOBAL/GLOBALB.BUN",root);
+    if(n<=0||n>=(int)sizeof path){puts("stage1 retail: path too long, skipped");return;}
+    FILE *f=fopen(path,"rb");
+    if(!f){printf("stage1 retail: %s absent, skipped\n",path);return;}
+    fseek(f,0,SEEK_END);long size=ftell(f);fseek(f,0,SEEK_SET);
+    unsigned char *b=malloc((size_t)size);assert(b);
+    if(fread(b,1,(size_t)size,f)!=(size_t)size){free(b);fclose(f);puts("stage1 retail: short read, skipped");return;}
+    fclose(f);g_data=b;g_len=size;
+    static const char *cars[]={"GOLF","240SX","SUPRA","350Z","TAXI"};
+    puts("stage1 retail: fully upgraded vs stock (real records)");
+    for(unsigned i=0;i<sizeof cars/sizeof *cars;i++){
+        long row=n2_global_car_record(b,size,cars[i]);
+        assert(row>=0);
+        retail_car(row,cars[i]);
+    }
+    /* Traffic cars carry one gearbox template at every level (five ratios, final drive 3.00, against
+     * their stock block) and a rear tyre whose max block sits *below* stock (slide 1.60 -> 1.50):
+     * the replacement must still happen and the guard must refuse the below-stock value. Their engine
+     * add-curve and rpm headers are all zero, so those two stay stock by themselves. Offsets are
+     * printed rather than hard-coded here; the per-car numbers belong to the player cars above. */
+    DrvCar s,u;DrvUpgrade full={1.0f,3,3,1.0f,1.0f};
+    assert(stage1_car_read(b,size,"TAXI",&s));
+    assert(stage1_car_read_upgraded(b,size,"TAXI",&full,&u));
+    printf("  %-6s final %.4f->%.4f  ratio3 %.4f->%.4f  mu %.2f/%.2f->%.2f/%.2f\n","TAXI",
+           s.final_front,u.final_front,s.ratio[3],u.ratio[3],
+           s.mu_slide[1],u.mu_slide[1],s.mu_peak[0],u.mu_peak[0]);
+    assert(fabsf(u.final_front-s.final_front)>1e-6f||fabsf(u.ratio[3]-s.ratio[3])>1e-6f);
+    assert(fabsf(u.mu_slide[1]-s.mu_slide[1])<1e-6f);   /* not lerped down to the 1.50 below stock */
+    assert(fabsf(u.mu_peak[0]-s.mu_peak[0])<1e-6f&&fabsf(u.mu_slide[0]-s.mu_slide[0])<1e-6f);
+    assert(u.shift_rpm==s.shift_rpm&&u.max_rpm==s.max_rpm&&u.mass==s.mass);
+    assert(s.mu_peak[0]>=1.9f&&s.mu_slide[0]>=1.5f);   /* template grip, per record */
+    free(b);g_data=0;g_len=0;
+}
+int main(int argc,char **argv){
+    parser_test();numeric_boundaries();tests();resistance_integration();braking_integration();phys_selftest();
+    if(argc>1&&argv[1]&&argv[1][0])setenv("OPENUG2_TEST_DATA",argv[1],1);
+    retail_test();
+    puts("Stage 1 gameplay adapter tests passed");return 0;
+}
