@@ -160,7 +160,8 @@ an explicitly empty mailbox and a pending legacy migration across serialization.
 
 The save parser needs no CareerData. `ch_begin` migrates an older save after
 loading that data, adds every message implied by the delivery rules below as
-received and read, then saves. New careers start initialized and receive live
+received and read, then saves. [inferred] Legacy receipts use authored table
+order because the older save contains no receipt history. New careers start initialized and receive live
 messages unread. `ch_sms_tick` evaluates delivery only in career roam and saves
 new receipts before logging `career: sms received <NAME>`. `ch_sms_read` saves
 before the menu marks an item read; failure rolls the career state back.
@@ -244,3 +245,20 @@ has `0x0c6e4198`. They form a closed range, not a repeated single hash. Scene Y
 increases downward, so subjects and envelopes are sorted by ascending authored
 Y. The retail unit check now loads and binds the actual package, exercises the
 opened/list visibility transition, and requires one populated row per receipt.
+
+
+### Host validation
+
+Fresh builds pass with the existing warning baselines: desktop 24, GLES 29,
+iOS host 29. Final checks pass: mailbox 43; career 1255; career host 362; game
+flow 252; touch controls 406; binding 1770 identities; paint 37; performance 35.
+The final M1 gate passes all 17 steps with no FAIL, SKIP or NOT RUN, and both
+INV captures remain unchanged.
+
+The isolated SMS run, cold restart and controller-only run all exit 0. Four
+receipts persist in order; reading survives restart; keyboard, controller and
+touch reach the inbox and message body; reading all four removes the retail
+pending envelope. Save-container checksums and the final zero-unread state
+were independently checked. All 14 task captures and 70 captures across the
+two gate runs were inspected. Logs, scripts, screenshots and the machine
+validation summary are under `$OPENUG2_DEV/reports/parity/smshost/`.
