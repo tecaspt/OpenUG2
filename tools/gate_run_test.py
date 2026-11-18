@@ -481,6 +481,25 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not found", self.detail_of(steps, "g"))
 
+    def test_input_script_reaches_the_game_as_an_absolute_path(self):
+        """The game resolves '@tools/gate_inputs/x.txt' against its own cwd, which the runner sets to
+        the step's output directory - so the runner must hand over an absolute path. Every real step
+        in m1.json passes one through ${OPENUG2_DATA}-style expansion today; a step that wrote the
+        relative path plain would fail inside the game with a message that blames the script file.
+        """
+        self.write(self.repo, "tools/gate_inputs/abs.txt", "10:key=Return\n")
+        self.game("fake", "import sys\n"
+                          "v = sys.argv[2]\n"
+                          "open('seen.txt','w').write(v)\n")
+        step = {"id": "g", "kind": "game", "binary": "fake",
+                "args": ["--input-script", "@tools/gate_inputs/abs.txt"]}
+        code, out, _ = self.run_main(self.gate(step))
+        self.assertEqual(code, 0, out)
+        seen = read(os.path.join(self.out, "g", "seen.txt"))
+        self.assertTrue(seen.startswith("@" + self.repo),
+                        "the game gets cwd = the step dir, so the path must be absolute: %r" % seen)
+        self.assertEqual(read(seen[1:]), "10:key=Return\n")
+
     def test_shots_min_catches_a_script_that_stops_early(self):
         """shots_min is the rule that catches a scripted sequence dying before its last shot, and it
         is the only one the log spec cannot stand in for: the runner counts PNGs in the step dir, and
