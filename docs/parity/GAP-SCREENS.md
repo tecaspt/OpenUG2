@@ -46,11 +46,11 @@ does load is `FrontB.lzc`, not `FRONTA.BUN`.
 
 ## What OpenUG2 already references
 
-33 of the 206 distinct packages (16%). Per class:
+34 of the 206 distinct packages (17%). Per class:
 
 | class | distinct | referenced | gap |
 |---|--:|--:|--:|
-| frontend-screen | 75 | 19 | 56 |
+| frontend-screen | 75 | 20 | 55 |
 | dialog | 21 | 3 | 18 |
 | ingame-menu | 15 | 6 | 9 |
 | ingame-hud | 9 | 5 | 4 |
@@ -88,7 +88,7 @@ Counts are distinct in-scope packages; "gap" excludes anything `src/` already na
 | M3/M9 loading | 2 | 1 | 1 | the boot tips reel |
 | M4/M5 front-end scenes | 24 | 1 | 23 | showcase/DPAD, status bars, magazine and DVD screens, menu assets - **a default, see the note below** |
 | M5 customise and tuning | 14 | 3 | 11 | the whole `UI_PerformanceTuning_*` family and the dyno (all three screens) |
-| M6 career | 26 | 2 | 24 | the world map (`WorldMapMain`, `UI_InGame_WorldMap`), SMS (`UI_SMS_Mailbox`), sponsors, shops, car-crib and ownership screens |
+| M6 career | 26 | 3 | 23 | the world map (`WorldMapMain`, `UI_InGame_WorldMap`), SMS (`UI_SMS_Mailbox`), sponsors, shops, car-crib and ownership screens |
 | M7 race modes | 4 | 0 | 4 | in-world map and mode chrome |
 | M9 HUD | 7 | 5 | 2 | the music chyron (`Chyron_IG`, `Chyron_FE`) and the demo minimap legend |
 | M10 replay | 1 | 1 | 0 | named by `pause_entries.c`, and the ROADMAP still lists replay as missing - bound, not implemented |
@@ -103,7 +103,7 @@ car lot, SMS and sponsors; M5's tuning; M1's post-race results; M9's chyron and 
 Two readings matter more than the totals. **The tuning family is invisible without
 `--extra-bundle`**: nine `UI_PerformanceTuning_*`/`UI_PerformanceDyno_*` screens sit in a bundle no
 loader code opens, so a scan of the loader's own slots reports a smaller tuning gap than exists.
-**M6 career is the single biggest block** (24 packages), and `UI_CareerWorldMap`/`WorldMapMain` and
+**M6 career is the single biggest block** (23 packages), and `UI_CareerWorldMap`/`WorldMapMain` and
 `UI_SMS_Mailbox` are the ROADMAP's own named M6 deliverables, all unreferenced.
 
 ## Gap table
@@ -178,7 +178,7 @@ it is a separate car-select shell, outside post-race ownership.
 | `UI_ChoosePerformanceCategory.fng` | ingame-menu | 56 | 7 | 2 | L | FRONTEND/FrontB.lzc |
 | `UI_ChoosePerformancePackage.fng` | ingame-menu | 145 | 25 | 8 | L | FRONTEND/FrontB.lzc |
 | `UI_ChooseUniquePart.fng` | frontend-screen | 56 | 7 | 2 | L | FRONTEND/FrontB.lzc |
-| `UI_ChooseVinylLayer.fng` | frontend-screen | 70 | 10 | 3 | L | FRONTEND/FrontB.lzc |
+| `UI_ChooseVinylLayer.fng` (done: bound) | frontend-screen | 70 | 10 | 3 | L | FRONTEND/FrontB.lzc |
 | `UI_CustomHUDOverlay.fng` | frontend-screen | 60 | 5 | 1 | L | FRONTEND/FrontB.lzc |
 | `UI_CustomNeonMain.fng` | frontend-screen | 58 | 7 | 1 | L | FRONTEND/FrontB.lzc |
 | `UI_DebugCarCustomize.fng` | frontend-screen | 98 | 14 | 0 | L | FRONTEND/FrontB.lzc |
@@ -213,7 +213,7 @@ it is a separate car-select shell, outside post-race ownership.
 | `UI_PerformanceTuning_Setting.fng` | frontend-screen | 46 | 3 | 1 | L | GLOBAL/InGamePerformanceTuning.bun |
 | `UI_PerformanceTuning_Sliders.fng` | frontend-screen | 200 | 49 | 0 | L | GLOBAL/InGamePerformanceTuning.bun |
 
-#### M6 - 24 packages
+#### M6 - 23 packages
 
 | package | class | nodes | captions | lang keys | size | file |
 |---|---|--:|--:|--:|---|---|
@@ -385,7 +385,7 @@ about.
 ## What to do with this
 
 Nothing here is a decision to implement a screen; it is the count of what retail has and `src/` does
-not name. Where it feeds the ROADMAP: M6 career is the largest block (24) and its named deliverables
+not name. Where it feeds the ROADMAP: M6 career is the largest block (23) and its named deliverables
 are all present in retail and unreferenced; M5's tuning gap is 11 screens and 9 of them sit in a
 bundle no loader opens, so they will not show up in a loader-driven audit; the online and 2-player
 families are 55 packages with zero references, which is a scope question (the ROADMAP has no online
