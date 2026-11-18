@@ -83,6 +83,8 @@ struct SfxGame;
 extern struct SfxGame *volatile g_sfx_game;   /* M8 retail effects (sfx_game.h); set after audio_init */
 extern volatile int g_sfx_gear;                /* current gear for shift sounds */
 extern volatile float g_sfx_master;            /* FE master volume for effects */
+struct SfxFe;
+extern struct SfxFe *volatile g_sfx_fe;        /* task AQ menu sounds (sfx_fe.h); the callback drains its ring */
 extern volatile float g_scrape;     /* quiet, continuous world-wall friction */
 void audio_wall_contact(float inward_mps,float tangent_mps,float dt);
 

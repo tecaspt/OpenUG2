@@ -419,3 +419,85 @@ At 20 m/s inward wall speed, the 3.0186 s single-contact capture measures
 2662.32→1353.57 RMS (zero clipped frames both). Sustaining that contact measures
 15250.28→1353.70 RMS and 6090→0 clipped frames. The retained quiet scrape bed
 explains the small RMS difference between the new single and sustained cases.
+
+## Front-end menu sounds (sfx_fe)
+
+The front end was silent in this tree before this change; the retail game plays
+menu sounds from AEK banks loaded at FE startup, and the frontend event tail
+(`Sound/FESample.txt`) is the only decoded artifact that names them. Evidence
+files in the task evidence directory: `tail-tags.txt`, `fe-traits.txt`,
+`fesnd-walk.pcm`, `fesnd-capture.txt`.
+
+Handler tag inventory of all 142 tail entries (`sfx_fe_tags.py`): 142/142
+handler↔event matches. Only three play paths carry sample ids in the tail
+[data]: `PlayFrontEndSample(id)` with id indexing the FE_MB bank, and
+`PlayFrontEndSample_loop(id)` / `PlayCommonSample(id)`. The loop call uses id
+47 exactly once and `PlayCommonSample` id 15 once, so the FE uses two banks:
+FE_MB (event-payload ids) and FE_COMMON (dispatcher-provided ids). No
+decompilation or IDA export of the FE sound dispatcher is available in the RE
+sources, so the per-event id table cannot be recovered verifiably; the sample
+per navigation role is chosen from measured playback traits (duration, RMS,
+zero-crossing rate, quiet tail) instead [inferred]:
+
+| Role | Sample (0-based) | dur s | rms | zcr/s | gain | debounce |
+|---|---|---:|---:|---:|---:|---:|
+| NAV (row/cell move) | FE_COMMON #14 | 0.169 | 0.163 | 1393 | 0.55 | 70 ms |
+| ACCEPT (activate) | FE_COMMON #9 | 0.228 | 0.184 | 5995 | 0.60 | 120 ms |
+| BACK (leave screen) | FE_COMMON #8 | 0.211 | 0.175 | 2012 | 0.60 | 120 ms |
+| DENIED (locked input) | FE_COMMON #13 | 0.390 | 0.365 | 1452 | 0.85 | 250 ms |
+| SELECT (tab / value change) | FE_COMMON #11 | 0.411 | 0.188 | 4533 | 0.60 | 120 ms |
+| DRIVE (screen enter sting) | FE_COMMON #16 | 0.755 | 0.220 | 8955 | 0.80 | 1000 ms |
+| TICK (FE_MB ping) | FE_MB #0 | 0.200 | 0.211 | 7816 | 0.45 | 70 ms |
+| LOOP (idle bed, silent) | FE_MB #47 | 2.551 | 0.043 | 661 | — | — |
+
+FE_MB #47 is the loop-call id from the tail [data]; it is plumbed but played
+silent, so no idle bed is invented. FE_COMMON #15 is the `PlayCommonSample`
+id and stays unmapped. Every other bank sample is unmapped, and unmapped
+events are silent by design.
+
+Module `src/sfx_fe.{c,h}`: navigation events come from the GUI layer through a
+hook installed on `gui_view` (`gv_set_nav_hook`); the view emits MOVE / TAB /
+ACCEPT when its row, cell, blink or activate serials change, SCREEN_IN at a
+screen's enter-complete, SCREEN_OUT at its exit start, DIALOG_OPEN /
+DIALOG_CLOSE on the dialog serial. Event values are a pinned ABI: `GV_NAV_*`
+and `SFX_FE_EV_*` are asserted equal by `sfx_fe_test`. Per event the module
+resolves role → (bank, index, gain), then gates: per-role debounce (one sound
+per input event even when several sources emit it), one-shot priority (a live
+one-shot silences everything else, so clips never overlap), and volume
+(`sfx_fe_set_volume`, which the host sets to master × options SFX; NaN or
+negative means silence). It renders into the callback buffer from the main
+audio callback after the game SFX render, reading no game state and never
+touching the game SFX mix — front-end and game sounds are independent buses.
+Events posted from the UI thread are queued in a 16-slot lock-free ring so
+they fire within one callback; overflow drops with a counted total instead of
+blocking the audio thread.
+
+Scripted menu-walk capture (`tools/sfx_fe_capture.c`, `make sfx-fe-capture`,
+run under `SDL_AUDIODRIVER=dummy` so it never contends with a live game):
+synthetic main-menu screen, six-option list, one value row, one locked row, one
+dialog, then back out — one event per navigation input, each held 500 ms
+(22.05 s window, 44100 Hz mono s16). Blocks from `fesnd-walk.pcm` [data]:
+
+| Block | RMS | len s | sound |
+|---|---:|---:|---|
+| map screen in | 10597 | 0.58 | DRIVE |
+| nav blip 2 | 4776 | 0.16 | NAV |
+| open list | 6154 | 0.21 | ACCEPT |
+| change value | 6191 | 0.37 | SELECT |
+| locked row | 15338 | 0.39 | DENIED |
+| back out | 4731 | 0.21 | BACK |
+
+The first nav block is quiet (RMS 764 over 0.34 s): the event was posted while
+the DRIVE one-shot still owned the output, so the one-shot gate silenced it
+instead of mixing — reported as measured rather than tuned away. The lead and
+tail half-seconds are silent (rms 0.0). One queue drop is counted: the loop
+event arriving while a one-shot was live, which would have played silent
+anyway, so nothing audible was lost. [data/inferred]
+
+Reproducing: `make sfx-fe-test` (unit tests; SKIPs without `OPENUG2_DATA`),
+`make gui-view-test` (asserts the per-interaction event stream), then
+`make sfx-fe-capture` and
+`SDL_AUDIODRIVER=dummy ./build/sfx_fe_capture "$OPENUG2_DATA" /tmp/walk.pcm drive_in,move,move,accept,tab,move,accept,back,screen_out,loop`.
+Host wiring (create/destroy at FE start/quit, per-frame volume, hook install,
+BACK emission) lives in `main.c` and is listed in the task log. No WAV files
+are committed.

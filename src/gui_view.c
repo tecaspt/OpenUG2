@@ -18,6 +18,32 @@
 #define GV_ENTER_FALLBACK_MS 600.0f     /* enter-complete assumed after this long when a package never reports it */
 #define HL_FADE_MS 150.0f               /* UnHighlight fades arrows and backing out within 100 ms (SPEC_GUI 2.4) */
 
+/* ---- navigation events (task AQ: menu sounds; emission only, nothing visual) --------------------
+ * A screen's navigation reaches the ear through one file-scope hook, set once by the host
+ * (sfx_fe.c is the intended sink via gv_set_nav_hook). Events are emitted where the state
+ * genuinely moves -- the ug_scene_set_focus sites (a repeated call with the same node is a scene
+ * no-op and stays silent), the authored blink/scroll serials, and the accept-capable rows --
+ * so every bound screen gets them without per-screen code. gv_nav_notify lets a host that owns
+ * an accept/back/error decision (dialog choice, locked row) report it here. */
+static void (*gv_nav_hook)(void *user, int event);
+static void *gv_nav_user;
+
+void gv_set_nav_hook(void (*fn)(void *user, int event), void *user) {
+    gv_nav_hook = fn;
+    gv_nav_user = user;
+}
+
+void gv_nav_notify(int event) {
+    if (gv_nav_hook) gv_nav_hook(gv_nav_user, event);
+}
+
+static void nav_emit(int event) {
+    if (gv_nav_hook) gv_nav_hook(gv_nav_user, event);
+}
+
+/* Event values come from gui_view.h's GV_NAV_* enum, which mirrors src/sfx_fe.h (the numbers, not
+ * the names, are the ABI; sfx_fe_test.c pins them). */
+
 static uint32_t hn(const char *s) { return ug_hash_upper(s); }
 static uint32_t hnf(const char *fmt, int n) {
     char b[64];
@@ -124,7 +150,10 @@ void gv_screen_update(GvScreen *s, float dt_ms) {
     uint32_t msg;
     while (ug_scene_poll_app(&s->scene, &msg))
         if (msg == GT_MSG_INIT_COMPLETE || msg == GT_MSG_ENTER_PAUSE) {
-            if (!s->enter_done) ug_scene_refocus(&s->scene);   /* the focus response is not honoured during the fade-in (SPEC 3.6.2) */
+            if (!s->enter_done) {
+                ug_scene_refocus(&s->scene);                     /* the focus response is not honoured during the fade-in (SPEC 3.6.2) */
+                nav_emit(GV_NAV_SCREEN_IN);                      /* AQ; the sting plays at the enter animation's end, as FEDriveOn did */
+            }
             s->enter_done = 1;
         }
         else if (msg == GT_MSG_EXIT_COMPLETE) s->exit_done = 1;
@@ -133,6 +162,7 @@ void gv_screen_update(GvScreen *s, float dt_ms) {
 void gv_screen_exit(GvScreen *s) {
     if (!s->loaded || s->exit_started) return;
     s->exit_started = 1;
+    nav_emit(GV_NAV_SCREEN_OUT);                               /* AQ; the view observes every screen exit */
     const GtPackage *g = gt_find(s->name);
     uint32_t script = g ? gt_exit_script_hash(g) : hn("FORWARD");
     if (s->handler >= 0) ug_scene_start_script(&s->scene, s->handler, script);
@@ -312,10 +342,17 @@ void gv_carousel_apply(GvCarousel *v, const GuiCarousel *car, const GvEntry *ent
     hide(sc, v->arrow_l, !gc_left_arrow_visible(car));
     hide(sc, v->arrow_r, !gc_right_arrow_visible(car));
     if (rail) ug_scene_app_set_world_pos(sc, v->tab, gc_tab_x(car), sc->nodes[v->tab].wf);
-    if (car->cur >= 0 && car->cur < v->nslots && sc->focus != v->slot[car->cur]) ug_scene_set_focus(sc, v->slot[car->cur]);
+    if (car->cur >= 0 && car->cur < v->nslots) {
+        if (sc->focus != v->slot[car->cur]) ug_scene_set_focus(sc, v->slot[car->cur]);
+        if (car->cur != v->seen_cur) {                             /* AQ: entry change; -1 at bind = no churn on first sync */
+            v->seen_cur = car->cur;
+            if (v->seen_cur >= 0) nav_emit(GV_NAV_MOVE);
+        }
+    }
     /* the arrow of the move direction blinks (unless already blinking), the other one idles (3.2) */
     if (move_serial != v->seen_move) {
         v->seen_move = move_serial;
+        nav_emit(GV_NAV_TAB);                                    /* authored Left/Right on an entry */
         int moved = move_dir > 0 ? v->arrow_r : v->arrow_l, other = move_dir > 0 ? v->arrow_l : v->arrow_r;
         int visible = move_dir > 0 ? gc_right_arrow_visible(car) : gc_left_arrow_visible(car);
         if (visible && ug_scene_script_id(sc, moved) != H_BLINK) start(sc, moved, H_BLINK);
@@ -337,10 +374,12 @@ int gv_list_bind(GvList *v, GvScreen *s, const OptionsMenu *m) {
     v->ctx = m->cfg.ctx;
     v->kind = m->screen;
     v->highlighted = -1;
+    v->seen_focus = -1;                                        /* task AQ: no row observed yet */
     v->seen_build = m->build_serial;
     v->seen_blink = m->blink_serial;
     v->seen_exit = m->exit_serial;
     v->seen_dialog = m->dialog_serial;
+    v->seen_activate = m->activate_serial;
     if (!s->loaded) return 0;
     UgScene *sc = &s->scene;
     int bad = 0;
@@ -446,13 +485,28 @@ void gv_list_sync(GvList *v, const OptionsMenu *m, float dt_ms) {
     if (t1) settext(sc, v->header2, gv_text(as, key, t1));
 
     int focus = om_focus(m);
+    /* AQ: one MOVE per focus change. On an OptionsMenu list the scene-focus site below is the
+     * single source. The gv_list_sync_rows adapter builds a slot-0 throwaway menu, so that site
+     * never fires there and the adapter itself emits through nav_rows_diff -- without this diff
+     * firing first, it would read every ordinary frame as a first sight. The first sight of a
+     * focus is the screen arriving with a row already focused: the enter animation tells that
+     * story, so no blip. */
+    if (focus != v->seen_focus) {
+        int first = v->seen_focus == -1 && focus >= 0;
+        v->seen_focus = focus;
+        if (focus >= 0 && !first && m->rows[focus].slot < 1) nav_emit(GV_NAV_MOVE); /* adapter path */
+    }
+
     /* focus scripts (4.4): UnHighlight the old row, Highlight the new one. The data's focus response does not
      * start its highlight while the enter fade runs and it is re-sent at enter-complete (SPEC 3.6.2): the
      * explicit scripts wait for that, so the enter animation of the focused row is never cut short. */
     int ready = s->enter_done || s->time_ms >= GV_ENTER_FALLBACK_MS;
     if (focus >= 0 && focus < m->nrows && m->rows[focus].slot >= 1 && v->scr->loaded) {
         GvRow *cur = &v->row[m->rows[focus].slot];
-        if (cur->name >= 0 && sc->focus != cur->name) ug_scene_set_focus(sc, cur->name);   /* the name object is the current button */
+        if (cur->name >= 0 && sc->focus != cur->name) {
+            ug_scene_set_focus(sc, cur->name);                   /* the name object is the current button */
+            nav_emit(GV_NAV_MOVE);                               /* AQ; a real focus move (the adapter never reaches here) */
+        }
         if (ready && v->highlighted != focus) {
             int old = v->highlighted;
             if (old >= 0 && old < m->nrows && m->rows[old].slot >= 1) {
@@ -549,19 +603,30 @@ void gv_list_sync(GvList *v, const OptionsMenu *m, float dt_ms) {
     /* Left/Right: the arrow of that direction blinks */
     if (m->blink_serial != v->seen_blink) {
         v->seen_blink = m->blink_serial;
+        nav_emit(GV_NAV_TAB);                                    /* an authored change happened, AQ */
         if (focus >= 0 && focus < m->nrows) {
             const GvRow *r = &v->row[m->rows[focus].slot];
             start(sc, m->blink_dir < 0 ? r->left : r->right, H_BLINK);
         }
     }
+    /* an activation attempt on any row, locked rows included (options_menu's activate_serial) */
+    if (m->activate_serial != v->seen_activate) {
+        v->seen_activate = m->activate_serial;
+        nav_emit(GV_NAV_ACCEPT);                                 /* AQ; denied rows are silent by sfx_fe's own rules */
+    }
     /* dialog over the screen: DIM / UNDIM on the handler (1.4) */
     if (m->dialog_serial != v->seen_dialog) {
         v->seen_dialog = m->dialog_serial;
-        gv_screen_dim(s, om_dialog_is_open(m));
+        int now = om_dialog_is_open(m);
+        int was = v->seen_dialog_nav;                            /* open state as last observed (serials start at 0 = closed) */
+        v->seen_dialog_nav = now;
+        gv_screen_dim(s, now);
+        if (now && !was) nav_emit(GV_NAV_DIALOG_OPEN);           /* AQ */
+        else if (was && !now) nav_emit(GV_NAV_DIALOG_CLOSE);
     }
     if (m->exit_serial != v->seen_exit) {
         v->seen_exit = m->exit_serial;
-        gv_screen_exit(s);
+        gv_screen_exit(s);                                     /* AQ: emits SCREEN_OUT itself, guard included */
     }
 
     /* vertical scrollbar (4.5): tab on the focused row, everything hidden for N <= 1 */
@@ -594,6 +659,7 @@ int gv_controls_bind(GvControls *v, GvScreen *s, const ControlsMenu *m) {
     memset(v, 0, sizeof *v);
     v->scr = s;
     v->hl_row = v->hl_col = -1;
+    v->nav_hl_row = v->nav_hl_col = -1;                          /* task AQ: nothing observed yet */
     v->seen_build = m->build_serial;
     v->seen_blink = m->blink_serial;
     v->seen_scroll = m->scroll_serial;
@@ -688,6 +754,7 @@ void gv_controls_sync(GvControls *v, const ControlsMenu *m, float dt_ms) {
     if (m->build_serial != v->seen_build) {                           /* a device change rebuilt the rows */
         v->seen_build = m->build_serial;
         v->hl_row = v->hl_col = -1;
+        v->nav_hl_row = v->nav_hl_col = -1;                       /* task AQ: a rebuild is a re-entry, not a move */
         for (int n = 1; n <= v->nslots; n++) {
             GvCtlRow *r = &v->row[n];
             int o[4] = { r->name, r->data, r->data2, r->backing };
@@ -749,6 +816,14 @@ void gv_controls_sync(GvControls *v, const ControlsMenu *m, float dt_ms) {
             }
             v->hl_row = row;
             v->hl_col = col;
+            if (v->nav_hl_row < 0) {                                 /* first real move after a bind or rebuild */
+                v->nav_hl_row = row;
+                v->nav_hl_col = col;
+            } else if (row != v->nav_hl_row || col != v->nav_hl_col) {
+                v->nav_hl_row = row;
+                v->nav_hl_col = col;
+                nav_emit(GV_NAV_MOVE);                              /* AQ; the Controls cell moved (title <-> cell included) */
+            }
         }
     }
     /* capture: the cell starts Pulse (keyboard Accept only); when it ends the focused cell is highlighted again */
@@ -850,6 +925,7 @@ static int dialog_bind(GvDialog *v, const GuiDialog *d) {
         ug_scene_set_focus(sc, d->focus == 2 && three ? v->b3 : d->focus == 1 ? v->b2 : v->b1);
         v->seen_focus = d->focus;
     }
+    v->seen_focus = -2;                                     /* task AQ: the bind's own focus is not a move */
     ug_scene_relayout(sc);
     v->bound = 1;
     v->open = 1;
@@ -883,6 +959,7 @@ void gv_dialog_sync(GvDialog *v, const GuiDialog *d, float dt_ms) {
     if (d->focus != v->seen_focus) {                         /* authored focus responses run as data */
         int node = d->focus < 0 ? -1 : d->focus == 2 ? v->b3 : d->focus == 1 ? v->b2 : v->b1;
         ug_scene_set_focus(&v->scr.scene, node);
+        if (v->seen_focus != -2) nav_emit(GV_NAV_MOVE);      /* AQ; -2 at bind = first sight is not a move */
         v->seen_focus = d->focus;
     }
     if (d->closing && !v->exit_sent) { v->exit_sent = 1; gv_screen_exit(&v->scr); }
@@ -894,6 +971,41 @@ void gv_dialog_close(GvDialog *v) {
     memset(v, 0, sizeof *v);
 }
 
+/* ---- navigation events for application lists (task AQ) ---------------------------------------------
+ * The options/pause lists run through gv_list_sync itself (focus moves, blink/activate/exit serials,
+ * dialog open/close); the generic adapter below cannot: gv_list_sync_rows presents a plain row table
+ * through a throwaway OptionsMenu, so the real menu's activations and its own focus moves are
+ * invisible to those serials. The caller attaches that real menu (gv_list_attach_nav -- its lifetime
+ * is the caller's, same as the rows); before the shared sync runs, this diff turns what changed into
+ * events: a different focused row is MOVE, and a changed value on an already-known non-button row
+ * is ACCEPT (the player clicked or clicked-edited it; the first sight of a row is a bind or rebuild,
+ * not an edit). The focus MOVE needs no adapter code: the shared sync diffs om_focus() against
+ * v->seen_focus itself, and the adapter passes the real focus through its throwaway menu.
+ * sfx_fe debounces duplicates either way. */
+static void nav_rows_diff(GvList *v, const GvListRow *rows, int count) {
+    if (!v->rows_nav || !rows || count > OM_MAX_ROWS) return;
+    OptionsMenu *m = v->rows_nav;
+    for (int i = 0; i < count; i++) {
+        const OmRow *r = om_row(m, i);
+        int val = r ? om_row_display_value(m, i) : 0;
+        if (!r || !rows[i].enabled) {                        /* identity reset: rebinds aren't edits */
+            v->rows_id_of[i] = -1;
+            continue;
+        }
+        if (v->rows_id_of[i] != (int)r->id || v->rows_val_of[i] != val) {
+            if (v->rows_id_of[i] == (int)r->id && r->kind != OM_ROW_BUTTON) nav_emit(GV_NAV_ACCEPT);
+            v->rows_id_of[i] = (int)r->id;
+            v->rows_val_of[i] = val;
+        }
+    }
+}
+
+void gv_list_attach_nav(GvList *v, OptionsMenu *m) {
+    if (!v) return;
+    v->rows_nav = m;
+    for (int i = 0; i < OM_MAX_ROWS; i++) v->rows_id_of[i] = -1;
+}
+
 /* General list adapter; the pause/options interface above remains unchanged. */
 int gv_list_bind_rows(GvList *v, GvScreen *s) {
     OptionsMenu m; memset(&m,0,sizeof m);
@@ -902,6 +1014,7 @@ int gv_list_bind_rows(GvList *v, GvScreen *s) {
 }
 void gv_list_sync_rows(GvList *v,const GvListRow *rows,int count,int focus,float dt) {
     if(!v->bound || !rows || count<0 || count>OM_MAX_ROWS)return;
+    nav_rows_diff(v,rows,count);                             /* AQ: real-menu ACCEPT events before the fake sync hides them */
     OptionsMenu m; memset(&m,0,sizeof m);
     m.cfg.ctx=OM_CTX_FRONTEND; m.screen=OM_SCREEN_DISPLAY;
     m.nrows=count; m.list.n=count; m.list.focus=focus;

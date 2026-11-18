@@ -1,6 +1,7 @@
 /* audio.c — OpenUG2 Audio module implementation. */
 #include "audio.h"
 #include "sfx_game.h"
+#include "sfx_fe.h"
 #include <assert.h>
 #include <math.h>
 #include <ctype.h>
@@ -28,6 +29,7 @@ volatile float g_scrape = 0.0f;
 SfxGame *volatile g_sfx_game = NULL;   /* M8: retail effects; NULL = synthesized effects only */
 volatile int g_sfx_gear = 0;
 volatile float g_sfx_master = 1.0f;
+SfxFe *volatile g_sfx_fe = NULL;       /* AQ: menu sounds; NULL = silent menus */
 
 void audio_wall_contact(float inward_mps,float tangent_mps,float dt) {
     static float cooldown=0, separated=.12f;
@@ -616,6 +618,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         out[i] = (int16_t)v;
     }
     if (sg) sfg_render(sg, &sfx_in, out, n);
+    if (g_sfx_fe) sfx_fe_render(g_sfx_fe, out, n);   /* AQ: drains the menu-event ring */
 }
 
 /* asserts the crossfade math: pure bands at the centers, 50/50 at the

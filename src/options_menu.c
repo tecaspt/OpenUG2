@@ -370,6 +370,12 @@ void om_notify_resolution_lowered(OptionsMenu *m) {
 int om_row_count(const OptionsMenu *m) { return m->nrows; }
 const OmRow *om_row(const OptionsMenu *m, int i) { return i >= 0 && i < m->nrows ? &m->rows[i] : NULL; }
 int om_focus(const OptionsMenu *m) { return m->list.focus; }
+int om_row_display_value(const OptionsMenu *m, int i) {       /* task AQ: the value as the text shows it */
+    const OmRow *r = om_row(m, i);
+    if (!r) return 0;
+    if (r->vt == OM_VT_RESOLUTION) return m->res_shown >= 0 ? m->res_shown : om_row_value(m, i);
+    return om_row_value(m, i);
+}
 int om_top(const OptionsMenu *m) { return m->list.top; }
 int om_row_visible(const OptionsMenu *m, int i) {
     return i >= m->list.top && i < m->list.top + OM_VISIBLE_ROWS && i < m->nrows;
@@ -541,8 +547,14 @@ static void open_defaults_dialog(OptionsMenu *m) {
     m->dialog_serial++;
 }
 
+/* Task AQ: an activation attempt (ACCEPT or a click) raises activate_serial before the branch, so
+ * even a row that does nothing raises the menu's own "accepted" event -- whether a silent row
+ * played a sound is exactly what the retail game does not document. */
+static void activate_note(OptionsMenu *m) { m->activate_serial++; }
+
 static void row_accept(OptionsMenu *m) {
     const OmRow *r = &m->rows[m->list.focus];
+    activate_note(m);
     if(r->id==OM_ID_MOUSE_LOOK || r->id==OM_ID_PROFILE)row_adjust(m,1);
     else if (r->kind == OM_ROW_CHOICE && r->id == OM_ID_OPTION) {
         m->gfx->v[r->gfx] = m->gfx->v[r->gfx] ? 0 : 1;
@@ -578,6 +590,7 @@ static GdInput dialog_input_of(OmInput in) {
 static void hub_activate(OptionsMenu *m) {
     const OmHubEntry *e = om_hub_entry_of(m, m->hub.cur);
     int page = e ? e->page : -1;
+    activate_note(m);                                        /* task AQ: an entry was activated */
     m->page = page;
     if (page == HUB_PAGE_DISPLAY) begin_exit(m, OM_EXIT_TO_DISPLAY);
     else if(page==0 && m->cfg.profile)begin_exit(m,OM_EXIT_TO_AUDIO);

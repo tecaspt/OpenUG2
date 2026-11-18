@@ -35,6 +35,30 @@ const char *gv_text(const UgAssets *a, uint32_t key, const char *fallback);
 /* Platform adaptation shared by FE/results; centred canvas coordinates. */
 void gv_touch_back(UgCanvas *, const UgAssets *);
 
+/* ---- navigation events (task AQ: menu sounds) ---------------------------------------------------
+ * The view emits navigation events where the state genuinely moves (real focus changes, authored
+ * blink/scroll serials, activations), for every bound screen, without per-screen code. The event
+ * numbers are the sfx_fe vocabulary (src/sfx_fe.h enum; the values, not the names, are the ABI --
+ * sfx_fe_test.c pins them). Emission only: nothing here changes visuals. */
+enum {
+    GV_NAV_MOVE = 0,       /* focus / carousel selection moved */
+    GV_NAV_SCROLL = 1,     /* reserved: a list scrolled under a clamped focus (no observation yet) */
+    GV_NAV_ACCEPT = 2,     /* a row or hub entry was activated (ACCEPT or click), an attempt */
+    GV_NAV_BACK = 3,       /* a screen began exiting */
+    GV_NAV_ERROR = 4,      /* reserved: the host reports a refusal through gv_nav_notify */
+    GV_NAV_TAB = 5,        /* authored Left/Right change (choice row, slider, carousel entry) */
+    GV_NAV_SCREEN_IN = 6,  /* a screen finished its enter animation */
+    GV_NAV_SCREEN_OUT = 7, /* a screen started exiting */
+    GV_NAV_DIALOG_OPEN = 8,
+    GV_NAV_DIALOG_CLOSE = 9
+};
+/* Installs the sink (NULL detaches). Called from the game thread only; the sink must be
+ * non-blocking (sfx_fe_event is). */
+void gv_set_nav_hook(void (*fn)(void *user, int event), void *user);
+/* Reports a host-side event the view cannot observe itself (a dialog choice the host owns, a
+ * locked-row refusal, a screen enter/exit the host drives). Same vocabulary. */
+void gv_nav_notify(int event);
+
 /* ---- one loaded package ---------------------------------------------------------------------- */
 /* An anchor ("master") object sampled once when the screen is created, before any script of the
  * freshly loaded package has run: its authored (stored) centre and size (AMEND1 A6). Never re-read. */
@@ -98,6 +122,7 @@ typedef struct GvCarousel {
     int master, title, header, back_button, select_button;
     int rail, tab, arrow_l, arrow_r;
     int last_alpha[GC_MAX];
+    int seen_cur;                  /* task AQ: entry the last emitted MOVE landed on; -1 none */
     unsigned seen_move;
     int bound;
 } GvCarousel;
@@ -133,8 +158,17 @@ typedef struct GvList {
     OmContext ctx;
     OmScreen kind;
     int highlighted;             /* row (0-based) that currently runs Highlight, -1 none */
-    unsigned seen_build, seen_blink, seen_exit, seen_dialog;
+    unsigned seen_build, seen_blink, seen_exit, seen_dialog, seen_activate, seen_dialog_nav;
+    int seen_focus;                /* task AQ: row the last emitted MOVE landed on; -1 none */
     int bound;
+    /* task AQ navigation events: the serials above cover an OptionsMenu-driven list, and the
+     * focus/serial emissions live in gv_list_sync itself. For the gv_list_sync_rows adapter (no
+     * OptionsMenu of its own) the caller may attach the real menu whose gfx the rows edit
+     * (gv_list_attach_nav); its focus and value diffs drive that path's MOVE/ACCEPT events.
+     * Everything below this line is adapter bookkeeping. */
+    OptionsMenu *rows_nav;       /* borrowed, may be NULL */
+    int rows_id_of[OM_MAX_ROWS]; /* row identity at last presentation, -1 unknown */
+    int rows_val_of[OM_MAX_ROWS];
 } GvList;
 
 /* Binds rows, anchors, header and scrollbar objects of the screen the menu is on. Returns 0 when a
@@ -148,6 +182,10 @@ void gv_list_sync(GvList *v, const OptionsMenu *m, float dt_ms);
 typedef struct GvListRow { const char *label, *value; int enabled; } GvListRow;
 int gv_list_bind_rows(GvList *, GvScreen *);
 void gv_list_sync_rows(GvList *, const GvListRow *, int count, int focus, float dt_ms);
+/* Attaches the menu whose values the adapter's rows edit, enabling navigation events for
+ * gv_list_sync_rows (the OptionsMenu path needs nothing extra). The pointer must outlive the
+ * list's use, like the rows. NULL detaches. */
+void gv_list_attach_nav(GvList *, OptionsMenu *m);
 
 /* ---- Controls (UI_Options_PC_Controller) -------------------------------------------------------- */
 #define GV_CTL_SLOTS 20          /* option_name_n / OPTION_DATA_n / OPTION_DATA_2_n / Options_Backing_n, n = 1..20 */
@@ -166,6 +204,7 @@ typedef struct GvControls {
     int rail, tab, arrow1, arrow2;
     float tx, ty, th, dx[2], dw;             /* anchors as top-left + size (3.8) */
     int hl_row, hl_col;                      /* highlighted cell, -1 none */
+    int nav_hl_row, nav_hl_col;              /* task AQ: cell at the last emitted MOVE; -1 = none observed */
     int hl_title;                            /* the selector title runs Highlight */
     int tab_row;                             /* row the scroll tab follows */
     unsigned seen_build, seen_blink, seen_scroll, seen_capture;
