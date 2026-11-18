@@ -154,6 +154,7 @@ static void family_open(PostRace *p) {
         for(int i=0;i<s->scene.n;i++)if(s->scene.nodes[i].obj->is_text &&
             s->scene.nodes[i].obj->name_hash!=0x42adb44cu)s->scene.nodes[i].app_hidden=1;
         fwm_open(&p->map,NULL,0,info->player_x,info->player_y,info->heading);
+        gv_screen_free(&p->mapbase);
         if(!fwm_bind(&p->map,&p->mapbase,&p->assets)) {
             p->visual=0;snprintf(p->status,sizeof p->status,"%s",p->map.status);return;
         }

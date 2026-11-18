@@ -69,6 +69,10 @@ int main(int argc,char **argv) {
                 assert(!strcmp(pr_bound_text(p,0xa5cc56b5u),"Racer 1"));
                 assert(!strcmp(pr_bound_text(p,0xf2028e7eu),"10"));checks+=2;
             }
+            if(screens[at]==PR_SCREEN_WORLD_MAP) {
+                key(p,SDLK_ESCAPE);assert(pr_screen(p)==PR_SCREEN_STATS);checks++;
+                key(p,SDLK_RETURN);assert(pr_screen(p)==PR_SCREEN_WORLD_MAP && !pr_status(p)[0]);checks++;
+            }
             if(at<count-1)key(p,SDLK_RETURN);
         }
         key(p,SDLK_RIGHT);key(p,SDLK_RETURN);assert(!pr_is_open(p));checks++;
