@@ -149,16 +149,29 @@ double drv_curve(const float *s, int q, double a, double b, double x) {
     return f * (double)s[i + 1] + (1.0 - f) * (double)s[i];
 }
 
-/* S1-3.3 (nitrous and over-rev adjustment are deferred, S1-9) */
-double drv_engine_torque_at(const DrvCar *car, const DrvTune *tune, int gear, int limiter, double rpm, double u) {
+/* Nitrous shape over [idle, shift rpm] (nine samples) and level scale [recomp-GC]. */
+static const float nos_curve[9]={.3f,.4f,.45f,.5f,.55f,.6f,.7f,1.0f,.7f};
+double drv_nos_kappa(int level) {
+    static const double k[3]={1.0,1.4,1.7};
+    return level>=1&&level<=3?k[level-1]:1.0;
+}
+/* S1-3.3 (over-rev adjustment deferred, S1-9); nitrous term per docs/parity/PERF-PAINT.md */
+double drv_engine_torque_nos_at(const DrvCar *car, const DrvTune *tune, int gear, int limiter, double rpm, double u, int level) {
     const double G = tune->torque_scale, B = tune->torque_bonus ? 1.05 : 1.0;
     if (limiter) u = 0.0;
     double ton = drv_curve(car->torque, DRV_TORQUE_SAMPLES, car->idle_rpm, car->max_rpm, rpm) * G * B * u;
+    if (level >= 1 && level <= 3 && car->nos_torque > 0.0f && car->shift_rpm > car->idle_rpm) {
+        double shape = drv_curve(nos_curve, 9, car->idle_rpm, car->shift_rpm, rpm);
+        ton += drv_nos_kappa(level) * (double)car->nos_torque * shape * u;
+    }
     double toff = -(1.0 - u) * drv_curve(car->engine_brake, DRV_BRAKE_SAMPLES, car->idle_rpm, car->max_rpm, rpm);
     if (limiter) toff *= 2.0;
     double te = ton + toff;
     if (te < 0.0 && !limiter) te *= (gear == DRV_GEAR_N) ? 0.65 : 0.85;
     return te;
+}
+double drv_engine_torque_at(const DrvCar *car, const DrvTune *tune, int gear, int limiter, double rpm, double u) {
+    return drv_engine_torque_nos_at(car, tune, gear, limiter, rpm, u, 0);
 }
 
 /* S1-7.3 */
@@ -296,7 +309,7 @@ double drv_wheel_side_speed(const Drivetrain *d) {
 
 double drv_engine_torque(const Drivetrain *d) {
     double rpm = (double)(float)(d->omega_e * DRV_KR);
-    return drv_engine_torque_at(&d->car, &d->tune, d->gear, d->limiter, rpm, (double)(d->throttle_mult * d->throttle));
+    return drv_engine_torque_nos_at(&d->car, &d->tune, d->gear, d->limiter, rpm, (double)(d->throttle_mult * d->throttle), d->nos_level);
 }
 
 /* ===================================================================== */
@@ -571,9 +584,10 @@ double drv_lock_correction(const Drivetrain *d) {
 }
 
 static double grip_multiplier(const Drivetrain *d,int i) {
-    if(d->env.supplied_frame_grip)return d->env.frame_grip[i>1];
+    const double kappa=drv_nos_kappa(d->nos_level);
+    if(d->env.supplied_frame_grip)return kappa*d->env.frame_grip[i>1];
     double gamma=(double)d->tune.grip_q*(1-.025*(double)d->tune.grip_loc_x);
-    return i>1?gamma*d->env.rear_grip_multiplier:gamma;
+    return kappa*(i>1?gamma*d->env.rear_grip_multiplier:gamma);
 }
 static double rear_speed_multiplier(const Drivetrain *d,int i) {
     if(d->tune.is_player && i>1 && !d->env.wheel[i].locked && d->wheel[i].omega>=0)

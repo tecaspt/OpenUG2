@@ -40,27 +40,36 @@ typedef struct Stage1Drive {
     unsigned initial_lock_mask; /* explicit host reset fixture, not a retail default */
     float wheel_travel; /* mean signed angular travel during the last host tick */
     float wheel_angular_travel[4]; /* output-only per-wheel travel, including phase wraps */
+    float nos_capacity,nos_remaining;int nos_on; /* nitrous bottle in seconds (filled at build/race start) */
 } Stage1Drive;
 /* Read only approved stock S1-1 fields via independent GLOBALB framing. */
 int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCar *out);
 /* Career performance upgrades applied while reading (fractions 0..1 from cr_perf_fraction, levels 0..3);
- * NULL or all-zero = stock, identical to stage1_car_read. Decoded and applied (docs/parity/PERF-PAINT.md):
- * engine 3/0 (master add-curve 0x530 + rpm headers 0x560/0x5A0/0x5E0), transmission 1/2 (gearbox blocks
- * 0x460/0x4A0/0x4E0 replace stock 0x2C0) and tires 8/0 (grip lerps 0x1E0/0x200 -> 0x650/0x670).
- * suspension 5/0 is carried but data-only: the 0x6A0-0x6CC block is a per-axle/retune layout, not a
- * stock->max pair (0x6B4==0x6A4 and 0x6B8==0x6A8 on all 46 records; front stiffness 0x6C0->0x6C4 falls
- * on 30/31 player cars), and Stage1-5 readers consume only mass/gearbox/grip/rpm, so no field moves on
- * this fraction yet (the block's intended outputs are not among them). Weight 0/0, nitrous 2/0,
- * turbo 4/0, brakes 6/0 and ECU 7/0 stay unapplied: no justified per-car target (ruled-out census in
- * docs/parity/PERF-PAINT.md; the 0x778->0x7D8 reduction pair has unknown units). */
-typedef struct DrvUpgrade { float engine; int engine_level; int gear_level; float tires; float suspension; } DrvUpgrade;
+ * NULL or all-zero = stock: every upgraded reader then returns exactly the stock reader's bytes. Decoded effects
+ * (docs/parity/PERF-PAINT.md): weight (mass, centre.x, yaw scale), transmission (gearbox block by level), nitrous
+ * (bottle seconds, NOS torque), engine (add-curve 0x530, engine brake 0x554), turbo (secondary torque to 0x620),
+ * suspension (springs/dampers by `suspension`, anti-roll by `sway`, steering gain by `steer`, ride height),
+ * brakes (service/handbrake/bias to 0x6C0), ECU (rpm block by ecu_level, torque 0x5F0, engine brake 0x614,
+ * governor off) and tires (grip lerp 0x1E0/0x200 -> 0x650/0x670). */
+typedef struct DrvUpgrade {
+    float engine; int ecu_level; int gear_level; float tires; float suspension;
+    float weight,turbo,brakes,ecu,nitrous,sway,steer; int governor_off;
+} DrvUpgrade;
+/* Retail level rounding (int)(clamp(u,0,1)*3+0.5), not cr_perf_level_of. */
+int drv_upgrade_level(float u);
+/* Retail mass formula m*((r450-1)*u+1), shared by the drive and contact readers. */
+float drv_upgrade_mass(float mass,float r450,float u);
 int stage1_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,DrvCar *out);
 /* Read only approved S2-1 stock fields from the same independent framing. */
 int stage2_car_read(const unsigned char *data,long length,const char *name,ResCar *out);
+int stage2_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,ResCar *out);
 /* Read only approved S3-1 stock fields via the same framing. */
 int stage3_car_read(const unsigned char *data,long length,const char *name,BrkCar *out);
+int stage3_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,BrkCar *out);
 int stage5_car_read(const unsigned char *data,long length,const char *name,CtCar *out);
+int stage5_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,CtCar *out);
 int stage5_body_car_read(const unsigned char *data,long length,const char *name,BodyCar *out);
+int stage5_body_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,BodyCar *out);
 /* Explicit selectors/suppression. Stock inertia and limits may be replaced by
  * a supplied effective BodyCar; configuration composition is external. */
 int stage5_drive_body(Stage1Drive *state,const BodyCar *car,unsigned selector,int session_status,int suppress_impulses);
@@ -71,6 +80,7 @@ int stage5_drive_contacts(Stage1Drive *state,const CtCar *car,CtQuery query,void
 void stage1_steering_frame(Stage1Drive *state,float raw,const ResBasis *basis);
 float stage5_drive_step(Stage1Drive *state,float position[3],float velocity[2],float *heading,float *speed,float pedal,float steer,int handbrake,const PhysRideState *ride);
 int stage4_car_read(const unsigned char *data,long length,const char *name,LatCar *out);
+int stage4_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,LatCar *out);
 /* Configure geometry. Isolated prescribed/planar fixtures supply the inverse
  * yaw scalar/damping explicitly; BR composition uses its selected inertia.
  * The lower-stage planar fixture has a zero-centre mount-arm boundary. */
@@ -94,4 +104,11 @@ float stage1_drive_step(Stage1Drive *state,float position[3],float velocity[2],
     const PhysSurface *surface,const PhysVehicle *vehicle,const PhysRideState *ride);
 float stage1_drive_rpm(const Stage1Drive *state);
 int stage1_drive_gear(const Stage1Drive *state); /* HUD: R=-1,N=0,forward=1..6 */
+/* Nitrous bottle: refill to capacity (car build, race start; respawn/reset keeps the state). */
+void stage1_nos_fill(Stage1Drive *state);
+/* Advance by dt seconds with the button state; returns the burn level 0..3 (0 = off) and publishes it to the
+ * drivetrain. Starts only from shut with fuel left, burns 1 s/s while held, stops on release or empty. */
+int stage1_nos_update(Stage1Drive *state,int pressed,float dt);
+/* Remaining fraction of the bottle 0..1 (0 without a kit). */
+float stage1_nos_fraction(const Stage1Drive *state);
 #endif

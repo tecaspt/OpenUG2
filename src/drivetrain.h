@@ -76,6 +76,8 @@ typedef struct DrvCar {
     float torque_primary[DRV_TORQUE_SAMPLES];   /* Tp */
     float torque_secondary[DRV_TORQUE_SAMPLES]; /* Ts (zero when absent) */
     float engine_brake[DRV_BRAKE_SAMPLES];      /* Tb */
+    /* nitrous kit (zero when no kit is fitted): bottle in seconds, torque scale of the NOS curve */
+    float nos_capacity, nos_torque;
 
     /* derived by drv_car_finalize() (S1-1.3, S1-1.4, S1-4.2) */
     float torque[DRV_TORQUE_SAMPLES]; /* Tq = Tp + Ts (binary32 sum) */
@@ -209,6 +211,7 @@ typedef struct Drivetrain {
     /* engine (S1-3) */
     float omega_e;              /* engine speed */
     float throttle_mult;        /* mc */
+    int   nos_level;            /* nitrous burn level 0..3, set by the host each frame (0 = off) */
     int   limiter;              /* Lambda */
     float feedback;             /* Phi */
     float throttle;             /* shaped t */
@@ -264,6 +267,11 @@ int   drv_substep_count(float frame_dt, float *h);
 double drv_curve(const float *samples, int q, double a, double b, double x);
 /* S1-3.3 Te for explicit rpm and pedal-side u = mc*t (u is ignored (0) when the limiter is on). */
 double drv_engine_torque_at(const DrvCar *car, const DrvTune *tune, int gear, int limiter, double rpm, double u);
+/* Same with the nitrous term for burn level 0..3 (0 = off, identical to drv_engine_torque_at): added to the
+ * pedal side before the negative-torque scaling, not scaled by G or the bonus. Level 1..3 = kappa 1/1.4/1.7. */
+double drv_engine_torque_nos_at(const DrvCar *car, const DrvTune *tune, int gear, int limiter, double rpm, double u, int level);
+/* Grip and torque factor of a nitrous burn level (1 for level 0). */
+double drv_nos_kappa(int level);
 /* S1-7.3 clutch slip torque k'*c*Delta; updates *delta_prev. */
 double drv_clutch_torque(const DrvCar *car, double omega_e, double omega_w, double engage, float *delta_prev);
 /* S1-7.2 step 3: shares of the axle torque for wheels a and b. */

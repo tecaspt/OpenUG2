@@ -3,7 +3,12 @@
 #include "drive_stage1.h"
 #include <math.h>
 #include <string.h>
-int stage5_car_read(const unsigned char*data,long length,const char*name,CtCar*out){
+int stage5_car_read(const unsigned char*data,long length,const char*name,CtCar*out){return stage5_car_read_upgraded(data,length,name,NULL,out);}
+/* Weight (mass, centre.x, yaw scale; inertia is rebuilt from the mass) and suspension (axle rates, ride height,
+ * wheel-z raise) per docs/parity/PERF-PAINT.md. Zero fractions leave every byte of the stock record read. */
+static float cl01(float u){return u>0?(u>1?1:u):0;}
+static float lp(float v,float t,float x){return (t-v)*x+v;}
+int stage5_car_read_upgraded(const unsigned char*data,long length,const char*name,const DrvUpgrade*up,CtCar*out){
  if(!data||!name||!out)return 0;
  long row=n2_global_car_record(data,length,name);if(row<0||row>length-0x890)return 0;
  CtCar c={0};
@@ -12,6 +17,32 @@ int stage5_car_read(const unsigned char*data,long length,const char*name,CtCar*o
  for(int i=0;i<4;i++){READ(c.mount[i],0x120+0x30*i);READ(c.radius[i],0x130+0x30*i);}
  for(int i=0;i<2;i++){int o=0x280+0x20*i;READ(c.axle[i].progression,o);READ(c.axle[i].stiffness,o+4);READ(c.axle[i].d_positive,o+8);READ(c.axle[i].d_nonpositive,o+12);READ(c.axle[i].antiroll,o+16);READ(c.axle[i].upper,o+20);READ(c.axle[i].lower,o+24);READ(c.axle[i].reference,o+28);}
 #undef READ
+ if(up&&up->weight>0){
+  float r[3];memcpy(r,data+row+0x450,sizeof r);float u=cl01(up->weight);
+  if(!(r[0]<1.0f))u=0;  /* no weight kit on this record (traffic): no effect */
+  c.mass=drv_upgrade_mass(c.mass,r[0],u);
+  if(isfinite(r[1]))c.centre[0]+=r[1]*u;
+  if(isfinite(r[2])&&r[2]>0)c.yaw_scale=lp(c.yaw_scale,r[2],u);
+ }
+ if(up&&(up->suspension>0||up->sway>0)){
+  float c0=cl01(up->suspension),c1=cl01(up->sway),z[3],raise[2];
+  memcpy(z,data+row+0x710,sizeof z);memcpy(raise,data+row+0x714,sizeof raise);
+  for(int i=0;i<2;i++){
+   CtAxle t;int o=0x6d0+0x20*i;
+   memcpy(&t.progression,data+row+o,4);memcpy(&t.stiffness,data+row+o+4,4);memcpy(&t.d_positive,data+row+o+8,4);
+   memcpy(&t.d_nonpositive,data+row+o+12,4);memcpy(&t.antiroll,data+row+o+16,4);memcpy(&t.upper,data+row+o+20,4);
+   memcpy(&t.lower,data+row+o+24,4);memcpy(&t.reference,data+row+o+28,4);
+   CtAxle*a=&c.axle[i];
+   if(c0>0){a->progression=lp(a->progression,t.progression,c0);a->stiffness=lp(a->stiffness,t.stiffness,c0);
+    a->d_positive=lp(a->d_positive,t.d_positive,c0);a->d_nonpositive=lp(a->d_nonpositive,t.d_nonpositive,c0);
+    a->upper=lp(a->upper,t.upper,c0);a->lower=lp(a->lower,t.lower,c0);a->reference=lp(a->reference,t.reference,c0);}
+   if(c1>0)a->antiroll=lp(a->antiroll,t.antiroll,c1);
+  }
+  if(c0>0){
+   if(isfinite(z[0]))c.centre[2]-=z[0]*c0;
+   for(int i=0;i<4;i++)if(isfinite(raise[i/2]))c.mount[i][2]+=raise[i/2]*c0;
+  }
+ }
  /* Independent loader validation is stricter than the finite component domain. */
  const float *values=(const float*)&c;for(unsigned i=0;i<sizeof c/sizeof(float);i++)if(!isfinite(values[i]))return 0;
  if(c.mass<=0||c.yaw_scale<=0||c.mount[0][0]<=c.mount[3][0])return 0;
@@ -21,8 +52,9 @@ int stage5_car_read(const unsigned char*data,long length,const char*name,CtCar*o
  *out=c;return 1;
 }
 int stage5_drive_contacts(Stage1Drive*s,const CtCar*c,CtQuery query,void*user){if(!s||!s->ready||!s->lateral_ready||!s->drivetrain.brakes.enabled||!c||!query)return -1;ct_init(&s->contacts,c);s->contact_query=query;s->contact_user=user;s->contact_ready=1;s->prepared=0;s->drivetrain.brakes.signed_distribution=1;return 0;}
-int stage5_body_car_read(const unsigned char *data,long length,const char *name,BodyCar *out){
- CtCar car;BodyCar c={0};float adjusted[3];if(!out||!stage5_car_read(data,length,name,&car))return 0;
+int stage5_body_car_read(const unsigned char *data,long length,const char *name,BodyCar *out){return stage5_body_car_read_upgraded(data,length,name,NULL,out);}
+int stage5_body_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,BodyCar *out){
+ CtCar car;BodyCar c={0};float adjusted[3];if(!out||!stage5_car_read_upgraded(data,length,name,up,&car))return 0;
  long row=n2_global_car_record(data,length,name);ct_inertia(&car,c.inertia,adjusted);c.yaw_scale=car.yaw_scale;
  memcpy(c.limit,data+row+0x398,sizeof c.limit);for(int k=0;k<2;k++)if(!isfinite(c.limit[k])||c.limit[k]<0)return 0;*out=c;return 1;
 }
