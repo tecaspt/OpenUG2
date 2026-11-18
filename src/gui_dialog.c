@@ -257,10 +257,14 @@ void gd_spec_help(GdSpec *out, uint32_t title_key, const char *title,
     out->back_key = back_key ? back_key : T_HELP_BACK;
     out->back_text = back;
     if (!out->title_key && !out->title) { out->title_key = T_HELP_TITLE; out->title = "Help"; }
-    /* No explicit size: the retail help frame that fits the body's line estimate. The body is a
-     * 0.9-scale caption, so the same character estimate runs at 9 units per character [inferred,
+    /* The sheet grows with the message in whole lines of about the box width: measured from the
+     * authored sheets (dumped 2026-11-18), SMALL holds one 30-character sample line, MED two
+     * 46-character lines and LARGE three ~60-character lines. With the 380-unit box estimate that
+     * is a capacity of one message line in SMALL, two in MED, three in LARGE; the left-justified
+     * 0.9-scale caption puts the character estimate at 9 units per character [inferred,
      * docs/parity/DIALOGS.md]. */
-    int lines = 1;
+    static const int help_capacity[GD_SIZES] = { 1, 2, 3 };
+    int want = 1;
     if (body && body[0]) {
         int per_line = (int)(380.0f / 9.0f);                 /* 42 characters at the 0.9 scale */
         if (per_line < 1) per_line = 1;
@@ -274,9 +278,15 @@ void gd_spec_help(GdSpec *out, uint32_t title_key, const char *title,
             if (!*brk) break;
             line = brk + 1;
         }
-        lines = total ? total : 1;
+        want = total;                                        /* estimated message lines */
+        if (want < 1) want = 1;
     }
-    const GdFrame *pick = gd_frame_fit(GD_FAM_HELP, lines);
+    const GdFrame *pick = NULL;                              /* smallest sheet that fits, else the largest */
+    for (int s = GD_SIZE_SMALL; s < GD_SIZES; s++) {
+        const GdFrame *f = gd_frame_get(GD_FAM_HELP, (GdSize)s);
+        if (f && help_capacity[s] >= want) { pick = f; break; }
+    }
+    if (!pick) pick = gd_frame_get(GD_FAM_HELP, GD_SIZE_LARGE);   /* retail has nothing larger */
     if (pick) {
         out->package = pick->package;
         out->package_key = pick->package_key;
