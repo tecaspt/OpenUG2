@@ -59,6 +59,9 @@ int pause_menu_take_confirm(PauseMenu *p);
 int pause_menu_dialog_open(const PauseMenu *p);
 int pause_menu_dialog_visual_available(const PauseMenu *p);
 const char *pause_menu_dialog_status(const PauseMenu *p);
+/* Binds the dialog currently on screen against the retail resources (after pause_menu_confirm or an
+ * entry that opened one). Returns 1 when the authored package bound; the dialog then draws. */
+int pause_menu_dialog_prepare(PauseMenu *p);
 /* Empty unless the language table is unavailable (English fallback captions are used). */
 const char *pause_menu_caption_status(const PauseMenu *p);
 FeAction pause_menu_update(PauseMenu *p, float seconds);
