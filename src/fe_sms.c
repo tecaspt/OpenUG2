@@ -72,12 +72,15 @@ static void sms_text(const LangTable *lang, const CdSms *m,
         if (subject[0] || body[0]) { if (missing) *missing = 0; return; }
     }
 
-    /* [data] The 28 magazine / unique blurbs have no text under their own name or any tested suffix.
+    /* [data] The 28 magazine / unique blurbs have no text under their own name or any tested suffix
+     * (38 records carry the magazine kind; the 10 that do have their own text never get here).
      * Retail has generic lines with the magazine name as "%s" (SMS_MAG_GENERIC_SUBJ_1/_2 and
-     * _BODY_1/_2; SMS_SHOWCASE_GENERIC_* carry the same "%s cover opportunity" text). Which of the
-     * pair a record gets is [inferred]: the `flag` byte is the only distinction the record carries,
-     * and it splits the blurbs 18/10. The magazine word comes from the record name, so no retail
-     * string is invented here - only the pairing is guessed. */
+     * _BODY_1/_2, 0xd8d26325/0xd8d26326 and 0xb0bf75ff/0xb0bf7600). Which of the pair a record gets
+     * stays [inferred]: the `flag` byte is the only distinction the record carries and it splits
+     * these 28 exactly 14/14, but retail's rule for that bit is unknown -- and there is no
+     * SMS_SHOWCASE_GENERIC_* family in the table to compare against (the obvious spellings hash to
+     * 0xb951362d / 0xb951362e and neither is present). The magazine word comes from the record name,
+     * so no retail string is invented here - only the pairing is guessed. */
     if (m->kind != CD_SMS_MAG) return;
     {
         const char *sk = m->flag ? "SMS_MAG_GENERIC_SUBJ_1" : "SMS_MAG_GENERIC_SUBJ_2";
@@ -178,16 +181,22 @@ int fe_sms_unread(const FeSms *s) { return s ? s->unread_total : 0; }
 /* ---- package binding ---- */
 
 /* [data] Role nodes of UI_SMS_Mailbox.fng by node name hash (the package stores no readable names, so
- * the hash is the only identity; SMS-MAILBOX.md 3 lists the geometry and sample text behind each). */
-#define FES_N_HEADER    0x42adb44cu   /* node 98:  x=275 y=-46, sample "Incoming SMS Message" */
-#define FES_RETURN      0x001c0cbbu   /* node 109: hint "Return to Gameplay" (key SMS_RETURN) */
-#define FES_DELETE      0x56b00632u   /* node 111: hint "Delete Message" (key SMS_DELETE_MESSAGE) */
-#define FES_SELECT_CAP  0x001335f0u   /* node 140: hint "Read Message" (key SMS_READ_MESSAGE) */
+ * the hash is the only identity; SMS-MAILBOX.md 3 lists the geometry and sample text behind each).
+ * Each constant is a NODE NAME hash, never a caption key: the button hints below carry their own "SH"
+ * label hash, which is what retail substitutes at draw time and what ugui_scene.c looks up when no
+ * text_override is set. The quoted names are node names, not language labels. */
+#define FES_N_HEADER    0x42adb44cu   /* node 98 "Header_Text": x=275 y=-46, sample "Incoming SMS Message" */
+/* The three hint nodes are name hashes that collide with real language keys, so the caption's own key
+ * is spelled out next to each: 0x001c0cbb is also SMS_RETURN's node, 0x56b00632 reads "Delete" and
+ * 0x001335f0 is BACK -- none of those three is what the node draws. */
+#define FES_RETURN      0x001c0cbbu   /* node 109 name; caption SMS_RETURN 0xc20a08f1 "Return to Gameplay" */
+#define FES_DELETE      0x56b00632u   /* node 111 name; caption SMS_DELETE_MESSAGE 0x0836f968 "Delete Message" */
+#define FES_SELECT_CAP  0x001335f0u   /* node 140 name; caption SMS_READ_MESSAGE 0x3b550c71 "Read Message" */
 #define FES_COUNT       0x980822b3u   /* node 113: x=44 y=8 centred, sample "Unread Messages" */
 #define FES_ROW_TOP     0x9a3674c8u   /* node 13:  x=-242 y=155, the top subject row */
 #define FES_ROW         0x0c6e4198u   /* lowest subject-row hash; closed range through 0x0c6e41a0 */
 #define FES_ROW_HI      0x0c6e41a0u
-#define FES_MAIL_TOP    0xe7afbca7u   /* node 2: Engage_SMS_mail.tga at y=165, the top envelope */
+#define FES_MAIL_TOP    0xe7afbca7u   /* node 2: "Engage_SMS_mail.tga" at y=165, the top envelope */
 #define FES_MAIL_LO     0x6bde8997u   /* nodes 3..11: envelopes at y=136..-88; the name id steps by */
 #define FES_MAIL_HI     0x6bde899fu   /* one per row, so this closed range is exactly the nine */
 
