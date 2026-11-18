@@ -1027,10 +1027,16 @@ int fem_paint_wants_vinyl(const FeMenu *m) {
      * colour list and opens the layer screen from it rather than buying a colour. */
     return m->paint.page==0 && c && c->paint.group==CD_PAINT_VINYL;
 }
-void fem_open_vinyl(FeMenu *m,const FeVinylShop *shop) {
+void fem_open_vinyl(FeMenu *m,const FeVinylShop *shop) { fem_open_vinyl_at(m,shop,0); }
+/* Retail leaves the category carousel where the shopper left it, so the roam host keeps the
+ * chosen tab between visits and asks for it on the way back in (fem_vinyl_cat). */
+void fem_open_vinyl_at(FeMenu *m,const FeVinylShop *shop,int cat) {
     if(!m || feg_busy(m->garage))return;
-    fvt_open(&m->vinyl,shop);m->career_garage=0;fem_open(m,FEM_SCR_CAREER_VINYL);
+    fvt_open(&m->vinyl,shop);
+    if(cat>0) fvt_set_cat_sel(&m->vinyl,cat);
+    m->career_garage=0;fem_open(m,FEM_SCR_CAREER_VINYL);
 }
+int fem_vinyl_cat(const FeMenu *m) { return m ? m->vinyl.cat_sel : 0; }
 void fem_vinyl_refresh(FeMenu *m,const FeVinylShop *shop,int msg) {
     if(!m || m->screen!=FEM_SCR_CAREER_VINYL)return;
     fvt_refresh(&m->vinyl,shop,(FvtMsg)msg);m->locked=0;build_screen(m);views_update(m,0);

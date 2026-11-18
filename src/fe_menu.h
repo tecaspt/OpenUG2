@@ -103,6 +103,10 @@ void fem_perf_refresh(FeMenu *, const FePerfShop *shop, int msg);
  * locked after a request until the host calls fem_vinyl_refresh (new data, kept position,
  * `msg` caption, FvtMsg). The preview calls read the design the shop is holding for the
  * car (NULL = none) so it can be drawn on the car before it is actually bought. */
+/* Retail leaves the category carousel where the shopper left it, so the roam host keeps the
+ * chosen tab (fem_vinyl_cat) and asks for it on the way back in (fem_open_vinyl_at). */
+int fem_vinyl_cat(const FeMenu *);
+void fem_open_vinyl_at(FeMenu *, const FeVinylShop *shop, int cat);
 void fem_open_vinyl(FeMenu *, const FeVinylShop *shop);
 void fem_vinyl_refresh(FeMenu *, const FeVinylShop *shop, int msg);
 const char *fem_vinyl_preview(const FeMenu *);

@@ -192,6 +192,11 @@ void fvt_preview(const FeVinyl *v, char *token, int cap, uint32_t colour[CR_VINY
 
 int fvt_preview_layer(const FeVinyl *v) { return v ? v->shop.layer : 0; }
 
+/* The tab the shopper is on, so a host can keep the carousel in its snapshot across a
+ * close/re-open (retail leaves the category chosen when you step out of the screen). */
+int fvt_cat_sel(const FeVinyl *v) { return v ? v->cat_sel : 0; }
+void fvt_set_cat_sel(FeVinyl *v, int i) { if (v) v->cat_sel = i; }
+
 /* Colours are addressed by catalogue index (`colour_sel`), never by row position, so the
  * invoice and the preview can never be one colour apart from what the page shows. */
 static void arm(FeVinyl *v) {

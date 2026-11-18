@@ -68,6 +68,9 @@ typedef struct FeVinyl {
  * the design + colours chosen for it (empty token = this screen previews nothing). */
 void fvt_preview(const FeVinyl *, char *token, int cap, uint32_t colour[CR_VINYL_COLORS]);
 int fvt_preview_layer(const FeVinyl *);
+/* The chosen category tab, so the host can carry it across a close/re-open. */
+int fvt_cat_sel(const FeVinyl *);
+void fvt_set_cat_sel(FeVinyl *, int);
 
 void fvt_open(FeVinyl *, const FeVinylShop *);
 void fvt_refresh(FeVinyl *, const FeVinylShop *, FvtMsg);
