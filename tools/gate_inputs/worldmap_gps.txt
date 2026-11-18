@@ -10,8 +10,7 @@
 # 1) - a third Right overshoots onto Quit to Main Menu. Activating it opens an OK/Cancel dialog that
 # starts focused on Cancel, the retail two-button default (gui_dialog.c, `initial_focus = 1`), so the
 # answer is Left then Return; a bare Return posts MSG_CANCEL and only resumes. S3's
-# key=Left,key=Return pair is that dialog answer, not a menu movement, and the dialog is rebuilt on
-# every pause, so the second visit answers it the same way.
+# key=Left,key=Return pair is that dialog answer, not a menu movement.
 #
 # Leave >= 100 frames (~1.5 s) between pause-menu presses. Carousel steps are ignored while a step is
 # tweening (GC_TWEEN_S 0.3 s, gui_carousel.c) and the tween keeps running past the frame that carries
@@ -20,9 +19,13 @@
 # moved it every time (s3 left ~117). Frames after the map is open do not need that clearance - the
 # map has no tween - so the TAB and Return there sit 20 frames apart, as in s3.
 #
-# After that: choose a race icon with TAB (the map's own next-destination key) and Right, read the
-# GPS route back off the WM probe lines, pause again to confirm the guidance survived closing the
-# map, then F8, which teleports the car into the destination zone to prove arrival.
+# After that: choose a race icon with TAB (the map's own next-destination key), read the GPS route
+# back off the WM probe lines, close the map and drive on - the WM probe line going active=1 again
+# with the same route is the evidence that guidance survived the map. F8 teleports the car into the
+# destination zone, and arrival is printed by the game itself, not by this script: it has to drive the
+# last few frames and let the zone test notice it. No second visit to the map is needed for that, and
+# one run that opened it twice printed 'world map: opened' twice, which is exactly the kind of
+# coincidence a spec should not be left to forgive.
 # --world-map-dev prints the icon list, the probe lines and the F8 arrival.
 #
 # A `shot=` is captured on its own frame, before the frame's keys are pushed, so a shot never shares
@@ -50,14 +53,8 @@
 1080:key=Return
 1200:shot=wmgps-route.png
 1300:key=Escape
-1360:key=Right
-1460:key=Right
-1560:key=Return
-1660:key=Left
-1700:key=Return
-1740:shot=wmgps-guidance-map.png
-1760:key=Escape
-1820:shot=wmgps-guidance-resumed.png
-1900:key=F8
-1950:shot=wmgps-arrived.png
-1951:quit
+1400:tdown=gas
+1460:tup=gas
+1500:key=F8
+1700:shot=wmgps-arrived.png
+1701:quit
