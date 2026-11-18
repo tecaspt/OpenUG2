@@ -6844,6 +6844,7 @@ int main(int argc, char **argv) {
     }
     int racetimer = 0, finish_place = 0;
     HudRaceClock hud_race_clock={0};
+    PrRaceStats race_stats={0};
     int outrun_slot=-1;Uint32 outrun_until=0; /* free-roam outrun shown on the race HUD */
     int outrun_offer=-1,outrun_challenge=0;   /* challengeable rival; Enter Race pressed */
     int career_zone=-1,career_enter=0;        /* M6: available career event under the car; Enter Race pressed */
@@ -7987,6 +7988,7 @@ int main(int argc, char **argv) {
                 else { vel[0] = vel[1] = 0; speed = 0; stage1_drive_reset(&g_stage1, vel, heading); pending_car = idx; }
                 break; }
             case GF_CMD_ARM_EVENT: {
+                pr_stats_reset(&race_stats);
                 wm_clear_destination(&wm_destination_valid,&wm_owned_request,&gps_marker_on);
                 int evi = -1;
                 for (int k = 0; k < world.city.nev; k++) if (world.city.ev[k].id == gcmd.event_id) evi = k;
@@ -8046,6 +8048,7 @@ int main(int argc, char **argv) {
                         info.have_drift_chains=1;info.drift_banked=world.city.race.drift.banked_chains;
                         info.drift_cancelled=world.city.race.drift.cancelled_chains;
                     }
+                    pr_info_stats(&info,&race_stats);
                     info.finish_place = gh.finish_place; info.failed = gh.race_failed; info.seconds = gh.race_seconds;
                     snprintf(info.car, sizeof info.car, "%s", carname);
                     if (url_live) {   /* M7 P4: record this round, show the tournament standings */
@@ -8125,6 +8128,9 @@ int main(int argc, char **argv) {
                     }
                     if (fem) fem_close(fem);
                     pr_open(post, &info);
+                    printf("results stats: samples %llu elapsed %.6f top %.6f average %.6f laps %llu best %.6f available %d/%d/%d\n",
+                        (unsigned long long)race_stats.samples,race_stats.elapsed,info.top_speed_kmh,info.average_speed_kmh,
+                        (unsigned long long)race_stats.laps,info.best_lap,info.have_top_speed,info.have_average_speed,info.have_best_lap);
                     printf("results: event %d place %d failed %d %.2fs\n", info.event_id, info.finish_place, info.failed, info.seconds);
                     if (pr_status(post)[0]) fprintf(stderr, "results: %s\n", pr_status(post));
                 } else if (fem) fem_open(fem, FEM_SCR_MAIN);
@@ -9111,6 +9117,7 @@ int main(int argc, char **argv) {
         }
         pose_ready=1;
         for(int sim_tick=0;sim_tick<sim_steps;sim_tick++) {
+        int stats_lap_completed=0;
         int pose_nai=draw_nai;
         pose_before=pose_now;dynamic_before=dynamic_now;shake_before=landing_offset;
         for(int k=0;k<draw_nai;k++) {
@@ -10139,7 +10146,11 @@ int main(int argc, char **argv) {
                 race_drift_step(&world.city.race.drift,vel,heading,
                     hypotf(carpos[0]-ground_old[0],carpos[1]-ground_old[1]),
                     g_ride_ready && g_ride.contact_mask!=0,nwc || rpushed || race_contact>0,1/PHYS_TICKRATE);
-            world_race_update(&world,carpos[0],carpos[1]);
+            int next_before=world.city.race.next,lap_before=world.city.race.lap;
+            int crossed=world_race_update(&world,carpos[0],carpos[1]);
+            int ev=world.city.race.ev;
+            stats_lap_completed=pr_stats_lap_crossed(world.city.race.active && ev>=0 && ev<world.city.nev &&
+                world.city.ev[ev].circuit,crossed,next_before,lap_before);
         }
 
         pf_mark(PF_AI_CONTACT);
@@ -10199,10 +10210,18 @@ int main(int argc, char **argv) {
         if (ai_race && !world.city.race.active && race_state == 1 && aipath.n > 1) { /* player lap */
             int prel = (n2_nearest_wp(&aipath, carpos[0], carpos[1]) - start_idx
                         + aipath.n) % aipath.n;
-            if (p_prev > aipath.n*3/4 && prel < aipath.n/4) p_lap++;
+            if (p_prev > aipath.n*3/4 && prel < aipath.n/4) {p_lap++;stats_lap_completed=1;}
             p_prev = prel;
         }
 
+        if(race_state==1 && !sstatic && !capture_policy.freeze_motion && (world.city.race.active || ai_race)) {
+            if(!race_stats.active) {
+                int ev=world.city.race.ev;
+                pr_stats_start(&race_stats,world.city.race.active?
+                    ev>=0 && ev<world.city.nev && world.city.ev[ev].circuit:1);
+            }
+            pr_stats_step(&race_stats,PHYS_KMH(hypotf(vel[0],vel[1])),1.0/PHYS_TICKRATE,stats_lap_completed);
+        }
         /* The display clock follows simulation time and freezes at the finish. */
         hud_race_clock_step(&hud_race_clock,
             world.city.race.active?world.city.race.ev:ai_race?world.city.nev:-1,
@@ -10212,6 +10231,9 @@ int main(int argc, char **argv) {
         if (race_state == 0 && !race_prepare_pending && racetimer >= COUNTDOWN) {
             race_state = 1; racetimer = 0;
             world_race_begin(&world.city.race,carpos[0],carpos[1]);
+            int ev=world.city.race.ev;
+            pr_stats_start(&race_stats,world.city.race.active?
+                ev>=0 && ev<world.city.nev && world.city.ev[ev].circuit:ai_race);
         }
         int drag_failure=race_drag_failure(drag_gear.failed,wall_impulse,race_contact);
         if(drag_active && race_state==1 && drag_failure) {

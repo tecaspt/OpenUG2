@@ -33,6 +33,14 @@ static void rank_label(GvScreen *s,const char *name,const char *value) {
 }
 /* [inferred] Cross-package order follows Next, with stats Back returning to the
  * preceding page; career map Accept precedes the existing action menu. */
+void pr_info_stats(PostRaceInfo *info,const PrRaceStats *stats) {
+    if(!info)return;
+    info->have_top_speed=info->have_average_speed=stats && stats->samples>0;
+    info->top_speed_kmh=info->have_top_speed?stats->top_speed_kmh:0;
+    info->average_speed_kmh=info->have_average_speed?pr_stats_average(stats):0;
+    info->have_best_lap=stats && stats->lap_race && stats->laps>0;
+    info->best_lap=info->have_best_lap?stats->best_lap:0;
+}
 int pr_flow(const PostRaceInfo *info,int screens[7]) {
     if(!info || !screens)return 0;
     int n=0;
@@ -57,7 +65,7 @@ static void hash_text(GvScreen *s,uint32_t hash,const char *value) {
 }
 static void format_time(char out[64],double seconds) {
     if(!isfinite(seconds) || seconds<=0){out[0]=0;return;}
-    unsigned c=(unsigned)(fmin(seconds,359999)*100);
+    unsigned c=(unsigned)floor(fmin(seconds,359999)*100+1e-6);
     snprintf(out,64,"%u:%02u.%02u",c/6000,c/100%60,c%100);
 }
 static int family_load(PostRace *p,const char *name) {
@@ -200,7 +208,7 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
     snprintf(p->place,sizeof p->place,"%d",info->finish_place);
     double seconds=isfinite(info->seconds) && info->seconds>0?info->seconds:0;
     if(seconds>359999)seconds=359999;
-    unsigned centis=(unsigned)(seconds*100);
+    unsigned centis=(unsigned)floor(seconds*100+1e-6);
     snprintf(p->time,sizeof p->time,"%u:%02u.%02u",centis/6000,centis/100%60,centis%100);
     if(info->kind==N2_RACE_DRIFT && info->have_drift_points) {
         uint32_t points=info->drift_points>(uint32_t)RR_SCORE_LIMIT?(uint32_t)RR_SCORE_LIMIT:info->drift_points;
@@ -240,7 +248,7 @@ void pr_open(PostRace *p,const PostRaceInfo *info) {
         for(int row=0;row<count;row++) {
             const PostRaceStanding *entry=&p->info.standing[order[row]];
             double s=isfinite(entry->seconds) && entry->seconds>0?fmin(entry->seconds,359999):0;
-            unsigned c=(unsigned)(s*100);
+            unsigned c=(unsigned)floor(s*100+1e-6);
             if(entry->status==PR_STAND_OUT){snprintf(p->row_places[row],sizeof p->row_places[row],"DNF");
                 snprintf(p->row_times[row],sizeof p->row_times[row],"DNF");}
             else {snprintf(p->row_places[row],sizeof p->row_places[row],"%d",entry->place);

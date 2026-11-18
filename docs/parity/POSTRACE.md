@@ -4,6 +4,9 @@
 `GLOBAL/InGameRace.bun`: `UI_PostRaceResults.fng`, `UI_PostRace_TournResults.fng`,
 `UI_PostRace_TournStandings.fng`, `UI_PostRaceReward.fng`, `UI_PostRaceStats.fng`
 and `UI_PostRaceWorldMap.fng`. The existing action carousel is `UI_postrace.fng`.
+All driving HUD layers (retail instruments, map, race labels/banners, diagnostic
+fallbacks, rear mirror and loading overlays) are suppressed while any post-race
+page is open. The 3D scene and HUD state sampling remain available.
 The five new identity sets cover every object (440 total), not only dynamic text.
 `fe-binding-check` verifies hashes, GUIDs, parent GUIDs, object types and resources.
 
@@ -31,10 +34,14 @@ The existing career reward policy is provisional; presentation does not replace
 it with a new purse or grant anything itself.
 
 [data] Race time, drift points and banked/cancelled drift counts come from the
-host. No per-race top-speed, average-speed or best-lap accumulator exists there;
-those rows are empty. Optional explicit fields allow callers with real measured
-values to populate them. Drag elapsed time is available; shift counts and speed
-records are absent. Reusable stats row templates are authored outside the visible
+host. Per-race speed measurements reset when an event is armed and when racing
+begins. Each unpaused physics tick samples planar velocity magnitude in km/h:
+top speed is the maximum and average speed is the speed integral divided by
+sampled racing time. Countdown, paused and finished ticks are excluded. Lap races
+record elapsed time between real lap-line crossings, including the final lap
+whose progression counter is clamped at the lap limit. Partial laps, knockouts
+and developer-forced finishes do not invent a completed lap; Best Lap remains
+empty until a real lap completes. Drag shift counts remain unavailable. Reusable stats row templates are authored outside the visible
 frame; their placement and English measurement captions are inferred. URL round
 results use that round's places, elapsed times and awarded points. The standings
 page sorts cumulative places/points independently. Missing entrants and values

@@ -38,6 +38,9 @@ int main(int argc,char **argv) {
             .event_id=4174,.finish_place=1,.seconds=62.34,.have_drift_points=scenario!=2,.drift_points=12345,
             .have_drift_chains=1,.drift_banked=12,.drift_cancelled=2,.reward={.available=1,.cash=1000,.reputation=100},
             .have_url_standings=scenario==2,.have_round_standings=scenario==2,.standing_count=2,.url_round=1,.url_rounds=3};
+        PrRaceStats measured={0};pr_stats_start(&measured,scenario==2);
+        for(int tick=0;tick<62;tick++)assert(pr_stats_step(&measured,tick<60?72:108,1,tick==9 || tick==20));
+        assert(pr_stats_step(&measured,108,.34,0));pr_info_stats(&info,&measured);
         strcpy(info.car,"MIATA");
         info.standing[0]=(PostRaceStanding){.name="Player",.car="MIATA",.place=2,.points=8};
         info.standing[1]=(PostRaceStanding){.name="Racer 1",.car="GOLF",.place=1,.points=10};
@@ -59,7 +62,9 @@ int main(int argc,char **argv) {
             }
             if(screens[at]==PR_SCREEN_STATS) {
                 assert(!strcmp(pr_bound_text(p,0x9b483b01u),"1:02.34"));
-                assert(!strcmp(pr_bound_text(p,0x9b483b02u),""));checks+=2;
+                assert(!strcmp(pr_bound_text(p,0x9b483b02u),"108.0"));
+                assert(!strcmp(pr_bound_text(p,0x9b483b03u),"73.4"));
+                assert(!strcmp(pr_bound_text(p,0x9b483b04u),scenario==2?"0:10.00":""));checks+=4;
             }
             if(screens[at]==PR_SCREEN_TOURN_RESULTS) {
                 assert(!strcmp(pr_bound_text(p,0xa5cc56b5u),"Player"));

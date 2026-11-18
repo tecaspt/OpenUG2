@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <stdint.h>
 #include "race_rules.h"
+#include "postrace_stats.h"
 typedef struct PostRace PostRace;
 typedef struct PostRaceStanding {
     char name[32],car[32];uint32_t points;int place;
@@ -31,6 +32,7 @@ enum { PR_SCREEN_RESULTS, PR_SCREEN_TOURN_RESULTS, PR_SCREEN_TOURN_STANDINGS,
        PR_SCREEN_REWARD, PR_SCREEN_STATS, PR_SCREEN_WORLD_MAP, PR_SCREEN_MENU };
 /* Pure flow and copied presentation state, also available without a renderer. */
 int pr_flow(const PostRaceInfo *,int screens[7]);
+void pr_info_stats(PostRaceInfo *,const PrRaceStats *);
 int pr_screen(const PostRace *);
 const PostRaceInfo *pr_info(const PostRace *);
 const char *pr_bound_text(const PostRace *,uint32_t name_hash);

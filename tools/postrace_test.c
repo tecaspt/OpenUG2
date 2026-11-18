@@ -55,6 +55,14 @@ int main(void) {
     info=(PostRaceInfo){.kind=N2_RACE_DRAG};pr_open(p,&info);
     e=(SDL_Event){0};e.type=SDL_FINGERDOWN;e.tfinger.x=.15f;e.tfinger.y=.85f;pr_event(p,&e,NULL);
     e.type=SDL_FINGERUP;pr_event(p,&e,NULL);assert(pr_update(p,0)==PR_ACT_RESTART);checked++;
+    PrRaceStats measured={0};pr_stats_start(&measured,1);
+    assert(pr_stats_step(&measured,72,.25,0) && pr_stats_step(&measured,108,.75,1));checked++;
+    pr_info_stats(&info,&measured);
+    assert(info.have_top_speed && info.have_average_speed && info.have_best_lap &&
+        info.top_speed_kmh==108 && info.average_speed_kmh==99 && info.best_lap==1);checked++;
+    pr_stats_reset(&measured);pr_info_stats(&info,&measured);
+    assert(!info.have_top_speed && !info.have_average_speed && !info.have_best_lap &&
+        info.top_speed_kmh==0 && info.average_speed_kmh==0 && info.best_lap==0);checked++;
     pr_destroy(p);assert(!pr_is_open(NULL));assert(pr_update(NULL,0)==0);
     printf("postrace_test: %d checks PASS\n",checked);return 0;
 }
