@@ -171,10 +171,12 @@ before the menu marks an item read; failure rolls the career state back.
   ordinary wins, 10 to sponsor wins and 9 to URL wins. A notice requires an exact
   type/value match in `0x34A1C`, then calls `cr_unlock_ok` for that entry/level.
   `SMS_UNLOCK_27` has no such match and remains undelivered.
-- [inferred] Car notices use their stage and sponsor-win ordinal, and additionally
-  require a car's actual regional unlock race in that stage to be won. The data
-  does not give a one-to-one message/car mapping; this policy never opens a car
-  itself and uses the same race completion state as the car lot.
+- [data] Cars unlock at the regional race references in `0x34A1F`; these are
+  `S<stage>_URL_<number>` races. [inferred] A notice's ordinal enumerates the
+  distinct regional unlock races in ascending numeric URL order within its
+  stage. Several cars sharing one event produce one notice. Delivery requires
+  that exact event to be won, with no additional sponsor-win threshold. This
+  also handles stage 3, where unlock groups begin at URL 4 rather than URL 1.
 - [inferred] The four control tutorials (trigger 3) use their ascending arguments
   10/40/70/100 as seconds of active roam in the current session. Pausing stops
   this clock. Legacy migration marks all four read. Receipts prevent redelivery

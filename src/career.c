@@ -893,15 +893,25 @@ static int sms_condition(const CareerState *s, const CareerData *cd, int i, int 
         return 0;
     }
     if (!strncmp(m->name, "SMS_CAR_UNLOCK_", 15)) {
-        /* Pair is a sponsor-win threshold within its stage [inferred]. Also
-         * require a car's actual unlock race to have completed in this stage. */
-        int stage = CD_SMS_ARG_HI(m->arg), count = CD_SMS_ARG_LO(m->arg);
-        if (s->stage < stage || (s->stage == stage && count_wins(s, cd, stage, CD_CAT_SPONSOR) < count)) return 0;
-        for (int u = 0; u < cd->nunlock; u++) {
+        /* [data] Cars reference URL races. [inferred] A notice's per-stage
+         * ordinal enumerates distinct regional unlock races in numeric URL order;
+         * multiple cars unlocked by one event share one notice. */
+        int race[CD_MAX_UNLOCKS], ordinal[CD_MAX_UNLOCKS], n = 0;
+        int stage = CD_SMS_ARG_HI(m->arg), which = CD_SMS_ARG_LO(m->arg);
+        for (int u = 0; u < cd->nunlock && n < CD_MAX_UNLOCKS; u++) {
             int r = find_race(cd, cd->unlock[u].race[s->region == 1 ? 1 : 0]);
-            if (r >= 0 && cd->race[r].stage == stage && race_done(s, cd->race[r].name_hash)) return 1;
+            int named_stage, number, duplicate = 0; char tail;
+            if (r < 0 || cd->race[r].stage != stage ||
+                sscanf(cd->race[r].name,"S%d_URL_%d%c",&named_stage,&number,&tail) != 2 ||
+                named_stage != stage || number < 1) continue;
+            for (int k = 0; k < n; k++) if (race[k] == r) duplicate = 1;
+            if (!duplicate) {race[n] = r; ordinal[n++] = number;}
         }
-        return 0;
+        for (int j = 0; j < n; j++) for (int k = j+1; k < n; k++) if (ordinal[k] < ordinal[j]) {
+            int tmp = ordinal[j]; ordinal[j] = ordinal[k]; ordinal[k] = tmp;
+            tmp = race[j]; race[j] = race[k]; race[k] = tmp;
+        }
+        return which > 0 && which <= n && race_done(s,cd->race[race[which-1]].name_hash);
     }
     if (m->kind == CD_SMS_TIP) {
         int ordinal = 0;

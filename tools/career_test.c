@@ -458,6 +458,35 @@ static void test_sms(void)
     s.rec[0].hash=H_A; s.rec[0].flags=CR_REC_WON; s.nrec=1;
     CHECK(cr_sms_deliver(&s,&cd,-1,10,0)==1 && s.sms[2].hash==789);
     CHECK(cr_sms_deliver(&s,&cd,-1,1000,0)==0);
+    /* Car messages follow actual regional URL unlock groups, independently of
+     * sponsor wins. Two cars in one event must not consume two ordinals. */
+    memset(&cd,0,sizeof cd);
+    mk(0,"S2_URL_3",H_A,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);
+    mk(1,"S2_URL_1",H_B,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);
+    mk(2,"S2_URL_2",H_C,CD_UNLOCK_STAGE,CD_CAT_URL,2,0,0,0);cd.nrace=3;
+    cd.nunlock=4;
+    cd.unlock[0].race[0]=H_A;cd.unlock[1].race[0]=H_B;
+    cd.unlock[2].race[0]=H_B;cd.unlock[3].race[0]=H_C;
+    cd.unlock[0].race[1]=H_C;cd.unlock[1].race[1]=H_A;
+    cd.nsms=3;
+    for(int j=0;j<3;j++) {
+        snprintf(cd.sms[j].name,sizeof cd.sms[j].name,"SMS_CAR_UNLOCK_%d",j+1);
+        cd.sms[j].name_hash=800+j;cd.sms[j].kind=CD_SMS_MSG;cd.sms[j].arg=0x20001+j;
+    }
+    cr_new(&s,&cd,"CAR_X");s.stage=2;s.region=0;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==0);
+    s.nrec=1;s.rec[0].hash=H_B;s.rec[0].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[0].hash==800);
+    CHECK(s.won==0 && cr_sms_deliver(&s,&cd,-1,0,0)==0);
+    s.nrec=2;s.rec[1].hash=H_A;s.rec[1].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[1].hash==802);
+    s.nrec=3;s.rec[2].hash=H_C;s.rec[2].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==1 && s.sms[2].hash==801);
+    cr_new(&s,&cd,"CAR_X");s.stage=2;s.region=1;
+    s.nrec=1;s.rec[0].hash=H_B;s.rec[0].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,0)==0); /* region B does not unlock cars at URL 1 */
+    s.nrec=2;s.rec[1].hash=H_C;s.rec[1].flags=CR_REC_WON;
+    CHECK(cr_sms_deliver(&s,&cd,-1,0,1)==1 && s.sms[0].hash==800 && !cr_sms_unread(&s));
 }
 
 int main(void)
