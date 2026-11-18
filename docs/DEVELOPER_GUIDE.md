@@ -377,7 +377,9 @@ instead of popping. Occlusion behind buildings still comes from the ordinary
 depth test. `Lighting & Environment -> District lights` scales both size and
 brightness at runtime; neither knob changes which sources are selected.
 
-At night, sources inside the ordinary fog-derived view distance draw as
+At night, sources within 200 m (the distance at which the original drops lamp
+flares, per the [research notes](LIGHTING_RESEARCH.md); `flare range` in the
+developer menu) and inside the fog-derived view distance draw as
 camera-facing quads in `render_district_lights`. This late additive pass enables
 depth testing, turns depth writes off, consumes texture alpha through
 `uEmissiveTex`, and restores the incoming uniforms, texture, blend factors and
@@ -387,9 +389,9 @@ emission fades toward zero, not fog RGB, so distant black sprite edges do not
 add colored rectangles. `make light-state-test` verifies this on a real SDL/GL
 context with synthetic textures, including an occluded light and deliberately
 different incoming state; it requires no retail assets. Daylight
-draws zero authored light quads. Fixed M136 reference poses draw 197 of 2,228
-L4RA sources and 64 of 193 L4RB sources; these numbers prove distance culling,
-not a universal visibility count for every camera.
+draws zero authored light quads. Before the 200 m range, fixed M136 reference
+poses drew 197 of 2,228 L4RA sources and 64 of 193 L4RB sources; the counts are
+lower now and have not been re-measured.
 
 ### Next lighting-fidelity milestone
 
@@ -1627,26 +1629,34 @@ invariance, the sprint/lap rule, money visibility and the art gate.
 
 ### Original-style lighting
 
-Level Of Detail 1 and 2 light the car in the original game's manner, which the
+Every Level Of Detail lights the road in the original game's manner, which the
 retail executable names `worldheadlight.efx` with `HeadlightTex`, `HeadlightClipTex`
 and `HeadlightWVP`: the additive pool texture `2PLAYERHEADLIGHT1` (GLOBALB, key
 `0x45374719`) is laid on the road ahead instead of the per-pixel beams, and beam
-shadows are off. `--lighting original|modern` overrides the setting. Higher levels
-are unchanged.
+shadows are off. `--lighting modern` brings back the per-pixel beams and their
+shadow maps.
+
+At night the world is shaded by its baked vertex light alone: the sun term and the
+shader's 1.35 exposure are cancelled for world batches, and cars keep the shared
+ambient and diffuse pair. `Lighting / Fog -> Night world: baked light only` turns
+this off and `Night world brightness` scales it. Whether the original adds any
+directional light at night is not established; see [the research notes](LIGHTING_RESEARCH.md).
 
 `src/graphics_policy.h` turns the graphics settings into what is drawn, and the
 pause-menu apply hook refreshes it, so changes take effect on the next frame.
 `Car Headlight` off leaves the lenses lit but no light on the road, and `Light
 Glow` off drops the lamp halos and district flares. Level 1's preset turns both
 off, as the original does, so the projected pool first appears at level 2. With
-no saved level every value reads 0, so the full lighting is kept instead.
+no saved level every value reads 0, so the pool and the glow are kept instead.
 
 The pool is one shared-vertex grid of `RENDER_POOL_ROWS` x `RENDER_POOL_COLS`
 quads whose corners take the road height, drawn in one call with the car halo
 pipeline. Redrawing the nearby world batches instead looked the same but cost
 more than the beams on dense city blocks. On an Intel HD 520 at 1080p the pool
-saves 0.7 ms of GPU time in the city and 1.35 ms in a three-car race. Its size,
-offset and the absent clip texture are guesses from the pool texture's shape.
+saves 0.7 ms of GPU time in the city and 1.35 ms in a three-car race. Its 15 m by
+10 m size, 1.6 m offset, cool white colour and 0.55 brightness were matched by eye
+to one retail night capture; the absent clip texture is still a guess. `Lighting &
+Environment -> Headlights -> Road pool` changes all five live.
 
 ### Vehicle and road detail settings
 

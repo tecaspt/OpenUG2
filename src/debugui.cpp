@@ -567,6 +567,12 @@ extern "C" void dbgui_frame(void) {
             ImGui::SliderFloat("Low beam reach", &g_dbg.low_beam_range, 10.0f, 60.0f, "%.0f m");
             ImGui::SliderFloat("High beam reach", &g_dbg.high_beam_range, 40.0f, 140.0f, "%.0f m");
             ImGui::SliderFloat("Lamp intensity", &g_dbg.headlight_gain, 0.0f, 3.0f);
+            ImGui::SeparatorText("Road pool (original lighting)");
+            ImGui::SliderFloat("Pool length", &g_dbg.pool_length, 4.0f, 40.0f, "%.1f m");
+            ImGui::SliderFloat("Pool width", &g_dbg.pool_width, 2.0f, 24.0f, "%.1f m");
+            ImGui::SliderFloat("Pool start ahead of car centre", &g_dbg.pool_lead, -2.0f, 6.0f, "%.1f m");
+            ImGui::ColorEdit3("Pool colour", g_dbg.pool_tint);
+            ImGui::SliderFloat("Pool brightness", &g_dbg.pool_strength, 0.1f, 2.0f, "%.2fx");
             ImGui::SliderFloat("Clear lens opacity", &g_dbg.headlight_lens_alpha, 0.0f, 0.6f);
             bool shadows = g_dbg.headlight_shadows != 0;
             if (ImGui::Checkbox("Headlight shadows", &shadows)) g_dbg.headlight_shadows = shadows;
@@ -596,9 +602,14 @@ extern "C" void dbgui_frame(void) {
         if (ImGui::CollapsingHeader("District lights", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::SliderFloat("flare size", &g_dbg.light_halo, 0.2f, 3.0f, "%.2fx");
             ImGui::SliderFloat("flare brightness", &g_dbg.light_gain, 0.0f, 3.0f, "%.2fx");
+            ImGui::SliderFloat("flare range", &g_dbg.flare_range, 50.0f, 1000.0f, "%.0f m");
+            ImGui::SliderFloat("tail-light road glow", &g_dbg.tail_glow, 0.0f, 1.5f, "%.2f");
             ImGui::TextDisabled("authored street/district lamps; Night Mode must be on");
         }
         if (ImGui::CollapsingHeader("Lighting / Fog", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool prelit = g_dbg.world_prelit != 0;
+            if (ImGui::Checkbox("Night world: baked light only", &prelit)) g_dbg.world_prelit = prelit;
+            ImGui::SliderFloat("Night world brightness", &g_dbg.world_gain, 0.2f, 2.0f, "%.2fx");
             ImGui::SliderFloat("ambient",   &g_dbg.ambient,   0.0f, 1.0f);
             ImGui::SliderFloat("diffuse",   &g_dbg.diffuse,   0.0f, 1.5f);
             ImGui::SliderFloat("fog density", &g_dbg.fog_density, 0.0f, 0.01f, "%.4f");
