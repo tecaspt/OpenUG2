@@ -13,8 +13,8 @@
 #define H_UNHIGHLIGHT 0x7AB5521Au
 #define H_BLINK 0x0280164Fu
 #define H_STATIC 0x7AB70D67u
-#define H_ARROW_TEX 0x9943D584u         /* U2_MENU_ARROW_WHITE, SPEC_GUI 2.1 */
-#define H_HEADER 0x42ADB44Cu            /* Header_Text / Header_text / HEADER_TEXT */
+#define H_ARROW_TEX 0x9943D584u         /* texture "U2_MENU_ARROW_WHITE", SPEC_GUI 2.1 */
+#define H_HEADER 0x42ADB44Cu            /* node name "Header_Text" / "Header_text" / "HEADER_TEXT" */
 #define GV_ENTER_FALLBACK_MS 600.0f     /* enter-complete assumed after this long when a package never reports it */
 #define HL_FADE_MS 150.0f               /* UnHighlight fades arrows and backing out within 100 ms (SPEC_GUI 2.4) */
 

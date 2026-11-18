@@ -988,13 +988,13 @@ static int n2_is_vista_impostor(const char *nm, const N2Geom *g) {
  * hash, identical in every bundle that ships the texture (verified on all
  * eight). */
 static int n2_impostor_atlas(const uint32_t *slot, int nslot) {
-    static const uint32_t atlas[6] = {
-        0x0801e3a1u,   /* TRN_COASTROADLOD_A_DM   */
-        0x531cd2dbu,   /* TRN_TREELINEA_DM        */
-        0x5db83e34u,   /* TRN_FREEWAYLOD_A_DM     */
-        0xb83ca1b6u,   /* TRN_TREES_FENCES_LOD_A_ */
-        0xea9eb4a8u,   /* ARC_PANARAMABUILDINGSB_ */
-        0xea9f4109u,   /* ARC_PANARAMABUILDINGSC_ */
+    static const uint32_t atlas[6] = {   /* texture names; the last three are the 21-char truncations */
+        0x0801e3a1u,   /* "TRN_COASTROADLOD_A_DM"   */
+        0x531cd2dbu,   /* "TRN_TREELINEA_DM"        */
+        0x5db83e34u,   /* "TRN_FREEWAYLOD_A_DM"     */
+        0xb83ca1b6u,   /* "TRN_TREES_FENCES_LOD_A_" */
+        0xea9eb4a8u,   /* "ARC_PANARAMABUILDINGSB_" */
+        0xea9f4109u,   /* "ARC_PANARAMABUILDINGSC_" */
     };
     for (int i = 0; i < nslot; i++)
         for (int a = 0; a < 6; a++) if (slot[i] == atlas[a]) return 1;

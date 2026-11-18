@@ -6531,7 +6531,7 @@ int main(int argc, char **argv) {
 
     RhiTexture texTerr = world2 ? active_resident->resources.terrain_texture
         : (world.neighborhood.have_grass
-           ? upload_tex_keyed(0x5671B2B5u /* TRN_GRASSC */, NULL, &world.neighborhood.grass)
+           ? upload_tex_keyed(0x5671B2B5u /* texture "TRN_GRASSC" */, NULL, &world.neighborhood.grass)
            : (RhiTexture){0});
     RhiTexture texWheel = make_wheel_tex();   /* radial alloy-rim look for the tyres */
 

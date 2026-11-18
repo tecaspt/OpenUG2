@@ -202,6 +202,32 @@ class Scanner(unittest.TestCase):
         self.assertEqual({}, rows)
         self.assertEqual([], notes["ambiguous"])
 
+    def test_quoted_name_never_claims_a_literal(self):
+        # A name in quotes is the literal's *name*, not a label claim: this is the shape a comment
+        # uses for a texture / node / material id, so no string-table row may come from it. An
+        # unquoted `/* TRN_GRASSC */` would agree with the literal and be reported MISSING.
+        rows, notes = self.statuses(
+            ['           ? upload_tex_keyed(0x5671B2B5u /* texture "TRN_GRASSC" */, NULL, &g)'])
+        self.assertEqual({}, rows)
+        self.assertEqual([], notes["ambiguous"])
+
+    def test_unquoted_single_name_does_claim_the_literal(self):
+        # The counter-case of the one above: without the quotes the same comment is a label claim,
+        # which is exactly why the tree-wide comments had to be quoted, not just prefixed.
+        rows, notes = self.statuses(
+            ['           ? upload_tex_keyed(0x5671B2B5u /* texture TRN_GRASSC */, NULL, &g)'])
+        self.assertEqual(("MISSING", "TRN_GRASSC", 1), rows["0x5671b2b5"])
+        self.assertEqual([], notes["ambiguous"])
+
+    def test_two_candidate_names_are_ambiguous_not_a_row(self):
+        # A second upper-case word makes the comment stop identifying the literal, so the tool
+        # reports nothing but the informational note. That is the safe direction, but a fix must
+        # not rely on it: `/* atlas TRN_X DM */` would read `DM` as a label claim instead.
+        rows, notes = self.statuses(
+            ['    static const uint32_t tex[] = { 0x0801e3a1u }; /* atlas "TRN_COASTROADLOD_A_DM" TRN_PANARAMA */'])
+        self.assertEqual({}, rows)
+        self.assertEqual(1, len(notes["ambiguous"]))
+
     def test_plain_hex_literal_is_not_reported(self):
         rows, notes = self.statuses(['    uint32_t m = 0x12345678;'])
         self.assertEqual({}, rows)
