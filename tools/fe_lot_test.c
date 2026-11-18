@@ -185,6 +185,14 @@ static int retail_check(const char *root) {
             missing++;
         }
     }
+    /* The caption wm_snapshot picks for this screen's map icon, and the crib it returns from.
+     * The world map has no fallback text for a caption, so a key that stops resolving paints
+     * nothing; nothing else in the build checks these two at run time. */
+    static const char *const captions[] = {"MINIMAP_CARLOT", "MINIMAP_GARAGE"};
+    for (int i = 0; i < 2; i++) {
+        const char *text = ug_strtab_get(&lang, ug_hash_upper(captions[i]));
+        CK(text && *text, captions[i]);
+    }
     ug_strtab_free(&lang);
     printf("retail: %d installed cars, %d missing CAR_NAME_<model>\n", n, missing);
     return missing ? 1 : 0;
