@@ -2814,8 +2814,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--world-map-dev")) world_map_dev=1;
         else if (!strcmp(argv[i], "--career-ask")) career_ask = 1;   /* with --career-dev: still ask the race question */
-        else if (!strcmp(argv[i], "--career-place-raw")) career_place_raw = 1;
-        else if (!strcmp(argv[i], "--career-bank") && i+1 < argc) career_bank = atoll(argv[++i]);   /* tests: bank after a career load/new */   /* tests: keep the exact shop/zone pose */
+        else if (!strcmp(argv[i], "--career-place-raw")) career_place_raw = 1;   /* tests: keep the exact shop/zone pose */
+        else if (!strcmp(argv[i], "--career-bank") && i+1 < argc) career_bank = atoll(argv[++i]);   /* tests: bank after a career load/new */
         else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
