@@ -81,3 +81,13 @@ shader and material path. No new shader uniform or shader-source change is requi
 Caliper/muffler/hose/vinyl colour purchases persist, but their material effects are not implemented:
 brake mount identity does not isolate a paintable caliper from its disc, and no verified muffler,
 hose or vinyl colour-channel material mapping is available. Whole assemblies are left untouched.
+
+Validation (Task AH): desktop/GLES/iOS-host builds pass at 24/29/29 warnings. `fe-paint-test`
+passes 37 checks with retail data, including 60 visible swatches and visible lock alpha after
+animation updates. All eight requested test/check targets pass. The full `m1.json` gate passes
+17/17 steps (zero failures/skips/unrun steps); both stock INV PNGs are byte-identical to the
+required references. The CC_GRAPHICS script buys GLOSS_L1_COLOR03 for $25 (bank 20000 -> 19975),
+previews another colour, restores purchased blue on Back, and retains blue/Installed/bank 19975
+after cold restart. All 14 final paint captures and 35 gate captures were visually inspected.
+Evidence: `reports/parity/paintfe` in the shared reports directory; final task report in
+`handoffs/TASK-AH-LOG.md`.
