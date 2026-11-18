@@ -139,8 +139,7 @@ insisting the spec rejects it (`python3 -I tools/spec_negative_check.py [log dir
 `xdg` name is what shares a save between steps (`s7` -> `s7b`). The three shortest scripts are inline
 in the gate file; anything worth reading line by line belongs in `gate_inputs/`.
 
-Three things a ported run tends to smuggle in, all seen while porting runs out of `reports/`:
-
+Five things a ported run tends to smuggle in, all seen while porting runs out of `reports/`:
 - **A scripted run's frame numbers belong to the state it was calibrated on.** The S2/S3 world-map
   run (`s7s_shop_ask` and `worldmap_gps` are its gate versions) started from a copied career save,
   so it drove straight out of the menu; from a fresh profile the same frames land in the mandatory
@@ -164,4 +163,14 @@ Three things a ported run tends to smuggle in, all seen while porting runs out o
   script with `quit` on the frame right after the last thing that has to happen (nothing may be
   scheduled after it, including shots), and read the seconds back off `summary.tsv` - it is the
   runner's own measurement, where `SCRIPT f=` lines only count frames.
+  Measured on a board with nothing else running (`worldmap_gps`, 640x480, unlocked): 2001 scripted
+  frames in 217.7 s, so around 9 frames a second of real time. The frames themselves are cheap; the
+  startup, streaming and menu waits are what the budget pays for. Size a `timeout` off that, not off
+  the frame count, and never off another machine's.
+- **`Escape` is the pause key as well as the back key.** A step that taps Escape to leave a menu gets
+  a pause menu instead if that menu had already closed itself, and every driving key after it is
+  swallowed by the pause screen with nothing in the log to say so. Where one input both makes the
+  choice and drops the menu - the world map does, `Return` sets the destination *and* closes it - use
+  that input and skip the Escape. The `SCRIPT f= ... screen=` probe lines are what show a menu nobody
+  ordered.
 
