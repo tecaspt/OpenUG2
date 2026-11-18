@@ -182,7 +182,7 @@ every one of them, so "absent" is not just "absent as a hash".
 | --- | --- | --- | --- |
 | `src/fe_sms.c:181,185,186,187` | `FES_N_HEADER` `0x42adb44c`, `FES_COUNT` `0x980822b3`, `FES_ROW_TOP` `0x9a3674c8`, `FES_ROW` `0x0c6e4198` | FNG node name hash | matched against `obj->name_hash` (`src/fe_sms.c:209`, `:218`, `:230`, `:299`); `tools/fng_dump.py --package UI_SMS_Mailbox.fng` lists the node ids — 98 / 113 / 13, and `FES_ROW` is the bottom row (the dump's `--text-only` row says "nodes 14–21 and 58", but only node 58's id equals the constant; nodes 14-21 step up one per row, `0x0c6e4199`-`0x0c6e41a0`, which is why the loader matches `FES_ROW_TOP` plus `FES_ROW` and then requires exactly ten hits) |
 | `src/fe_sms.c:188-190` | `FES_MAIL_TOP` `0xe7afbca7`, `FES_MAIL_LO`…`HI` `0x6bde8997`-`0x6bde899f` | FNG node name hash | the ten `Engage_SMS_mail.tga` envelope nodes (2 and 3-11) of the same dump; matched as a top node plus a closed id range (`src/fe_sms.c:219`) |
-| `src/fe_sms.c:182-184` | `FES_RETURN` `0x001c0cbb`, `FES_DELETE` `0x56b00632`, `FES_SELECT_CAP` `0x001335f0` | FNG node name hash | nodes 109 / 111 / 140 (`tools/fng_dump.py --package UI_SMS_Mailbox.fng`). Two collide with real language keys (`0x001c0cbb` = SMS_RETURN "Return to Gameplay", `0x001335f0` = BACK "Back") and the third hashes to nothing in the table at all (`0x56b00632`), which is why the comments matter — see 5.2 |
+| `src/fe_sms.c:182-184` | `FES_RETURN` `0x001c0cbb`, `FES_DELETE` `0x56b00632`, `FES_SELECT_CAP` `0x001335f0` | FNG node name hash | nodes 109 / 111 / 140 (`tools/fng_dump.py --package UI_SMS_Mailbox.fng`). All three collide with real language keys (`0x001c0cbb` = SMS_RETURN "Return to Gameplay", `0x001335f0` = BACK "Back", `0x56b00632` = "Delete" — the last was first recorded as hashing to nothing, which is wrong), which is why the comments matter — see 5.2 |
 | `src/gui_dialog.c:20-21`, `gd_frames[15]` | `KEY_PKG_IN_GAME` `0xaa469286`, `KEY_PKG_SMALL` `0x6962c0cd`, the 15 `package_key` values | FNG package name hash | `tools/gui_art_test.c:641` asserts `hash_name(f->package) == f->package_key` for every frame row |
 | `src/gui_dialog.c:23-24`, `:169`, `:200-208` | `MSG_CANCEL` `0xb4623f67`, `MSG_DEFAULTS_NO` `0x34dc1bcf`, `result_msg[]`, `back_msg`, the `ok` ids `0xe1a57d51` / `0x451e768e` / `0x43da9fd0` | FE message id | the file's own line 22 says "not language keys; absent from English.bin by design"; `tools/gui_art_test.c:327-329` compares them against the JSON `message` field, never a caption |
 | `src/main.c:6453`, `src/world_resident.c:256` | `TRN_GRASSC` `0x5671b2b5` | texture name hash | see 5.1 |
@@ -190,8 +190,16 @@ every one of them, so "absent" is not just "absent as a hash".
 
 ## 5. Fixes for the orchestrator
 
-Nothing in section 1 is MISSING, so no in-scope caption can come up blank. These are the real defects
-the audit found, in the order I would take them. I did not edit any `src/` file.
+> **Status after Task AN (`fix/lang-audit-fixes`) — every row below is closed.** 5.1 / 5.6, 5.2, 5.2b,
+> 5.3, 5.4 and 5.5 are all applied; `python3 -I tools/lang_key_audit.py --data "$OPENUG2_DATA" --src src`
+> now exits **0** (67 rows, 67 OK), so a non-zero exit from that command is a regression from here on.
+> Two details of this section were themselves wrong and are corrected in place below: the 5.1 / 5.6 fix
+> recipe (`5.1`) and the claim that `0x56b00632` hashes to nothing (`5.2`). The `postrace.c:65` comment
+> of 5.4 was left to that file's owner. Sections 1-4 keep their pre-fix line numbers, which drifted
+> again after the merges that followed this audit; the code is findable by content.
+>
+> Nothing in section 1 is MISSING, so no in-scope caption can come up blank. These are the real defects
+> the audit found, in the order I would take them. I did not edit any `src/` file.
 
 One-line summary, details in the numbered subsections:
 
@@ -206,12 +214,22 @@ One-line summary, details in the numbered subsections:
 
 ### 5.1 `0x5671b2b5` is a texture name, not a language key — fix the comment, not the key
 
-`src/main.c:6453` and `src/world_resident.c:256` carry `/* TRN_GRASSC */`, which is why
+`src/main.c:6534` (was `:6453`) and `src/world_resident.c:256` carry `/* TRN_GRASSC */`, which is why
 `lang_key_audit.py` reports it as MISSING: its labelled-literal rule trusts a comment that is exactly
 one label word, and `TRN_GRASSC` hashes to `0x5671b2b5` but is not in the string table. The value is a
-`TRN_` model/texture name. Fix: move the name into a comment that cannot read as a label (e.g.
-`/* texture TRN_GRASSC */`), or use `ug_hash_upper("TRN_GRASSC")`, which the tool then classifies as
-ambiguous instead of MISSING. No behaviour change; it removes a standing false finding.
+`TRN_` model/texture name.
+
+**Applied fix (Task AN), and a correction to the recipe first proposed here.** A leading lowercase word
+does *not* work: in `scan_lines` the `agreed` test (some comment word hashes to the literal) runs before
+the one-word test, so `/* texture TRN_GRASSC */` still produces the MISSING row — the wording only helps
+the three truncated LABEL-MISMATCH rows of 5.6. `tools/lang_key_audit_test.py` now pins both halves of
+that (`test_unquoted_single_name_does_claim_the_literal`,
+`test_quoted_name_never_claims_a_literal`). What does work is the tool's own documented escape: quoted
+spans are dropped before any word is a candidate, so `/* texture "TRN_GRASSC" */` keeps the name verbatim
+and produces neither row nor note. All 13 sites are quoted that way. `ug_hash_upper("TRN_GRASSC")` was
+not used: at `main.c` that line is outside the caption lines the fixer was allowed to touch, and
+`world_resident.c` does not include `ugui_core.h` (adding it would be a code change). No behaviour
+change; the tree-wide false finding is gone and the tool can exit 0.
 
 ### 5.2 The three SMS button hints are already correct by retail's own mechanism — fix the comments
 
@@ -230,11 +248,15 @@ retail substitutes at draw time and what our reader already applies
 So no caption fix is needed — the scene draws retail's text without any code change. What is wrong is
 the comment shape: `#define FES_SELECT_CAP 0x001335f0u /* node 140: hint "Read Message" (key
 SMS_READ_MESSAGE) */` puts a node id and a label in one comment, and `0x001335f0` also happens to be
-the language key BACK ("Back") while `0x56b00632` hashes to nothing in the table. Two of the three
-constants therefore look like the caption key and are not, and `lang_key_audit.py` correctly refuses to
-guess (all three land in its "ambiguous comment label" list).
-Fix: `/* node 140 name hash; caption SMS_READ_MESSAGE 0x3b550c71 */` for each of the three — the node
-id keeps its name, the caption gets its real key, and the audit stops having to explain the collision.
+the language key BACK ("Back") while `0x56b00632` reads "Delete" — **all three node ids collide with a
+real language key**, not two of them as this section first said (checked again against `English.bin`:
+`0x001c0cbb` = SMS_RETURN's node name, `0x001335f0` = BACK "Back", `0x56b00632` = "Delete"). All three
+therefore look like the caption key and are not, and `lang_key_audit.py` correctly refuses to guess (all
+three land in its "ambiguous comment label" list).
+Fix (applied by Task AN): `/* node 140 name; caption SMS_READ_MESSAGE 0x3b550c71 "Read Message" */` for
+each of the three — the node id keeps its name, the caption gets its real key, and the audit stops
+having to explain the collision. The block comment above them now says outright that every `FES_*` value
+is a node name hash and never a caption key.
 
 The same two unkeyed retail labels are worth naming in one line, because the screen does depend on them
 falling through to the authored sample: node 13 / 58's row label is `0xd530af89` and node 113's count
@@ -275,6 +297,15 @@ extend that to the event captions on the theory that one family is tidier: the s
 caption from "URL Race" to "U.R.L." — retail's own choice between the two is unknown to this audit, so
 that line stays as it is until something shows what the retail map draws.
 
+**Applied by Task AN, exactly as scoped**: the two ternary arms in `wm_snapshot` now read
+`ug_hash_upper("MINIMAP_CARLOT")` / `ug_hash_upper("MINIMAP_GARAGE")`, `0xa4e5ee6c` and `wm_event_label`
+are untouched. Worth stating plainly for anyone re-checking this with a screenshot: because both twins
+carry the *same* text as the keys they replace ("Car Lot", "Garage"), the drawn caption cannot change —
+only the key identity does. A world-map PNG therefore confirms the caption still renders, but it is not
+evidence of the switch; the evidence is the key values and their table lookups. `tools/fe_screens_check.c`
+builds its own diagnostic icons and still names `CAREER_CAR_LOT_TITLE` / `0x7ce21662u` for the two shop
+markers; that is a control path that constructs its own labels, not the map's, and stays valid.
+
 ### 5.3 The car-lot display name has no catalogue-wide check in any gate
 
 `src/fe_lot.c:96` builds `CAR_NAME_<model>` at run time, so no static scan can judge it; the key is also
@@ -287,20 +318,33 @@ Fix: a host check that walks the installed-car catalogue and asserts every `CAR_
 present — the natural home is `tools/fe_lot_test.c` next to the other data-root checks, since it already
 names those four cars. One line per car, and it turns a silent caption downgrade into a gate failure.
 
+**Applied by Task AN.** The reachable set is narrower than `CARS/`, and getting that wrong is the trap:
+44 directories hold a `GEOMETRY.BIN`, but 15 of them are traffic bodies with no `CAR_NAME_*` key at all
+(`4DR_SEDAN`, `AMBULANCE`, `BUS`, `TAXI02`, `SUV`, `PICKUP`, …), so "every car in the catalogue" read
+literally fails on a correct tree. The lot only ever sees what `career_host.c:inst_list` installs — the
+catalogue's non-traffic cars — and `game_catalog.c` defines traffic as an empty or absent
+`CARS/<model>/TEXTURES.BIN`. The check mirrors that rule rather than guessing from names, which matters
+because the eye gets both directions wrong (`FIRETRUCK` is a player car, `COUPE` is traffic). On this
+data: 29 installed cars, 0 missing. An empty candidate list, an unloadable table and an unset
+`OPENUG2_DATA` are a fail or a 77 skip, never a pass; verified negatively by deleting one entry's hash
+from a copy of `English.bin`, which reports `CAR_NAME_MIATA` and exits 1. `src/resource.c` was added to
+the `fe-lot-test` rule for `res_list_cars`.
+
 ### 5.4 Fallback texts that differ from retail
 
-Three in-scope fallbacks are not the retail strings, so an unkeyed table would show different prose
-than retail does with the same keys. Cosmetic, and only on a data set whose `English.bin` lacks the
-key, but cheap to align:
+**Applied by Task AN, and the count here is wrong: one code change was in scope, not three.** The
+`fe_sms.c` pair was only listed as checked, and the third bullet is a comment, not a literal.
 
 - `src/fe_lot.c:100` (key `0x272ebeba`): fallback "You have to select a new car before you leave."
-  vs retail "Rachel needs her car back. You have to select a new car before you leave."
+  vs retail "Rachel needs her car back. You have to select a new car before you leave." — **applied**;
+  the caption buffer is `sizeof`-sized so the longer text is safe, and no test pinned the short one.
 - `src/fe_sms.c:264` / `:272` / `:279`: fallbacks "Message %d of %d", "Incoming Mobile Message",
   "%d unread messages" match retail verbatim (re-checked against the table); listed because the audit
   checked them, no change needed.
 - `src/postrace.c:65` comment still reads "(no PLAYER key in the table)" while the same line passes the
   label `LABEL_PLAYER` `0xfa37740b`, which does resolve to "Player". The comment is stale — the key was
-  found; drop the parenthetical.
+  found; drop the parenthetical. **Not touched here**: `src/postrace.*` belongs to another agent on this
+  branch, so this row is reported, not fixed.
 
 ### 5.5 Comment claims the data does not support
 
@@ -310,7 +354,9 @@ key, but cheap to align:
   obvious spellings hash to `0xb951362d` / `0xb951362e` and neither is present). The code path is
   unaffected — the four `SMS_MAG_GENERIC_*` keys it actually reads all resolve — so this is a comment
   fix: put the real 14/14 count in, keep the pairing `[inferred]` (retail's rule is genuinely unknown),
-  and drop the SHOWCASE clause.
+  and drop the SHOWCASE clause. **Applied by Task AN**, both counts re-derived from
+  `career_dump.py --section sms` against `English.bin`: 38 records carry the magazine kind, 10 of them
+  have their own text and never reach the branch, and the remaining 28 split 14/14.
 
 ### 5.6 The other 12 non-OK rows in the tree, all outside the named files [data]
 
@@ -334,17 +380,28 @@ Fix for all 13 is the 5.1 one-liner — put a word the rule cannot read as a lab
 (`/* texture TRN_GRASSC */`) or write `ug_hash_upper("…")` — and the tree then exits 0, which is what
 lets a later gate treat a non-zero exit as a real regression.
 
+**Applied by Task AN, with the recipe corrected by 5.1**: a leading word is not enough, so every one of
+these 12 names is quoted (`/* texture "TRN_GRASSC" */`, `/* material "TRAFFIC" */`,
+`/* socket "REAR_LICENSE_PLATE" */`, `/* node name "Header_Text" … */`, and the six `nfsu2.h` atlas names
+under a `texture names` header comment). All 13 rows are gone and `--src src` exits 0.
+
 ## 6. Checks
 
 - `python3 -I tools/lang_key_audit_test.py` — 42 tests, OK. Seven are new: the field-assignment and
   designated-initialiser forms, a `Text`-struct table, and four negative cases (a package-key table
   row, node-id and FE-message `#define`s, other `_key` namespaces, a key named by a constant is
-  reported unresolved rather than guessed).
+  reported unresolved rather than guessed). Task AN adds three more (45 total): a quoted name never
+  claims a literal, the same name unquoted does, and a second upper-case word demotes the claim to the
+  informational note.
 - `python3 -I tools/lang_key_audit.py --data "$OPENUG2_DATA" --src src` — exits 1 by design while the
   out-of-scope labelled-literal findings of 5.1 / 5.6 stand: 75 rows in the whole tree
   (27 accessor calls, 27 key-field rows, 21 labelled literals), 62 OK / 10 MISSING / 3 LABEL-MISMATCH,
   50 unresolved key arguments and 18 ambiguous comment labels.
+  **After Task AN: exit 0, 67 rows, 67 OK / 0 MISSING / 0 LABEL-MISMATCH** (the 13 labelled literals
+  stopped being rows; nothing else moved). A non-zero exit from this command is now a regression.
 - The same tool on the scoped copy of the named files: 48 rows, 47 OK and the 1 MISSING of 5.1.
+- `tools/fe_lot_test.c` retail block — 29 installed cars, 0 missing `CAR_NAME_<model>`; exits 77 when
+  `OPENUG2_DATA` is unset and 1 when the table lacks a key (verified with an entry hash deleted).
 - `git grep -n` for the home-directory prefix over this branch's files — empty, including the check
   line itself once committed.
 - `tools/fng_dump.py --data "$OPENUG2_DATA" --package UI_SMS_Mailbox.fng [--json OUT.json]` — the node

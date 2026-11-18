@@ -97,7 +97,7 @@ void fel_sync(FeLot *l, GvScreen *s) {
     switch (l->msg) {
     case FEL_MSG_CONFIRM: fill_arg(l->caption, sizeof l->caption, gv_text(a, 0xda8f3e96u, "Do you want this stock %s?"), display); break;  /* CAR_SELECT_CONFIRM_CHOOSE_CAR */
     case FEL_MSG_SAME_CAR: fill_arg(l->caption, sizeof l->caption, gv_text(a, 0x7ee84e4eu, "You're already driving your %s!"), display); break;  /* CAR_SELECT_SAME_CAR */
-    case FEL_MSG_MUST_BUY: snprintf(l->caption, sizeof l->caption, "%s", gv_text(a, 0x272ebebau, "You have to select a new car before you leave.")); break;  /* CAR_LOT_MUST_BUY */
+    case FEL_MSG_MUST_BUY: snprintf(l->caption, sizeof l->caption, "%s", gv_text(a, 0x272ebebau, "Rachel needs her car back. You have to select a new car before you leave.")); break;  /* CAR_LOT_MUST_BUY */
     default: snprintf(l->caption, sizeof l->caption, "%s", gv_text(a, 0x7edc9715u, "Car Lot")); break;  /* CAREER_CAR_LOT_TITLE */
     }
     /* [inferred] "Bank:" (HUD_BANK 0x3298ccdb) followed by the amount in the authored "$999999999" form. */
