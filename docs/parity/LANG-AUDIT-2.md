@@ -400,6 +400,8 @@ under a `texture names` header comment). All 13 rows are gone and `--src src` ex
   **After Task AN: exit 0, 67 rows, 67 OK / 0 MISSING / 0 LABEL-MISMATCH** (the 13 labelled literals
   stopped being rows; nothing else moved). A non-zero exit from this command is now a regression.
 - The same tool on the scoped copy of the named files: 48 rows, 47 OK and the 1 MISSING of 5.1.
+  **After Task AN: exit 0, 47 rows, 47 OK / 0 MISSING / 0 skipped** (`main.c` shrank a row because
+  5.2b's QR-caption row was itself the fix target and the car-lot keys are not accessor calls).
 - `tools/fe_lot_test.c` retail block — 29 installed cars, 0 missing `CAR_NAME_<model>`; exits 77 when
   `OPENUG2_DATA` is unset and 1 when the table lacks a key (verified with an entry hash deleted).
 - `git grep -n` for the home-directory prefix over this branch's files — empty, including the check
