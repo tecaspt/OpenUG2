@@ -158,4 +158,10 @@ Three things a ported run tends to smuggle in, all seen while porting runs out o
   driving to (X,Y)`. A spec written against one rejects the other, and the step's own "closest lines"
   hint is what shows it - `tools/log_specs/mirror_on.spec` asserts the `--shot` wording because
   `mirror_on` has no input script at all.
+- **A step's `timeout` is wall clock, and this board's wall clock is not the frame rate.** A scripted
+  step needs at least one second per frame, and can need six times that when another worktree is
+  building while it runs. Two rules keep a good run from being killed by its own budget: end the input
+  script with `quit` on the frame right after the last thing that has to happen (nothing may be
+  scheduled after it, including shots), and read the seconds back off `summary.tsv` - it is the
+  runner's own measurement, where `SCRIPT f=` lines only count frames.
 

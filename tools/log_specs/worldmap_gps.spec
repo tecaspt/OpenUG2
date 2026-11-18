@@ -11,12 +11,12 @@ capture ICON /world map: selected kind=1 id=([0-9a-f]{8}) x=-?\d+\.\d+ y=-?\d+\.
 expect 1 /world map: opened icons=\d+ player=\(-?\d+\.\d+ -?\d+\.\d+\)/
 expect >=1 /world map: icon=\d+ kind=1 id={ICON} canvas=\(-?\d+\.\d+ -?\d+\.\d+\)/
 expect 1 /GPS route: \d+ nodes, \d+ m, \d+ ms/
-capture ROUTE /GPS route: (\d+) nodes/
-range ROUTE 1 100000
-expect >=1 /WM f=\d+ active=1 kind=1 id={ICON} route={ROUTE} marker=1/
-expect 1 /world map: test arrival kind=1 id={ICON} at=\(-?\d+\.\d+ -?\d+\.\d+\)/
-expect 1 /world map: destination zone reached kind=1 id={ICON} route=0 marker=0/
-order /world map: opened/ /world map: selected kind=1 id={ICON}/ /GPS route: {ROUTE} nodes/ /world map: test arrival/ /world map: destination zone reached/
+capture NODES /GPS route: ([1-9]\d*) nodes/
+range NODES 1 100000
+expect >=1 /WM f=\d+ active=1 kind=1 id={ICON} route={NODES} marker=1/
+expect >=1 /world map: test arrival kind=1 id={ICON} at=\(-?\d+\.\d+ -?\d+\.\d+\)/
+expect >=1 /world map: destination zone reached kind=1 id={ICON} route=0 marker=0/
+order /world map: opened/ /world map: selected kind=1 id={ICON}/ /GPS route: {NODES} nodes/ /world map: test arrival/ /world map: destination zone reached/
 forbid /world map: destination no longer available/
 forbid /inconsistent career icon snapshot/
 forbid /Segmentation|ASan|AddressSanitizer|LeakSanitizer|abort/

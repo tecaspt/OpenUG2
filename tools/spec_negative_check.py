@@ -65,11 +65,12 @@ CASES = {
     "mirror_on.spec": ("mirror_on.log",
         lambda t: re.sub(r"^wrote mirror-on-.*\n", "", t, count=1, flags=re.M),
         "the mirror screenshot must exist"),
-    # worldmap_gps is the route-and-arrive flow. The last line is arrival; without it the run only
-    # ever planned a route.
+    # worldmap_gps is the route-and-arrive flow, and the icon it routes to must be the icon the run
+    # actually asked for, so the id of the selected icon has to appear in the map's own icon list.
     "worldmap_gps.spec": ("worldmap_gps.log",
-        lambda t: re.sub(r"^world map: destination zone reached .*\n", "", t, count=1, flags=re.M),
-        "the car must reach the destination zone, not just be routed to it"),
+        lambda t: re.sub(r"world map: selected kind=1 id=([0-9a-f]{6})[0-9a-f]{2}",
+                         r"world map: selected kind=1 id=\1ff", t, count=1),
+        "the destination must be one the map really offered"),
 }
 
 

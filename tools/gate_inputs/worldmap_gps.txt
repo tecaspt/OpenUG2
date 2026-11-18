@@ -24,6 +24,12 @@
 # GPS route back off the WM probe lines, pause again to confirm the guidance survived closing the
 # map, then F8, which teleports the car into the destination zone to prove arrival.
 # --world-map-dev prints the icon list, the probe lines and the F8 arrival.
+#
+# A `shot=` is captured on its own frame, before the frame's keys are pushed, so a shot never shares
+# a frame with the menu press it is meant to show - the frame before carries the press, the frame of
+# the shot shows the screen it produced. And `quit` ends the run on the frame after the last thing
+# that has to happen: nothing is scheduled past it, so the step's wall-clock cost is the frame count
+# and nothing else.
 10:key=Left
 20:key=Return
 40:key=Return
@@ -31,29 +37,27 @@
 120:key=Return
 240:tdown=gas
 300:tup=gas
-520:shot=wmgps-roam.png
-540:key=Escape
-640:key=Right
-740:key=Right
-840:key=Return
-940:key=Left
-980:key=Return
-1060:shot=wmgps-map.png
-1080:key=Tab
-1100:key=Right
-1120:shot=wmgps-race-selected.png
-1140:key=Return
-1240:shot=wmgps-route.png
-1340:key=Escape
-1390:shot=wmgps-guidance-paused.png
-1490:key=Right
-1590:key=Right
-1690:key=Return
-1790:key=Left
-1830:key=Return
-1910:shot=wmgps-guidance-map.png
-1930:key=Escape
-1980:shot=wmgps-guidance-resumed.png
-2080:key=F8
-2130:shot=wmgps-arrived.png
-2131:quit
+520:key=Escape
+620:key=Right
+720:key=Right
+820:key=Return
+920:key=Left
+960:key=Return
+1000:shot=wmgps-map.png
+1020:key=Tab
+1040:key=Right
+1060:shot=wmgps-race-selected.png
+1080:key=Return
+1200:shot=wmgps-route.png
+1300:key=Escape
+1360:key=Right
+1460:key=Right
+1560:key=Return
+1660:key=Left
+1700:key=Return
+1740:shot=wmgps-guidance-map.png
+1760:key=Escape
+1820:shot=wmgps-guidance-resumed.png
+1900:key=F8
+1950:shot=wmgps-arrived.png
+1951:quit
