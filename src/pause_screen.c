@@ -72,7 +72,8 @@ static void activate(PauseScreen *p) {
     default: {                                               /* confirmation dialog over the dimmed screen */
         GdContext g = { p->ctx.mode, p->ctx.substate4, p->ctx.session > 2, p->ctx.online_flag };
         GdSpec spec;
-        gd_spec(&spec, dialog_kind(e->action), &g);
+        if (e->dialog) gd_spec(&spec, e->dialog, &g);   /* the entry's own dialog kind (TASK-AL) */
+        else gd_spec(&spec, dialog_kind(e->action), &g);
         gd_open(&p->dialog, &spec);
         p->dialog_entry = p->car.cur;
         p->dialog_serial++;
@@ -90,7 +91,9 @@ static void step(PauseScreen *p, int dir) {
 void ps_input(PauseScreen *p, PsInput in) {
     if (p->exiting) return;
     if (p->dialog.open) {
-        GdInput g = in == PS_IN_LEFT ? GD_IN_LEFT : in == PS_IN_RIGHT ? GD_IN_RIGHT : in == PS_IN_ACCEPT ? GD_IN_ACCEPT :
+        GdInput g = in == PS_IN_LEFT ? GD_IN_LEFT : in == PS_IN_RIGHT ? GD_IN_RIGHT :
+                    in == PS_IN_UP ? GD_IN_UP : in == PS_IN_DOWN ? GD_IN_DOWN :
+                    in == PS_IN_ACCEPT ? GD_IN_ACCEPT :
                     in == PS_IN_BACK ? GD_IN_BACK : in == PS_IN_START ? GD_IN_START : GD_IN_NONE;
         if (p->fresh && (in == PS_IN_ACCEPT || in == PS_IN_BACK)) return;
         gd_input(&p->dialog, g);
@@ -103,14 +106,20 @@ void ps_input(PauseScreen *p, PsInput in) {
     case PS_IN_BACK: case PS_IN_START:                        /* exit, then resume at exit-complete (2.4) */
         if (!p->fresh) begin_exit(p, PS_EV_RESUME);
         break;
-    default: break;
+    default: break;                                          /* Up/Down: the carousel is horizontal */
     }
 }
 
+/* The dialog's hit-testable rows, in the frame's own order: two-button pills, three-button
+ * stacked rows, or the help sheet's single caption row. */
+static int dialog_button_count(const GuiDialog *d) {
+    return d->spec.frame ? d->spec.frame->buttons : 2;
+}
 static int dialog_button_at(const GuiDialog *d, float x, float y) {
-    for (int b = 0; b < 2; b++) {
+    int n = dialog_button_count(d);
+    for (int b = 0; b < n; b++) {
         float e[4];
-        gd_button_extent(d->spec.kind, b, e);
+        gd_spec_button_extent(&d->spec, b, e);
         if (x >= e[0] && x <= e[2] && y >= e[1] && y <= e[3]) return b + 1;
     }
     return 0;

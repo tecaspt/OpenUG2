@@ -797,9 +797,17 @@ void gv_controls_sync(GvControls *v, const ControlsMenu *m, float dt_ms) {
 
 /* ---- dialog ---------------------------------------------------------------------------------------------- */
 
+/* Binds one dialog of any retail frame family. The button rows are named BUTTON1/2/3 (verified
+ * hashes) and every row carries the authored Highlight/UnHighlight focus responses, so the rows
+ * animate as data exactly as the two-button pills always did [data]. A help sheet has no button
+ * nodes: title (T), body (M) and back caption (B) bind, and the console controller-glyph hint
+ * beside the caption is hidden on PC like every hint text. */
 static int dialog_bind(GvDialog *v, const GuiDialog *d) {
     GvScreen *s = &v->scr;
     UgScene *sc = &s->scene;
+    const GdFrame *fr = d->spec.frame;
+    int help = fr && fr->help;
+    int three = fr && fr->buttons == 3;
     int bad = 0;
     v->msg = find(s, hn("message_blurb"), &bad);
     v->b1 = find(s, hn("button1"), &bad);
@@ -808,17 +816,40 @@ static int dialog_bind(GvDialog *v, const GuiDialog *d) {
     v->lbl1 = find(s, 0xDA473D2Fu, &bad);
     v->lbl2 = find(s, 0xDA473D30u, &bad);
     v->lbl3 = find(s, 0xDA473D31u, &bad);
-    if (bad || v->msg < 0 || v->b1 < 0 || v->b2 < 0 || v->lbl1 < 0 || v->lbl2 < 0) {
+    v->title = find(s, 0x426C7B4Du, &bad);                  /* help title T */
+    v->back = find(s, 0x426C7B4Eu, &bad);                   /* help back caption B */
+    v->glyph = find(s, 0x35E8F0B2u, &bad);                  /* "$JOY_EVENT_FENG_CANCEL$": console hint */
+    if (bad || v->msg < 0) {
         snprintf(s->status, sizeof s->status, "%s: authored dialog binding unavailable (message, buttons or labels missing)", s->name);
         return 0;
     }
-    settext(sc, v->msg, gv_text(s->assets, d->spec.message_key, d->spec.message));
-    settext(sc, v->lbl1, gv_text(s->assets, d->spec.label_key[0], d->spec.label[0]));
-    settext(sc, v->lbl2, gv_text(s->assets, d->spec.label_key[1], d->spec.label[1]));
-    hide(sc, v->b3, 1);                                      /* the third button and its label stay unused (6) */
-    hide(sc, v->lbl3, 1);
-    ug_scene_set_focus(sc, d->focus ? v->b2 : v->b1);
-    v->seen_focus = d->focus;
+    if (help) {
+        if (v->back < 0) {
+            snprintf(s->status, sizeof s->status, "%s: authored dialog binding unavailable (message, buttons or labels missing)", s->name);
+            return 0;
+        }
+        if (d->spec.title && d->spec.title[0]) settext(sc, v->title, gv_text(s->assets, d->spec.title_key, d->spec.title));
+        if (d->spec.message && d->spec.message[0]) settext(sc, v->msg, gv_text(s->assets, d->spec.message_key, d->spec.message));
+        settext(sc, v->back, gv_text(s->assets, d->spec.back_key, d->spec.back_text && d->spec.back_text[0] ? d->spec.back_text : "Back"));
+        hide(sc, v->glyph, 1);                              /* the console glyph hint is not a PC caption */
+        v->seen_focus = d->focus;                           /* -1: a help sheet has no focus */
+    } else {
+        if (v->b1 < 0 || v->b2 < 0 || v->lbl1 < 0 || v->lbl2 < 0 || (three && (v->b3 < 0 || v->lbl3 < 0))) {
+            snprintf(s->status, sizeof s->status, "%s: authored dialog binding unavailable (message, buttons or labels missing)", s->name);
+            return 0;
+        }
+        settext(sc, v->msg, gv_text(s->assets, d->spec.message_key, d->spec.message));
+        settext(sc, v->lbl1, gv_text(s->assets, d->spec.label_key[0], d->spec.label[0]));
+        settext(sc, v->lbl2, gv_text(s->assets, d->spec.label_key[1], d->spec.label[1]));
+        if (three) {
+            settext(sc, v->lbl3, gv_text(s->assets, d->spec.label_key[2], d->spec.label[2]));
+        } else {
+            hide(sc, v->b3, 1);                             /* the third button and its label stay unused (6) */
+            hide(sc, v->lbl3, 1);
+        }
+        ug_scene_set_focus(sc, d->focus == 2 && three ? v->b3 : d->focus == 1 ? v->b2 : v->b1);
+        v->seen_focus = d->focus;
+    }
     ug_scene_relayout(sc);
     v->bound = 1;
     v->open = 1;
@@ -850,7 +881,8 @@ void gv_dialog_sync(GvDialog *v, const GuiDialog *d, float dt_ms) {
     if (!v->bound) return;
     gv_screen_update(&v->scr, dt_ms);
     if (d->focus != v->seen_focus) {                         /* authored focus responses run as data */
-        ug_scene_set_focus(&v->scr.scene, d->focus ? v->b2 : v->b1);
+        int node = d->focus < 0 ? -1 : d->focus == 2 ? v->b3 : d->focus == 1 ? v->b2 : v->b1;
+        ug_scene_set_focus(&v->scr.scene, node);
         v->seen_focus = d->focus;
     }
     if (d->closing && !v->exit_sent) { v->exit_sent = 1; gv_screen_exit(&v->scr); }

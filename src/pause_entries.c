@@ -45,6 +45,7 @@ static int add(PauseEntry *out, int n, const Proto *p, const PauseContext *c) {
     e->label = p->label;
     e->needs_replay = p->needs_replay;
     e->disabled = p->needs_replay && !c->replay_available;     /* 2.3: replay entry needs replay data */
+    e->dialog = 0;                                             /* retail: default two-button dialog */
     return n + 1;
 }
 

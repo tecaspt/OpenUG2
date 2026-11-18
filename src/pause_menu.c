@@ -389,10 +389,12 @@ static PsInput ps_of(PmKey k) {
     switch (k) {
     case PMK_LEFT: return PS_IN_LEFT;
     case PMK_RIGHT: return PS_IN_RIGHT;
+    case PMK_UP: return PS_IN_UP;                              /* dialog row navigation (TASK-AL) */
+    case PMK_DOWN: return PS_IN_DOWN;
     case PMK_ACCEPT: return PS_IN_ACCEPT;
     case PMK_BACK: return PS_IN_BACK;
     case PMK_START: return PS_IN_START;
-    default: return PS_IN_NONE;                              /* Up/Down are ignored on the carousel */
+    default: return PS_IN_NONE;                              /* Up/Down do nothing on the carousel */
     }
 }
 static OmInput om_of(PmKey k) {
