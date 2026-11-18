@@ -16,6 +16,7 @@
 #include "career.h"
 #include "fe_perf.h"
 #include "fe_paint.h"
+#include "fe_vinyl.h"
 #include "fe_worldmap.h"
 
 #ifdef __cplusplus
@@ -28,11 +29,12 @@ typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_Q
                FEM_REQ_LOT_BUY,       /* M6: buy the lot car named in `car` (second Accept on the Car Lot) */
                FEM_REQ_CAREER_ROAM,   /* M6: leave a career sub-screen back to free roam */
                FEM_REQ_SET_DESTINATION, /* Task S: destination carries world XY and explicit identity */
-               FEM_REQ_PAINT_BUY, FEM_REQ_PERF_BUY       /* performance shop: buy perf_cat / perf_lvl / perf_comp (-1 = the package) */
+               FEM_REQ_PAINT_BUY, FEM_REQ_PERF_BUY,       /* performance shop: buy perf_cat / perf_lvl / perf_comp (-1 = the package) */
+               FEM_REQ_VINYL_BUY      /* graphics shop vinyl layer: the fe_vinyl request in `vinyl` */
 } FemReqKind;
 typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; FeMapDestination destination;
-                            int paint_index; int perf_cat, perf_lvl, perf_comp; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP, FEM_SCR_CAREER_PERF, FEM_SCR_CAREER_PAINT, FEM_SCR_SMS } FemScreen;
+                            int paint_index; int perf_cat, perf_lvl, perf_comp; FeVinylRequest vinyl; } FemRequest;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP, FEM_SCR_CAREER_PERF, FEM_SCR_CAREER_PAINT, FEM_SCR_SMS, FEM_SCR_CAREER_VINYL } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -89,8 +91,23 @@ void fem_open_paint(FeMenu *, const FePaintShop *);
 void fem_paint_refresh(FeMenu *, const FePaintShop *, int msg);
 /* Borrowed browsing colour; NULL outside the palette, so Back restores saved paint. */
 const CdPaint *fem_paint_preview(const FeMenu *, int slot);
+/* Accept on the paint shop's vinyl row walks into the layer screen instead of buying a
+   colour; `key` is the selected paint part's group key, and the host answers with
+   fem_open_vinyl (or fem_paint_refresh to unlock the menu again). */
+int fem_paint_wants_vinyl(const FeMenu *);
 void fem_open_perf(FeMenu *, const FePerfShop *shop);
 void fem_perf_refresh(FeMenu *, const FePerfShop *shop, int msg);
+/* Career graphics-shop vinyl layers (fe_vinyl.h): layer -> design -> colours, two-step
+ * purchase. Accept on the invoice question returns FEM_REQ_VINYL_BUY with the design and
+ * its colours in `vinyl`; Back out of the layers returns FEM_REQ_CAREER_ROAM. The menu is
+ * locked after a request until the host calls fem_vinyl_refresh (new data, kept position,
+ * `msg` caption, FvtMsg). The preview calls read the design the shop is holding for the
+ * car (NULL = none) so it can be drawn on the car before it is actually bought. */
+void fem_open_vinyl(FeMenu *, const FeVinylShop *shop);
+void fem_vinyl_refresh(FeMenu *, const FeVinylShop *shop, int msg);
+const char *fem_vinyl_preview(const FeMenu *);
+int fem_vinyl_preview_layer(const FeMenu *);
+void fem_vinyl_preview_colours(const FeMenu *, uint32_t colour[CR_VINYL_COLORS]);
 /* Career mailbox, with host-owned transactional read/save callback. */
 void fem_open_sms(FeMenu *, const CareerData *, const CareerState *, int (*read)(void *,uint32_t), void *);
 /* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */

@@ -74,6 +74,7 @@ struct FeMenu {
     char sms_body[2048], sms_subject[192], sms_sender[128];
     FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
     FePaint paint;
+    FeVinyl vinyl;               /* career graphics-shop vinyl layers (fe_vinyl.h) */
     FePerf perf;                 /* career Performance Shop state (fe_perf.h) */
     int pending_input, pressed;
     int loading_event;
@@ -110,6 +111,7 @@ static const char *screen_name(FemScreen s) {
     case FEM_SCR_CAREER_LOT: return "CAREER_LOT";
     case FEM_SCR_CAREER_PAINT: return "CAREER_PAINT";
     case FEM_SCR_CAREER_PERF: return "CAREER_PERF";
+    case FEM_SCR_CAREER_VINYL: return "CAREER_VINYL";
     case FEM_SCR_LOADING: return "LOADING";
     default: return "NONE";
     }
@@ -122,6 +124,7 @@ static const char *package_of(FemScreen s) {
     case FEM_SCR_CAREER_LOT: return "UI_CareerCarLot.fng";
     case FEM_SCR_CAREER_PAINT: return "UI_ChoosePaintCategory.fng";
     case FEM_SCR_CAREER_PERF: return "UI_ChoosePerformanceCategory.fng";   /* the current page: fpr_package */
+    case FEM_SCR_CAREER_VINYL: return "UI_ChooseVinylLayer.fng";
     case FEM_SCR_OPTIONS:return "UI_OptionsMain.fng";
     case FEM_SCR_PROFILE:return "UI_ProfileManager.fng";
     case FEM_SCR_MAIN: return "UI_Main.fng";
@@ -219,6 +222,11 @@ static void build_screen(FeMenu *m) {
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
         return;
     }
+    if(m->screen==FEM_SCR_CAREER_VINYL) {
+        m->visual=fvt_bind(&m->vinyl,&m->scr,&m->assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
+        return;
+    }
     if(m->screen==FEM_SCR_CAREER_PERF) {
         m->visual=fpr_bind(&m->perf,&m->scr,&m->assets);
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
@@ -296,7 +304,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP || m->screen==FEM_SCR_SMS)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_CAREER_VINYL || m->screen==FEM_SCR_WORLD_MAP || m->screen==FEM_SCR_SMS)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -338,6 +346,7 @@ static void views_update(FeMenu *m, float ms) {
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
     else if(m->screen==FEM_SCR_CAREER_LOT)fel_sync(&m->lot,&m->scr);
     else if(m->screen==FEM_SCR_CAREER_PAINT && !fpt_sync(&m->paint,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->paint.status);return;}
+    else if(m->screen==FEM_SCR_CAREER_VINYL && !fvt_sync(&m->vinyl,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->vinyl.status);return;}
     else if(m->screen==FEM_SCR_CAREER_PERF && !fpr_sync(&m->perf,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->perf.status);return;}
     else if(m->screen==FEM_SCR_QR_TRACK || m->screen==FEM_SCR_QR_OPTIONS)
         fet_sync(&m->choice,&m->scr,ms,m->screen==FEM_SCR_QR_OPTIONS);
@@ -531,6 +540,7 @@ const char *fem_status(const FeMenu *m) {
     if(m->screen==FEM_SCR_QR_CAR)return m->choice.car_status;
     if(m->screen==FEM_SCR_CAREER_LOT)return m->lot.status;
     if(m->screen==FEM_SCR_CAREER_PAINT)return m->paint.status;
+    if(m->screen==FEM_SCR_CAREER_VINYL)return m->vinyl.status;
     if(m->screen==FEM_SCR_CAREER_PERF)return m->perf.status;
     return m->status;
 }
@@ -839,6 +849,13 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         else if(ev==FPT_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
         else if(ev==FPT_EV_PAGE){fprintf(stderr,"fem: paint shop page %s\n",fpt_package(&m->paint));build_screen(m);}
     }
+    if(m->screen==FEM_SCR_CAREER_VINYL) {
+        FvtEvent ev=in && !m->locked?fvt_input(&m->vinyl,in):FVT_EV_NONE;
+        if(ev==FVT_EV_BUY){req.kind=FEM_REQ_VINYL_BUY;req.vinyl=m->vinyl.req;fvt_settle(&m->vinyl);m->locked=1;}
+        else if(ev==FVT_EV_REMOVE){req.kind=FEM_REQ_VINYL_BUY;req.vinyl=m->vinyl.req;fvt_settle(&m->vinyl);m->locked=1;}
+        else if(ev==FVT_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+        else if(ev==FVT_EV_PAGE){fprintf(stderr,"fem: vinyl shop page %d\n",m->vinyl.page);build_screen(m);}
+    }
     if(m->screen==FEM_SCR_CAREER_PERF) {
         FepEvent ev=in && !m->locked?fpr_input(&m->perf,in):FEP_EV_NONE;
         if(ev==FEP_EV_BUY){req.kind=FEM_REQ_PERF_BUY;req.perf_cat=m->perf.buy_cat;req.perf_lvl=m->perf.buy_lvl;req.perf_comp=m->perf.buy_comp;m->locked=1;}
@@ -899,7 +916,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
 
 void fem_draw(FeMenu *m, int w, int h) {
     if (!fem_is_open(m) || w <= 0 || h <= 0) return;
-    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE && m->screen != FEM_SCR_CAREER_LOT && m->screen != FEM_SCR_CAREER_PAINT && m->screen != FEM_SCR_CAREER_PERF) {   /* 3D car behind */
+    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE && m->screen != FEM_SCR_CAREER_LOT && m->screen != FEM_SCR_CAREER_PAINT && m->screen != FEM_SCR_CAREER_PERF && m->screen != FEM_SCR_CAREER_VINYL) {   /* 3D car behind */
         static const float black[4] = { 0, 0, 0, 1 };
         rhi_cmd_clear_main(black, 1.0f);
     }
@@ -1002,6 +1019,39 @@ const CdPaint *fem_paint_preview(const FeMenu *m,int slot) {
     int group=c?c->paint.group:-1;
     int paint_slot=group<0?-1:group<=CD_PAINT_PEARL?0:group-2;
     return c && paint_slot==slot?&c->paint:NULL;
+}
+int fem_paint_wants_vinyl(const FeMenu *m) {
+    if(!m || !m->open || m->screen!=FEM_SCR_CAREER_PAINT)return 0;
+    const FePaintColor *c=fpt_selected(&m->paint);
+    /* [data] The VINYL paint group is the graphics shop's vinyl row: retail leaves the
+     * colour list and opens the layer screen from it rather than buying a colour. */
+    return m->paint.page==0 && c && c->paint.group==CD_PAINT_VINYL;
+}
+void fem_open_vinyl(FeMenu *m,const FeVinylShop *shop) {
+    if(!m || feg_busy(m->garage))return;
+    fvt_open(&m->vinyl,shop);m->career_garage=0;fem_open(m,FEM_SCR_CAREER_VINYL);
+}
+void fem_vinyl_refresh(FeMenu *m,const FeVinylShop *shop,int msg) {
+    if(!m || m->screen!=FEM_SCR_CAREER_VINYL)return;
+    fvt_refresh(&m->vinyl,shop,(FvtMsg)msg);m->locked=0;build_screen(m);views_update(m,0);
+}
+const char *fem_vinyl_preview(const FeMenu *m) {
+    if(!m || !m->open || m->screen!=FEM_SCR_CAREER_VINYL)return NULL;
+    static char token[24];
+    uint32_t col[CR_VINYL_COLORS];
+    fvt_preview(&m->vinyl, token, (int)sizeof token, col);
+    return token[0] ? token : NULL;
+}
+int fem_vinyl_preview_layer(const FeMenu *m) {
+    return m && m->open && m->screen==FEM_SCR_CAREER_VINYL ? fvt_preview_layer(&m->vinyl) : -1;
+}
+void fem_vinyl_preview_colours(const FeMenu *m, uint32_t col[CR_VINYL_COLORS]) {
+    /* Reads the live preview, so it is only meaningful before the host settles the screen. */
+    if(!m || !m->open || m->screen!=FEM_SCR_CAREER_VINYL || !col)return;
+    uint32_t tmp[CR_VINYL_COLORS];
+    char tok[24];
+    fvt_preview(&m->vinyl, tok, (int)sizeof tok, tmp);
+    for(int c=0;c<CR_VINYL_COLORS;c++) col[c]=tok[0] ? tmp[c] : 0;
 }
 void fem_open_perf(FeMenu *m,const FePerfShop *shop) {
     if(!m || feg_busy(m->garage))return;
