@@ -1,0 +1,21 @@
+# s7s_shop_ask: a new career buys a car by hand, then drives onto the car lot and answers the
+# retail "enter the car lot?" question Yes. No --career-dev: every key here is the player's.
+# Ported frame for frame from reports/parity/m6lot-gate/s7s-shop-ask.sh.
+10:key=Left
+20:key=Return
+40:key=Return
+100:key=Return
+120:key=Return
+130:shot=s7s_confirm.png
+330:shot=s7s_roam.png
+340:tdown=enter_race
+344:tup=enter_race
+# The prompt shot is on 345 rather than the shell's frame 300: the linter wants the frames
+# ascending, and the parser matches frames exactly in any order, so what carries the meaning is only
+# that the frame falls between the ask appearing and the answer - which the spec's order rule proves.
+345:shot=s7s_prompt.png
+400:shot=s7s_ask.png
+420:key=Left
+430:key=Return
+520:shot=s7s_lot.png
+521:quit

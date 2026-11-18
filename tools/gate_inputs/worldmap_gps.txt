@@ -1,0 +1,65 @@
+# worldmap_gps: the race-destination case from the S2/S3 world-map run
+# (reports/worldmap/s3/live.txt), trimmed to one destination. S3 ran on a copy of the s7 career
+# save, so its script went straight from the menu to free roam. This step starts a fresh career
+# instead (TASK-AF-LOG): a Stage 0 career must buy a car before the city is drivable, hence the
+# purchase below - the same key pair on the same frames as tools/gate_inputs/s7s_shop_ask.txt.
+#
+# The pause menu of a career in free roam is
+#   [0] Return to Explore Mode  [1] Options  [2] Replay  [3] Return to World Map  [4] Quit to Main Menu
+# so World Map is two Rights from the opening focus, which sits on [1] (pause_screen.c focuses entry
+# 1) - a third Right overshoots onto Quit to Main Menu. Activating it opens an OK/Cancel dialog that
+# starts focused on Cancel, the retail two-button default (gui_dialog.c, `initial_focus = 1`), so the
+# answer is Left then Return; a bare Return posts MSG_CANCEL and only resumes. S3's
+# key=Left,key=Return pair is that dialog answer, not a menu movement.
+#
+# Leave >= 100 frames (~1.5 s) between pause-menu presses. Carousel steps are ignored while a step is
+# tweening (GC_TWEEN_S 0.3 s, gui_carousel.c) and the tween keeps running past the frame that carries
+# the input, so presses closer together read as one - measured on this binary: 40 and 60 frames apart,
+# the second Right never moved the selection and the run sat in PAUSE to its last frame; 100 frames
+# moved it every time (s3 left ~117). Frames after the map is open do not need that clearance - the
+# map has no tween - so the TAB and Return there sit 20 frames apart, as in s3.
+#
+# After that: choose a race icon with TAB (the map's own next-destination key) and Right, read the GPS
+# route back off the WM probe lines, and let the map close itself by choosing the destination - that is
+# what the Return does, and it is the only way off the map this script uses. Escape is not a "close the
+# map" key, it is the pause key: a script that presses it here just opens the pause menu and then finds
+# every driving key it schedules next ignored, because the game is in a menu (measured: Escape at f=1300
+# put the run in PAUSE from f=1320 to its last frame, and the F8 that followed never happened).
+#
+# F8 teleports the car into the destination zone, and arrival is printed by the game itself, not by this
+# script: it needs frames of real driving afterwards for the zone test to notice. F8 is read only on a
+# driving frame and only while a destination is still valid, so it goes on the frame right after the
+# map is gone - before the car could reach the zone under its own power, since arrival clears the
+# destination and a later F8 would have nothing left to teleport to.
+# --world-map-dev prints the icon list, the probe lines and the F8 arrival.
+#
+# A `shot=` is captured on its own frame, before the frame's keys are pushed, so a shot never shares
+# a frame with the menu press it is meant to show - the frame before carries the press, the frame of
+# the shot shows the screen it produced. And `quit` ends the run on the frame after the last thing
+# that has to happen: nothing is scheduled past it, so the step's wall-clock cost is the frame count
+# and nothing else.
+10:key=Left
+20:key=Return
+40:key=Return
+100:key=Return
+120:key=Return
+240:tdown=gas
+300:tup=gas
+520:key=Escape
+620:key=Right
+720:key=Right
+820:key=Return
+920:key=Left
+960:key=Return
+1000:shot=wmgps-map.png
+1020:key=Tab
+1040:key=Right
+1060:shot=wmgps-race-selected.png
+1080:key=Return
+1200:shot=wmgps-route.png
+1300:key=F8
+1400:shot=wmgps-arrived.png
+1600:tdown=gas
+1800:tup=gas
+2000:shot=wmgps-reached.png
+2001:quit

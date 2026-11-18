@@ -126,3 +126,51 @@ Copy `m1.json`, change the steps, and add a spec per game step - a game step wit
 needs no game and no data dir. `tools/spec_negative_check.py` checks the other half - that every
 spec the gate uses can actually fail, by breaking one meaningful line in a real gate log and
 insisting the spec rejects it (`python3 -I tools/spec_negative_check.py [log dir]`).
+
+## Where the pieces live
+
+| path | holds |
+| --- | --- |
+| `tools/gates/<name>.json` | the gate: steps, in the order they run |
+| `tools/log_specs/<step>.spec` | one spec per game step, the rules its log must satisfy |
+| `tools/gate_inputs/<step>.txt` | the longer `--input-script` files, one event per line |
+
+`m1.json`'s steps and specs pair up by name (`s7s_shop_ask` -> `s7s_shop_ask.spec`), and a step's
+`xdg` name is what shares a save between steps (`s7` -> `s7b`). The three shortest scripts are inline
+in the gate file; anything worth reading line by line belongs in `gate_inputs/`.
+
+Five things a ported run tends to smuggle in, all seen while porting runs out of `reports/`:
+- **A scripted run's frame numbers belong to the state it was calibrated on.** The S2/S3 world-map
+  run (`s7s_shop_ask` and `worldmap_gps` are its gate versions) started from a copied career save,
+  so it drove straight out of the menu; from a fresh profile the same frames land in the mandatory
+  Stage 0 car lot and the run never leaves it. Port the sequence, then re-derive the frames against a
+  run of your own - the shot lines and `SCRIPT f=` probe lines in the log say where each frame really
+  landed.
+- **The front end swallows input on a schedule.** `fe_screen.c` ignores every key while a carousel's
+  authored exit script runs, and `pause_screen.c` drops the first Accept/Back after a screen opens.
+  A press 30 frames after the last one can simply not exist as far as the game is concerned, so
+  scripted pause-menu sequences need real gaps between presses - and a step that fails with the game
+  parked in `screen=PAUSE` to its last frame is usually that, not a missing feature.
+  `tools/gate_inputs/worldmap_gps.txt` records the gap it needed and why.
+- **Two ways to take a screenshot print two different lines.** A `shot=name.png` event in an input
+  script prints `script: wrote name.png (WxH)`; the `--shot` flag prints `wrote name.png (WxH) after
+  driving to (X,Y)`. A spec written against one rejects the other, and the step's own "closest lines"
+  hint is what shows it - `tools/log_specs/mirror_on.spec` asserts the `--shot` wording because
+  `mirror_on` has no input script at all.
+- **A step's `timeout` is wall clock, and this board's wall clock is not the frame rate.** A scripted
+  step needs at least one second per frame, and can need six times that when another worktree is
+  building while it runs. Two rules keep a good run from being killed by its own budget: end the input
+  script with `quit` on the frame right after the last thing that has to happen (nothing may be
+  scheduled after it, including shots), and read the seconds back off `summary.tsv` - it is the
+  runner's own measurement, where `SCRIPT f=` lines only count frames.
+  Measured on a board with nothing else running (`worldmap_gps`, 640x480, unlocked): 2001 scripted
+  frames in 217.7 s, so around 9 frames a second of real time. The frames themselves are cheap; the
+  startup, streaming and menu waits are what the budget pays for. Size a `timeout` off that, not off
+  the frame count, and never off another machine's.
+- **`Escape` is the pause key as well as the back key.** A step that taps Escape to leave a menu gets
+  a pause menu instead if that menu had already closed itself, and every driving key after it is
+  swallowed by the pause screen with nothing in the log to say so. Where one input both makes the
+  choice and drops the menu - the world map does, `Return` sets the destination *and* closes it - use
+  that input and skip the Escape. The `SCRIPT f= ... screen=` probe lines are what show a menu nobody
+  ordered.
+
