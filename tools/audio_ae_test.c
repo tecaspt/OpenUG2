@@ -31,20 +31,36 @@ static void test_selection(void) {
     free_sweep(&g_engine.gin.accel_sweep);free_sweep(&g_engine.gin.decel_sweep);
     memset(&g_engine.gin,0,sizeof g_engine.gin);
 }
-static void test_sine(void) {
+static void test_rpm_endpoints(void) {
+    uint32_t ascending[3]={100,500,1000},descending[3]={1000,500,100};
+    GinsuSweep s;memset(&s,0,sizeof s);
+    s.rpm_min=1000;s.rpm_max=7000;s.n_rpm=2;
+    s.rpm_pos=ascending;
+    assert(gin_rpm_at(&s,50)==1000);assert(gin_rpm_at(&s,1050)==7000);
+    assert(gin_rpm_at(&s,300)==2500);assert(gin_rpm_at(&s,750)==5500);
+    s.rpm_pos=descending;
+    assert(gin_rpm_at(&s,50)==7000);assert(gin_rpm_at(&s,1050)==1000);
+    assert(gin_rpm_at(&s,750)==2500);assert(gin_rpm_at(&s,300)==5500);
+    puts("RPM curve: ascending/descending interpolation and endpoint clamping: PASS");
+}
+static void test_sine(float rpm,float load) {
     /* 1 kHz at 32 kHz into the native grain mixer, measured at 44.1 kHz.
        DFT separates the existing auxiliary turbo tone from the test signal. */
-    int16_t src[321],out[44100];uint32_t grain[2]={0,320};
+    int16_t src[321],out[44100];uint32_t grain[2]={0,320},positions[3]={100,90,80};
     for(int i=0;i<=320;i++)src[i]=(int16_t)(10000*sin(6.283185307179586*i/32));
     Ginsu20State *g=&g_engine.gin;
     for(int a=0;a<2;a++) {
         GinsuSweep *sw=a?&g->accel_sweep:&g->decel_sweep;
         sw->samples=src;sw->total_samples=321;sw->sample_rate=32000;
-        sw->n_grain=1;sw->grain=grain;g->grain_rpm[a]=3000;
+        sw->n_grain=1;sw->grain=grain;
+        sw->rpm_min=1000;sw->rpm_max=7000;sw->n_rpm=2;sw->rpm_pos=positions;
+        /* At coast the grain midpoint extends beyond the descending RPM
+         * curve. The old clamp pitched this 1 kHz input down to 143 Hz. */
+        g->grain_rpm[a]=load ? 3000 : gin_rpm_at(sw,160);
     }
     g->has_gin_data=1;
-    g_engine.current_rpm=g_engine.target_rpm=3000;
-    g_engine.current_load=g_engine.load=1;g_engine.master_volume=1;
+    g_engine.current_rpm=g_engine.target_rpm=rpm;
+    g_engine.current_load=g_engine.load=load;g_engine.master_volume=1;
     audio_cb(NULL,(Uint8 *)out,sizeof out);
     double re=0,im=0;
     for(int i=0;i<44100;i++) {
@@ -52,7 +68,7 @@ static void test_sine(void) {
         re+=out[i]*cos(phase);im+=out[i]*sin(phase);
     }
     double amp=2*hypot(re,im)/44100,expected=10000*.55*11000/32768;
-    printf("sine: input 1000 Hz amplitude 10000; output 1000 Hz amplitude %.3f expected %.3f gain %.6f\n",amp,expected,amp/10000);
+    printf("%s sine: input 1000 Hz amplitude 10000; output 1000 Hz amplitude %.3f expected %.3f gain %.6f\n",load?"full-load":"coast endpoint",amp,expected,amp/10000);
     assert(fabs(amp/expected-1)<.01);
     memset(g,0,sizeof *g);
 }
@@ -100,6 +116,6 @@ static void test_wall_burst(void) {
     puts("wall: one event in 120 contact ticks; separation rearms: PASS");
 }
 int main(void) {
-    test_selection();test_sine();test_impact();test_wall_burst();audio_selftest();
+    test_selection();test_rpm_endpoints();test_sine(3000,1);test_sine(1000,0);test_impact();test_wall_burst();audio_selftest();
     puts("audio_ae_test: PASS");return 0;
 }

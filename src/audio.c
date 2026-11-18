@@ -266,6 +266,11 @@ static float gin_rpm_at(const GinsuSweep *s, float pos) {
             return s->rpm_min + ((float)i + t) * step;
         }
     }
+    /* Deceleration markers descend in sample position as RPM increases.
+     * Their endpoint grains can extend past the marker curve: clamp to the
+     * RPM at that end, rather than reversing the low/high recording RPM. */
+    if (s->rpm_pos[0] > s->rpm_pos[s->n_rpm])
+        return pos >= (float)s->rpm_pos[0] ? s->rpm_min : s->rpm_max;
     return pos <= (float)s->rpm_pos[0] ? s->rpm_min : s->rpm_max;
 }
 
