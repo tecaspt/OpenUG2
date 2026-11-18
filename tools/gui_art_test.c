@@ -634,7 +634,35 @@ static void test_pause_screen(void) {
     g_ps = NULL;
 }
 
+static void test_dialog_frames(void) {
+    for (int i = 0; i < GD_FRAMES; i++) {
+        const GdFrame *f = gd_frame_at(i);
+        CHECK(f && gd_frame_by_package(f->package) == f, "frame %d lookup", i);
+        CHECK(f && hash_name(f->package) == f->package_key, "frame %d package hash", i);
+        CHECK(f && f->box_w > 0 && f->lines > 0, "frame %d fit geometry", i);
+    }
+    CHECK(!gd_frame_at(-1) && !gd_frame_at(GD_FRAMES), "frame bounds");
+    CHECK(gd_frame_by_package("genericdialog_med.fng") == gd_frame_get(GD_FAM_GENERIC, GD_SIZE_MED), "case insensitive package lookup");
+    CHECK(gd_message_lines("a^^b", 380) == 3, "empty explicit line counts");
+    CHECK(gd_message_lines("a\nb\nc\nd\ne", 380) == 5, "explicit line breaks");
+    for (int family = 0; family < GD_FAMS; family++) {
+        for (int size = 0; size < GD_SIZES; size++) {
+            const GdFrame *f = gd_frame_get((GdFamily)family, (GdSize)size);
+            CHECK(f && gd_frame_fit((GdFamily)family, f->lines) == f, "family %d size %d fit", family, size);
+        }
+        CHECK(gd_frame_fit((GdFamily)family, 100) == gd_frame_get((GdFamily)family, GD_SIZE_LARGE), "largest fallback %d", family);
+    }
+    GdSpec spec;
+    gd_spec(&spec, GD_DEFAULTS, NULL);
+    CHECK(spec.frame == gd_frame_get(GD_FAM_GENERIC, GD_SIZE_SMALL), "default binds small");
+    spec.message = "one^two^three^four^five";
+    CHECK(gd_spec_fit(&spec, GD_FAM_GENERIC) == gd_frame_get(GD_FAM_GENERIC, GD_SIZE_MED) && spec.package_key == spec.frame->package_key, "long text promotes frame");
+    spec.message = "short";
+    CHECK(gd_spec_fit(&spec, GD_FAM_GENERIC)->size == GD_SIZE_MED, "explicit frame retained when it fits");
+}
+
 int main(int argc, char **argv) {
+    test_dialog_frames();
     if (argc > 1) g_dir = argv[1];
     test_tvg07();
     test_tvg08();

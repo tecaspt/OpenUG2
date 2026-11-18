@@ -4,6 +4,17 @@
 
 #include <string.h>
 
+/* Package names compare case-blindly, because the loader hashes the upper-cased name
+ * (src/ugui/ugui_assets.c:ug_assets_package); spelled out to keep gui_dialog.c free of strcase. */
+static int gd_frame_strcasecmp(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) {
+        char x = *a >= 'a' && *a <= 'z' ? (char)(*a - 32) : *a;
+        char y = *b >= 'a' && *b <= 'z' ? (char)(*b - 32) : *b;
+        if (x != y) return (unsigned char)x - (unsigned char)y;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
 #define PKG_IN_GAME "UI_InGameDialog.fng"
 #define PKG_SMALL "GenericDialog_SMALL.fng"
 #define KEY_PKG_IN_GAME 0xAA469286u
@@ -11,6 +22,99 @@
 /* MSG_*: FE message ids the dialog sends on a choice (not language keys; absent from English.bin by design). */
 #define MSG_CANCEL 0xB4623F67u           /* second argument of every pause confirmation, also Back */
 #define MSG_DEFAULTS_NO 0x34DC1BCFu
+
+/* Package and message anchor values come from retail layouts [data]. Capacities and
+ * the common 380-unit width are estimates [inferred], not font measurements. The
+ * view currently supports the two-button layouts; Help and three-button interaction
+ * require additional view and state support. */
+static const GdFrame gd_frames[GD_FRAMES] = {
+    /* package, key, family, size, lines, box_w, msg_y, btn_y, buttons, help, preferred */
+    { "GenericDialog_SMALL.fng",          0x6962C0CDu, GD_FAM_GENERIC, GD_SIZE_SMALL, 4, 380.f,  -3.f,  74.f, 2, 0, 1 },
+    { "GenericDialog_MED.fng",            0xC971C7AAu, GD_FAM_GENERIC, GD_SIZE_MED,   5, 380.f, -20.f, 107.f, 2, 0, 1 },
+    { "GenericDialog_LARGE.fng",          0x375B415Fu, GD_FAM_GENERIC, GD_SIZE_LARGE, 6, 380.f, -33.f, 165.f, 2, 0, 1 },
+    { "GenericDialog.fng",                0xF68A7675u, GD_FAM_GENERIC, GD_SIZE_SMALL, 4, 380.f,  -3.f,  74.f, 2, 0, 0 },
+    { "GenericDialog_Animate_SMALL.fng",  0xB8770D6Bu, GD_FAM_GENERIC, GD_SIZE_SMALL, 4, 380.f,  -3.f,  74.f, 2, 0, 0 },
+    { "GenericDialog_Animate_MED.fng",    0xB72E54C8u, GD_FAM_GENERIC, GD_SIZE_MED,   5, 380.f, -20.f, 107.f, 2, 0, 0 },
+    { "GenericDialog_Animate_LARGE.fng",  0x866F8DFDu, GD_FAM_GENERIC, GD_SIZE_LARGE, 6, 380.f, -33.f, 165.f, 2, 0, 0 },
+    { "IG_GenericDialog_SMALL.fng",       0x191A579Cu, GD_FAM_IG,      GD_SIZE_SMALL, 4, 380.f,   1.f,  74.f, 2, 0, 0 },
+    { "IG_GenericDialog_MED.fng",         0xA5675EB9u, GD_FAM_IG,      GD_SIZE_MED,   5, 380.f, -10.f, 108.f, 2, 0, 1 },
+    { "IG_GenericDialog_LARGE.fng",       0xE712D82Eu, GD_FAM_IG,      GD_SIZE_LARGE, 6, 380.f, -26.f, 164.f, 2, 0, 1 },
+    { "UI_InGameDialog.fng",              0xAA469286u, GD_FAM_IG,      GD_SIZE_SMALL, 4, 380.f,   1.f,  74.f, 2, 0, 1 },
+    { "HelpDialog_SMALL.fng",             0x6EACFF39u, GD_FAM_HELP,    GD_SIZE_SMALL, 5, 380.f, -60.f,   0.f, 0, 1, 1 },
+    { "HelpDialog_MED.fng",               0xEC017B16u, GD_FAM_HELP,    GD_SIZE_MED,   6, 380.f, -107.f,  0.f, 0, 1, 1 },
+    { "HelpDialog_LARGE.fng",             0x3CA57FCBu, GD_FAM_HELP,    GD_SIZE_LARGE, 7, 380.f, -162.f,  0.f, 0, 1, 1 },
+    { "GenericDialog_ThreeButton.fng",    0xD53E4A88u, GD_FAM_GENERIC, GD_SIZE_LARGE, 4, 380.f, -60.f, 164.f, 3, 0, 0 },
+};
+
+const GdFrame *gd_frame_at(int i) {
+    return i >= 0 && i < GD_FRAMES ? &gd_frames[i] : NULL;
+}
+
+const GdFrame *gd_frame_get(GdFamily family, GdSize size) {
+    if (family < 0 || family >= GD_FAMS || size < 0 || size >= GD_SIZES) return NULL;
+    for (int i = 0; i < GD_FRAMES; i++)
+        if (gd_frames[i].family == family && gd_frames[i].size == size && gd_frames[i].preferred)
+            return &gd_frames[i];
+    return NULL;
+}
+
+const GdFrame *gd_frame_by_package(const char *package) {
+    if (!package) return NULL;
+    for (int i = 0; i < GD_FRAMES; i++)
+        if (!gd_frame_strcasecmp(gd_frames[i].package, package)) return &gd_frames[i];
+    return NULL;
+}
+
+const GdFrame *gd_frame_fit(GdFamily family, int lines) {
+    const GdFrame *widest = NULL;
+    const GdFrame *pick = gd_frame_get(family, GD_SIZE_SMALL);
+    if (!pick) return NULL;                                  /* not a family retail has */
+    if (lines < 1) lines = 1;
+    for (int s = GD_SIZE_SMALL; s < GD_SIZES; s++) {
+        const GdFrame *f = gd_frame_get(family, (GdSize)s);
+        if (!f) continue;
+        widest = f;                                          /* sizes ascend, so the last is largest */
+        if (f->lines >= lines) return f;                     /* the narrowest frame that fits */
+    }
+    return widest;                                           /* retail has nothing larger */
+}
+
+/* Approximate character width [inferred]; the pure state machine has no font metrics. */
+#define GD_CAPTION_CHAR_W 7.5f
+
+int gd_message_lines(const char *message, float box_w) {
+    if (!message || !message[0]) return 1;
+    if (!(box_w > 0)) box_w = 380.0f;
+    int per_line = (int)(box_w / GD_CAPTION_CHAR_W);
+    if (per_line < 1) per_line = 1;
+    int total = 0;
+    const char *line = message;
+    for (;;) {
+        const char *brk = line;
+        while (*brk && *brk != '^' && *brk != '\n') brk++;
+        int len = (int)(brk - line);
+        total += len ? (len + per_line - 1) / per_line : 1;
+        if (!*brk) break;
+        line = brk + 1;
+    }
+    return total ? total : 1;
+}
+
+const GdFrame *gd_spec_fit(GdSpec *spec, GdFamily family) {
+    if (!spec) return NULL;
+    const GdFrame *now = spec->frame;
+    if (!now) {
+        now = gd_frame_by_package(spec->package);
+    }
+    int want = gd_message_lines(spec->message, now ? now->box_w : 380.0f);
+    if (now && now->family == family && now->lines >= want) { spec->frame = now; return now; }   /* the default already fits */
+    const GdFrame *pick = gd_frame_fit(family, want);
+    if (!pick) return NULL;
+    spec->package = pick->package;
+    spec->package_key = pick->package_key;
+    spec->frame = pick;
+    return pick;
+}
 
 typedef struct Text { uint32_t key; const char *en; } Text;
 static const Text T_QUIT = { 0x6F4796A6u, "Quit to Main Menu?" };             /* career */
@@ -65,6 +169,7 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->result_msg[0] = 0xD05FC3A3u;         /* FE message for the first button */
         out->result_msg[1] = MSG_DEFAULTS_NO;
         out->back_msg = MSG_DEFAULTS_NO;          /* Back = No */
+        gd_spec_fit(out, GD_FAM_GENERIC);
         return;
     }
     if (kind == GD_ENGAGE_RACE || shop_kind(kind)) {   /* M6: career event / shop zone; Yes / No like Default Settings */
@@ -77,6 +182,7 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->message = t->en;
         out->label_key[0] = 0x0000F770u; out->label[0] = "Yes";
         out->label_key[1] = 0x0000061Cu; out->label[1] = "No";
+        gd_spec_fit(out, GD_FAM_GENERIC);
         return;
     }
     if (kind == GD_CONTROLS_RESET) {              /* CONTROLS_SPEC 4.6: texts come from the language file only */
@@ -87,6 +193,7 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
         out->label_key[1] = 0x541389E5u;          /* Cancel */
         out->result_msg[1] = MSG_DEFAULTS_NO;
         out->back_msg = MSG_DEFAULTS_NO;
+        gd_spec_fit(out, GD_FAM_GENERIC);
         return;
     }
     switch (kind) {
@@ -106,6 +213,7 @@ void gd_spec(GdSpec *out, GdKind kind, const GdContext *ctx) {
     out->result_msg[0] = ok;
     out->result_msg[1] = MSG_CANCEL;
     out->back_msg = MSG_CANCEL;
+    gd_spec_fit(out, GD_FAM_IG);
 }
 
 void gd_open(GuiDialog *d, const GdSpec *spec) {
@@ -146,6 +254,7 @@ int gd_pointer_click(GuiDialog *d, float x, float y) {
     for (int b = 0; b < 2; b++) {
         float e[4];
         gd_button_extent(d->spec.kind, b, e);
+        if (d->spec.frame) { e[1] += d->spec.frame->btn_y - 74.f; e[3] += d->spec.frame->btn_y - 74.f; }
         if (x >= e[0] && x <= e[2] && y >= e[1] && y <= e[3]) {
             d->focus = b;
             choose(d, b ? GD_RES_SECOND : GD_RES_FIRST);
