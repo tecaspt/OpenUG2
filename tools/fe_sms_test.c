@@ -3,9 +3,11 @@
  * The state machine and the text lookup run on synthetic data (an in-memory language table and a
  * hand-made career database): empty list, wrap-around, unread -> read, missing text. The retail check
  * builds the items for five real message names and prints their subject lines; with $OPENUG2_DATA
- * unset it prints a SKIP and exits 77, which is not a pass. No retail bytes live in this file and no
- * package is loaded: the FNG binding is not exercised here (see docs/parity/SMS-MAILBOX.md 5). */
+ * unset it prints a SKIP and exits 77, which is not a pass. No retail bytes live in this file. The retail check also loads and
+ * binds the mailbox package and checks row visibility through the pure scene layer. */
 #include "fe_sms.h"
+#include "gui_view.h"
+#include "ugui/ugui_assets.h"
 #include "ugui/ugui_bundle.h"
 
 #include <stdio.h>
@@ -109,14 +111,25 @@ static void synthetic_checks(void) {
     {
         int pick[2] = { 3, 0 };                        /* the row order follows the table, not the list */
         n = fe_sms_build(&cd, &lang, pick, 2, item, 8);
-        CK(n == 2 && !strcmp(item[0].name, "SMS_HELLO") && !strcmp(item[1].name, "SMS_CAR_UNLOCK_7"),
-           "the receipt list selects rows and sorts them by table position");
+        CK(n == 2 && !strcmp(item[1].name, "SMS_HELLO") && !strcmp(item[0].name, "SMS_CAR_UNLOCK_7"),
+           "the receipt list retains delivery order");
         CK(fe_sms_build(&cd, &lang, NULL, 0, item, 4) == 0, "no receipt list builds nothing");
         CK(fe_sms_build(NULL, &lang, NULL, all, item, 4) == 0 &&
            fe_sms_build(&cd, &lang, NULL, all, NULL, 4) == 0 &&
            fe_sms_build(&cd, &lang, NULL, all, item, 0) == 0, "null and empty arguments");
         int one[1] = { 99 };                           /* an index outside the table is ignored */
         CK(fe_sms_build(&cd, &lang, one, 1, item, 4) == 0, "an out-of-range receipt index is dropped");
+    }
+
+    {
+        int pick[] = {3,3,-1,0,99};
+        n=fe_sms_build(&cd,&lang,pick,5,item,FE_SMS_MAX);
+        CK(n==2 && !strcmp(item[0].name,"SMS_CAR_UNLOCK_7") && !strcmp(item[1].name,"SMS_HELLO"),
+           "receipt duplicates and invalid indices do not alter delivery order");
+        memset(&cd,0,sizeof cd);cd.nsms=CD_MAX_SMS;
+        for(int i=0;i<cd.nsms;i++)snprintf(cd.sms[i].name,sizeof cd.sms[i].name,"SMS_TEST_%d",i);
+        n=fe_sms_build(&cd,&lang,NULL,FE_SMS_ALL,item,FE_SMS_MAX);
+        CK(n==CD_MAX_SMS && !strcmp(item[n-1].name,"SMS_TEST_191"),"mailbox holds the entire data capacity beyond forty rows");
     }
 
     /* ---- the mailbox: empty list ---- */
@@ -259,6 +272,35 @@ static int retail_check(const char *root) {
     printf("  opened %s, unread now %d\n", item[opened].name, fe_sms_unread(&box));
     for (int i = 0; i < n; i++)
         if (!item[i].subject[0] || !item[i].body[0]) { fprintf(stderr, "retail: %s has no text\n", want[i]); free(cd); ug_strtab_free(&lang); return 1; }
+    {
+        UgAssets assets; GvScreen screen={0};char error[256];
+        int loaded=ug_assets_open_ingame(&assets,root,NULL,error,sizeof error);
+        CK(loaded,"retail in-game assets load");
+        CK(loaded && fe_sms_bind(&box,&screen,&assets),"retail mailbox binds all ten subject rows and envelopes");
+        if(screen.loaded) {
+            fe_sms_sync(&box,&screen);
+            CK(!strstr(box.header,"%d"),"both message header placeholders are filled");
+            int subjects=0;
+            for(int i=0;i<screen.scene.n;i++) {
+                const UgNode *node=&screen.scene.nodes[i];
+                if(!node->app_hidden && node->text_override &&
+                   (node->obj->name_hash==0x9a3674c8u ||
+                   (node->obj->name_hash>=0x0c6e4198u && node->obj->name_hash<=0x0c6e41a0u)))subjects++;
+            }
+            /* Opened messages intentionally hide all list rows. */
+            CK(subjects==0,"opened message hides mailbox rows");
+            fe_sms_close(&box);fe_sms_sync(&box,&screen);
+            subjects=0;
+            for(int i=0;i<screen.scene.n;i++) {
+                const UgNode *node=&screen.scene.nodes[i];
+                if(!node->app_hidden && node->text_override &&
+                   (node->obj->name_hash==0x9a3674c8u ||
+                   (node->obj->name_hash>=0x0c6e4198u && node->obj->name_hash<=0x0c6e41a0u)))subjects++;
+            }
+            CK(subjects==n,"retail list populates one row per received message");
+        }
+        gv_screen_free(&screen);ug_assets_close(&assets);
+    }
     free(cd);
     ug_strtab_free(&lang);
     return 0;
