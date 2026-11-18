@@ -107,6 +107,19 @@ int  cr_perf_buy(CareerState *s, const CareerData *cd, int shop, int cat, int lv
 void cr_perf_fraction(const CareerState *s, const CareerData *cd, float u[CD_PERF_CATS][4]);
 int  cr_perf_level_of(float u);                                            /* 0..3 at 0.325/0.655/0.995 [inferred] */
 
+/* ---- paint (graphics) shop ---- */
+/* Slot per paint group: GLOSS/METAL/PEARL -> 0 body, RIM 1, CALIPER 2, MUFFLER 3, HOSE 4, VINYL 5 (vinyl colour). */
+int  cr_paint_slot(int group);
+/* 0x34A1C unlock id per group [inferred, docs/parity/PERF-PAINT.md]: 76 body (also hose/vinyl), 77 rims,
+ * 78 muffler, 79 calipers. Level = the paint's own level. */
+int  cr_paint_unlock_id(int group);
+int  cr_paint_open(const CareerState *s, const CareerData *cd, int paint);   /* paint = index into cd->paint[] */
+int32_t cr_paint_price(const CareerData *cd, int paint);   /* 0x34A1C level `b` field [inferred, low]; 0 when absent */
+/* Shop must be an open paint shop; installs the colour in its slot on the active car and debits the bank.
+ * Returns CR_PERF_* codes (OWNED = that colour is already in the slot). */
+int  cr_paint_buy(CareerState *s, const CareerData *cd, int shop, int paint, int32_t *charged);
+uint32_t cr_paint_installed(const CareerState *s, int slot);   /* part key or 0 (stock) on the active car */
+
 /* ---- car lot ---- */
 typedef struct CrLotCar { char name[32]; int32_t price; uint8_t owned, starter; } CrLotCar;
 enum { CR_LOT_OK = 0, CR_LOT_E_SAME = -1, CR_LOT_E_LOCKED = -2, CR_LOT_E_FUNDS = -3, CR_LOT_E_ARG = -4 };

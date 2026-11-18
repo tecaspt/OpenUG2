@@ -541,6 +541,80 @@ void cr_perf_fraction(const CareerState *s, const CareerData *cd, float u[CD_PER
 
 int cr_perf_level_of(float u) { return u >= 0.995f ? 3 : u >= 0.655f ? 2 : u >= 0.325f ? 1 : 0; }
 
+/* ---- paint shop ---- */
+int cr_paint_slot(int group)
+{
+    switch (group) {
+    case CD_PAINT_GLOSS: case CD_PAINT_METAL: case CD_PAINT_PEARL: return 0;
+    case CD_PAINT_RIM: return 1;
+    case CD_PAINT_CALIPER: return 2;
+    case CD_PAINT_MUFFLER: return 3;
+    case CD_PAINT_HOSE: return 4;
+    case CD_PAINT_VINYL: return 5;
+    default: return -1;
+    }
+}
+
+int cr_paint_unlock_id(int group)
+{
+    switch (group) {
+    case CD_PAINT_RIM: return 77;
+    case CD_PAINT_MUFFLER: return 78;
+    case CD_PAINT_CALIPER: return 79;
+    case CD_PAINT_GLOSS: case CD_PAINT_METAL: case CD_PAINT_PEARL: case CD_PAINT_HOSE: case CD_PAINT_VINYL: return 76;
+    default: return -1;
+    }
+}
+
+int cr_paint_open(const CareerState *s, const CareerData *cd, int paint)
+{
+    const CdPaint *p;
+    int id;
+    if (!s || !cd || paint < 0 || paint >= cd->npaint) return 0;
+    p = &cd->paint[paint];
+    id = cr_paint_unlock_id(p->group);
+    return id > 0 && p->level >= 1 && p->level <= 3 && cr_unlock_ok(s, cd, (uint32_t)id, p->level);
+}
+
+int32_t cr_paint_price(const CareerData *cd, int paint)
+{
+    int u, id;
+    if (!cd || paint < 0 || paint >= cd->npaint) return -1;
+    id = cr_paint_unlock_id(cd->paint[paint].group);
+    u = id > 0 ? cd_find_ulk(cd, (uint32_t)id) : -1;
+    if (u < 0 || cd->paint[paint].level < 1 || cd->paint[paint].level > 3) return 0;
+    {
+        uint16_t b = cd->ulk[u].l[cd->paint[paint].level - 1].b;
+        return b == 0xFFFFu ? 0 : (int32_t)b;
+    }
+}
+
+uint32_t cr_paint_installed(const CareerState *s, int slot)
+{
+    if (!s || slot < 0 || slot >= CR_PAINT_SLOTS || s->nowned == 0 || s->active >= s->nowned) return 0;
+    return s->paint[s->active][slot];
+}
+
+int cr_paint_buy(CareerState *s, const CareerData *cd, int shop, int paint, int32_t *charged)
+{
+    int slot;
+    int32_t price;
+    if (charged) *charged = 0;
+    if (!s || !cd || s->nowned == 0 || s->active >= s->nowned || paint < 0 || paint >= cd->npaint) return CR_PERF_E_ARG;
+    if (shop < 0 || shop >= cd->nshop || cd->shop[shop].type != CD_SHOP_PAINT || !cr_shop_open(s, cd, shop)) return CR_PERF_E_ARG;
+    slot = cr_paint_slot(cd->paint[paint].group);
+    if (slot < 0) return CR_PERF_E_ARG;
+    if (s->paint[s->active][slot] == cd->paint[paint].key) return CR_PERF_E_OWNED;
+    if (!cr_paint_open(s, cd, paint)) return CR_PERF_E_LOCKED;
+    price = cr_paint_price(cd, paint);
+    if (price < 0) return CR_PERF_E_ARG;
+    if (s->bank < price) return CR_PERF_E_FUNDS;
+    s->bank -= price;
+    s->paint[s->active][slot] = cd->paint[paint].key;
+    if (charged) *charged = price;
+    return CR_PERF_OK;
+}
+
 static uint8_t *tlv(uint8_t *p, unsigned tag, uint32_t len) { p16(p, tag); p16(p + 2, 0); p32(p + 4, len); return p + 8; }
 
 size_t cr_serialize(const CareerState *s, uint8_t *out, size_t cap)

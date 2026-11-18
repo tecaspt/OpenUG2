@@ -380,11 +380,33 @@ static void test_perf(void)
     CHECK(cr_unlock_ok(&s, &pd, 1, 2) && cr_unlock_ok(&s, &pd, 1, 3));   /* past stage 3; gated shop open */
     CHECK(cr_perf_level_of(0.33f) == 1 && cr_perf_level_of(0.66f) == 2 && cr_perf_level_of(0.1f) == 0);
 
+    /* paint: two gloss colours (L1, open from start via id 76), one pearl (L3, gated on shop 0x9002) */
+    pd.shop[3].hash = 0x9004; pd.shop[3].type = CD_SHOP_PAINT; pd.shop[3].open_stage = 0; pd.nshop = 4;
+    pd.paint[0] = (CdPaint){ .key = 0xA1, .group = CD_PAINT_GLOSS, .level = 1, .rgb = { 10, 20, 30 } };
+    pd.paint[1] = (CdPaint){ .key = 0xA2, .group = CD_PAINT_GLOSS, .level = 1, .rgb = { 40, 50, 60 } };
+    pd.paint[2] = (CdPaint){ .key = 0xA3, .group = CD_PAINT_PEARL, .level = 3 };
+    pd.paint[3] = (CdPaint){ .key = 0xA4, .group = CD_PAINT_RIM, .level = 1 };
+    pd.npaint = 4;
+    pd.ulk[1].id = 76;
+    pd.ulk[1].l[0] = (CdUnlockLvl){ 0, 25, CD_ULK_START, 1, 0 };
+    pd.ulk[1].l[1] = (CdUnlockLvl){ 0, 60, CD_ULK_START, 2, 0 };
+    pd.ulk[1].l[2] = (CdUnlockLvl){ 0, 100, CD_ULK_SHOP, 3, 0x9009 };   /* shop that does not exist: never */
+    pd.nulk = 2;
+    CHECK(cr_paint_slot(CD_PAINT_METAL) == 0 && cr_paint_slot(CD_PAINT_RIM) == 1 && cr_paint_slot(99) == -1);
+    CHECK(cr_paint_unlock_id(CD_PAINT_CALIPER) == 79 && cr_paint_unlock_id(CD_PAINT_PEARL) == 76);
+    CHECK(cr_paint_open(&s, &pd, 0) && !cr_paint_open(&s, &pd, 2) && !cr_paint_open(&s, &pd, 3));   /* id 77 missing */
+    CHECK(cr_paint_price(&pd, 0) == 25 && cr_paint_price(&pd, 2) == 100 && cr_paint_price(&pd, 3) == 0);
+    s.bank = 30;
+    CHECK(cr_paint_buy(&s, &pd, 0, 0, &paid) == CR_PERF_E_ARG);          /* a perf shop does not paint */
+    CHECK(cr_paint_buy(&s, &pd, 3, 0, &paid) == CR_PERF_OK && paid == 25 && s.bank == 5 && cr_paint_installed(&s, 0) == 0xA1);
+    CHECK(cr_paint_buy(&s, &pd, 3, 0, &paid) == CR_PERF_E_OWNED);
+    CHECK(cr_paint_buy(&s, &pd, 3, 1, &paid) == CR_PERF_E_FUNDS && cr_paint_installed(&s, 0) == 0xA1);
+    CHECK(cr_paint_buy(&s, &pd, 3, 2, &paid) == CR_PERF_E_LOCKED);
+    s.bank = 4000;
     /* save round trip (schema 4) and corrupt TLV 7 */
-    s.paint[0][0] = 0xABCD1234u;
     len = cr_serialize(&s, buf, sizeof buf);
     CHECK(len > 0);
-    CHECK(cr_parse(&t, buf, len) == ST_OK && t.perf[0][0] == s.perf[0][0] && t.perf[0][1] == s.perf[0][1] && t.paint[0][0] == 0xABCD1234u);
+    CHECK(cr_parse(&t, buf, len) == ST_OK && t.perf[0][0] == s.perf[0][0] && t.perf[0][1] == s.perf[0][1] && t.paint[0][0] == 0xA1u);
     CHECK(t.bank == s.bank && cr_perf_owned(&t, 19) && cr_perf_owned(&t, 16) && !cr_perf_owned(&t, 15));
     /* a new lot car starts stock */
     {

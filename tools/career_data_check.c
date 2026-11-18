@@ -117,6 +117,16 @@ static void check_perf(const CareerData *cd) {
     EXPECT(cd->perf_comp[11].cat == 1 && cd->perf_comp[11].price == 5000, "transmission L3 $5000");
     for (int c = 0; c < CD_PERF_COMPS; c++) if (cd->perf_comp[c].valid && cd->perf_comp[c].price > 0) priced++;
     EXPECT(priced == 54, "priced comps %d != 54 (aero cat 9 is free/hidden)", priced);
+    {
+        int n[CD_PAINT_GROUPS][4] = {{0}};
+        EXPECT(cd->npaint == 450, "paints %d != 450", cd->npaint);
+        for (int i = 0; i < cd->npaint; i++) n[cd->paint[i].group][cd->paint[i].level & 3]++;
+        EXPECT(n[CD_PAINT_GLOSS][1] == 60 && n[CD_PAINT_METAL][2] == 60 && n[CD_PAINT_PEARL][3] == 30, "body paints");
+        for (int g = CD_PAINT_RIM; g < CD_PAINT_GROUPS; g++)
+            EXPECT(n[g][1] == 10 && n[g][2] == 20 && n[g][3] == 30, "paint group %d tiers", g);
+        int k = cd_find_paint(cd, cd_hash("GLOSS_L1_COLOR03"));
+        EXPECT(k >= 0 && cd->paint[k].rgb[0] == 8 && cd->paint[k].rgb[1] == 60 && cd->paint[k].rgb[2] == 161, "GLOSS_L1_COLOR03 rgb");
+    }
     for (int b = 0; b < cd->nbrand; b++) EXPECT(cd->brand[b].hash == cd_hash(cd->brand[b].key), "brand %d hash", b);
     {
         int u = cd_find_ulk(cd, 1);
