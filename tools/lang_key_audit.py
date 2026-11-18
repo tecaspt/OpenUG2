@@ -9,6 +9,11 @@ ug_hash_upper("LABEL") (src/ugui/ugui_util.c:52) and whether the table has it.
 
   python3 -I tools/lang_key_audit.py --data "$OPENUG2_DATA" --src src [--json OUT.json]
 
+Two sources of keys are read: the accessor call (its second argument is either a hex literal, a
+`ug_hash_upper("LABEL")`, or a name that travels there through the source), and — because the newer
+career and dialog code stores keys in fields and struct initialisers instead of passing them at the
+call site — an assignment or designated initialiser whose target names a language key.
+
 Exit code: 0 = no MISSING and no LABEL-MISMATCH, 1 = at least one of those, 2 = usage/data error.
 There is no allowlist: wrong keys are reported, the source is fixed by their owners.
 
@@ -20,6 +25,14 @@ Keys whose comment mentions label-shaped words but does not consist of exactly o
 to the literal are listed as an informational "ambiguous comment label" note instead of a row:
 such a comment (prose, a four-character code, several candidates) does not identify the literal,
 so nothing about it can be judged without a human reading it.
+
+The assignment patterns are deliberately narrow. A key field is a literal-name target ending in
+`_key` / `_key[n]` (message_key, label_key, package_key) with no dotted access, or one of the named
+language-key fields; a designated initialiser is `.message_key` / `.label_key` / a bare `.key`
+inside a brace group that says `LangKey` or `Text`. A scene node name hash (`FES_ROW_TOP`), an FE
+message id (`MSG_CANCEL`) and a bare `#define KEY_PKG_SMALL` therefore stay out of the rows, and so
+does a `result_msg` slot — those namespaces are not looked up in the string table (see
+docs/parity/LANG-AUDIT-2.md for the per-constant evidence).
 """
 import argparse
 import json
@@ -40,6 +53,20 @@ KEY_UPPER = re.compile(r'\Aug_hash_upper\(\s*"([^"]*)"\s*\)\Z')
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 QUOTED = re.compile(r'"(?:\\.|[^"\\])*"' + r"|'(?:\\.|[^'\\])*'")
 TABLE_ARG = re.compile(r"\A(?:&)?[A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*\Z")
+# The language-key fields, named rather than guessed: `grep -c "\.\?label_key *=" src/` and friends
+# show that message_key / label_key are the fields fed to gv_text (src/gui_view.c:815-817) and that
+# every other `_key` in this tree is another namespace (`.model_key`, `.package_key`, `.icon_key`,
+# `.source_key`, ...). A `#define KEY_PKG_SMALL` has no access operator at all, so package identity
+# stays out of the rows, and so does `result_msg`, an FE message id.
+KEY_TARGET = re.compile(
+    r"(?:\.|->)[ \t]*(?:message_key|label_key)(?:\[\d+\])?[ \t]*=(?![=])")
+# `{0x…, "Text"}` or `? 0x…, "Text" :`: a hex literal in key position of a record that pairs it
+# with its English text, kept only when the line or the struct it belongs to says LangKey / Text.
+KEY_INIT_ROW = re.compile(r"(?:\{|\?)\s*0x([0-9a-fA-F]{8})[uU]?\s*,\s*[\"A-Za-z_]")
+KEY_EN_TEXT = re.compile(r"(?:\{|\?)\s*0x[0-9a-fA-F]{8}[uU]?\s*,\s*\"")
+DESIGNATED = re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^,;)]+)")
+KEY_FIELD = re.compile(r"(?:message_key|label_key|\Akey\Z)")
+KEY_MARK = re.compile(r"LangKey|\bText\b")
 
 
 def ug_hash_upper(text):
@@ -237,6 +264,64 @@ def is_declaration(args):
     return any("uint32_t" in a for a in args[:2])
 
 
+def key_assignments(code, marked):
+    """(start, key, label, target) for each language-key assignment or initialiser in one line.
+
+    Three shapes, all of them naming the field rather than guessing from the value:
+      `out->message_key = 0x…u;` / `out->label_key[0] = …;`  (`_key` field / `label` slot, written
+          with `.` or `->` — a bare `KEY_PKG_SMALL =` on its own #define line is not a field)
+      `.message_key = 0x…,`                                   (a designated initialiser)
+      `{0x…, "English text"}` / `? 0x…, "text" :`             (only where the line, or the struct
+          those records belong to, says LangKey / Text)
+    `target` is the matched text, so a reviewer can see from the row alone which field the tool
+    believed. A target whose value is a constant name instead of a literal comes back with key
+    None, which makes the caller record it as unresolved: the value lives in another file or another
+    namespace, and this tool does not chase it.
+    """
+    found = []
+
+    def note(at, key, label, target):
+        """Record one hit, dropping the duplicates the two patterns see on the same text
+        (`{ .label_key = x }` is both a field assignment and a designated initialiser)."""
+        for seen_at, seen_key, seen_label, seen_target in found:
+            if seen_at == at or (seen_key == key and seen_label == label):
+                return
+        found.append((at, key, label, target))
+
+    for match in KEY_TARGET.finditer(code):
+        target = match.group(0).strip().rstrip("=").strip()
+        rhs = code[match.end():]
+        value = re.match(r"\s*0x([0-9a-fA-F]{8})[uU]?\s*\}?", rhs)
+        named = re.match(r"\s*(ug_hash_upper\(\s*\"[^\"]*\"\s*\)|[A-Za-z_][A-Za-z0-9_.\[\]]*)", rhs)
+        if value:
+            note(match.start(), int(value.group(1), 16), None, target)
+        elif named and "key" in target:
+            # Only a key field can name a key through a constant or a ug_hash_upper call; a
+            # `label` field on the same line holds the English text, not a key.
+            one = key_from_arg(named.group(1))
+            if one is not None:
+                note(match.start(), one[0], one[1], target)
+            else:
+                note(match.start(), None, named.group(1), target)
+    for match in DESIGNATED.finditer(code):
+        field, rhs = match.group(1), match.group(2).strip()
+        if not KEY_FIELD.match(field):
+            continue
+        if field != "key" or marked:
+            one = key_from_arg(rhs)
+            target = "." + field
+            if one is not None:
+                note(match.start(), one[0], one[1], target)
+            elif field != "key" and re.match(r"\A[A-Za-z_][A-Za-z0-9_.\[\]]*\Z", rhs):
+                note(match.start(), None, rhs, target)
+    if marked:
+        for match in KEY_INIT_ROW.finditer(code):
+            if not KEY_EN_TEXT.match(code[match.start():]):
+                continue          # `{0x…, CAR_SOMETHING}` names a car or asset, not a text record
+            note(match.start(), int(match.group(1), 16), None, ".key")
+    return found
+
+
 def comment_labels(comment):
     """Return (words, labels): every word a comment contains, and those that could name a label.
 
@@ -254,7 +339,7 @@ def comment_labels(comment):
 
 
 def row(file_name, line_no, key, label, table, source, call=None,
-        literal=None, label_hash=None):
+        literal=None, label_hash=None, target=None):
     """One key. A labelled literal whose comment hashes elsewhere is the LABEL-MISMATCH case;
     every other row is judged only by whether the table has the key."""
     text = table.get(key)
@@ -273,6 +358,7 @@ def row(file_name, line_no, key, label, table, source, call=None,
         "call": call,
         "literal": "0x%08x" % literal if literal is not None else None,
         "label_hash": "0x%08x" % label_hash if label_hash is not None else None,
+        "target": target,
     }
 
 
@@ -281,9 +367,21 @@ def scan_lines(lines, file_name, table):
     'multi-line' / 'unresolved' / 'ambiguous' to 'file:line  detail' strings."""
     rows = []
     notes = {"multi-line": [], "unresolved": [], "ambiguous": []}
+    text_struct = text_init = None
     for line_no, raw in enumerate(lines, 1):
         code, comment, strings = split_comment(raw.rstrip("\n"))
         by_key = {}
+
+        # A `{0x…, "English"}` record counts as a language key only where the code says so: on the
+        # line of a designated `.key =` initialiser, or within a few lines under the `Text` /
+        # `LangKey` struct whose table it is. That window is why the rows of gui_dialog.c's Text
+        # table count while a same-shaped `{package_key, "UI_x.fng"}` row of the frame table does
+        # not: the frame table is package identity, and nothing above it claims to hold text keys.
+        marked_line = bool(KEY_MARK.search(code)) or ".key" in code
+        if marked_line:
+            text_init = line_no
+        elif text_init and line_no - text_init > 6:
+            text_init = None
 
         for call in TEXT_CALLS:
             at = code.find(call + "(")
@@ -328,6 +426,15 @@ def scan_lines(lines, file_name, table):
                     notes["ambiguous"].append("%s:%d  0x%08x  [%s]  %s" %
                                               (file_name, line_no, literal, " ".join(labels),
                                                comment.strip()[:70]))
+
+        for at, key, label, target in key_assignments(code, text_init == line_no):
+            if in_string(at, strings):
+                continue
+            if key is None:
+                notes["unresolved"].append("%s:%d  %s = %s" % (file_name, line_no, target, label))
+                continue
+            by_key.setdefault(key, row(file_name, line_no, key, label, table, "key-field",
+                                       target=target))
 
         rows.extend(by_key.values())
     return rows, notes
