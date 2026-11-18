@@ -7920,9 +7920,10 @@ int main(int argc, char **argv) {
             int pr_act = pr_update(post, (float)fmin(frame_seconds, .1));
             static int career_dev_results;   /* --career-dev: Continue after a short look at the results */
             if (career_dev > 0 && g_career.active && pr_is_open(post) && pr_act == PR_ACT_NONE) {
-                /* the player's keys: Return (results -> menu), Right (Restart -> Continue), Return */
+                /* Advance every family page, then select Continue on the action menu. */
                 int k = ++career_dev_results;
-                SDL_Keycode key = k == 60 ? SDLK_RETURN : k == 90 ? SDLK_RIGHT : k == 120 ? SDLK_RETURN : 0;
+                SDL_Keycode key = k % 60 == 0 ?
+                    (pr_screen(post)==PR_SCREEN_MENU && k % 120 == 60 ? SDLK_RIGHT : SDLK_RETURN) : 0;
                 if (key) {
                     SDL_Event ke; memset(&ke, 0, sizeof ke);
                     ke.type = SDL_KEYDOWN; ke.key.keysym.sym = key; ke.key.keysym.scancode = SDL_GetScancodeFromKey(key);
@@ -8039,6 +8040,12 @@ int main(int argc, char **argv) {
                         info.have_drift_points = 1;
                         info.drift_points = (uint32_t)fminf(RR_SCORE_LIMIT, fmaxf(0.0f, world.city.race.drift.bank));
                     }
+                    info.career = g_career.active && g_career.race >= 0;
+                    info.player_x=carpos[0];info.player_y=carpos[1];info.heading=heading;
+                    if(info.have_drift_points) {
+                        info.have_drift_chains=1;info.drift_banked=world.city.race.drift.banked_chains;
+                        info.drift_cancelled=world.city.race.drift.cancelled_chains;
+                    }
                     info.finish_place = gh.finish_place; info.failed = gh.race_failed; info.seconds = gh.race_seconds;
                     snprintf(info.car, sizeof info.car, "%s", carname);
                     if (url_live) {   /* M7 P4: record this round, show the tournament standings */
@@ -8048,13 +8055,17 @@ int main(int argc, char **argv) {
                         } else {
                             info.have_url_standings = 1; info.standing_count = url_series.count;
                             info.url_round = url_series.completed; info.url_rounds = url_series.races;
-                            info.finish_place = rr_url_place(&url_series, 0);
+                            info.have_round_standings=1;
                             for (int k = 0; k < url_series.count; ++k) {
                                 if (!k) snprintf(info.standing[k].name, sizeof info.standing[k].name, "Player");
                                 else snprintf(info.standing[k].name, sizeof info.standing[k].name, "Racer %d", k);
                                 if (!k) snprintf(info.standing[k].car, sizeof info.standing[k].car, "%s", carname);
                                 info.standing[k].points = url_series.points[k];
                                 info.standing[k].place = rr_url_place(&url_series, k);
+                                info.round_standing[k]=info.standing[k];
+                                info.round_standing[k].place=places[k];
+                                info.round_standing[k].seconds=url_round.finish_time[k];
+                                info.round_standing[k].points=url_series.awarded[url_series.completed-1][k];
                             }
                         }
                     }
@@ -8110,6 +8121,7 @@ int main(int argc, char **argv) {
                         info.reward.cash = (uint32_t)(g_career.outcome.reward.cash > 0 ? g_career.outcome.reward.cash : 0);
                         info.reward.reputation = (uint32_t)(g_career.outcome.reward.rep > 0 ? g_career.outcome.reward.rep : 0);
                         info.reward.available = 1; info.reward.inferred = 1;
+                        info.stage_before=g_career.outcome.stage_before;info.stage_after=g_career.outcome.stage_after;
                     }
                     if (fem) fem_close(fem);
                     pr_open(post, &info);

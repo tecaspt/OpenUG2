@@ -1238,3 +1238,9 @@ fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_paint_test
+
+# Retail post-race family render/flow check. Output is supplied by the caller.
+postrace-check: tools/postrace_check.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build/postrace
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_check.c $(SCREENS_TEST_SRC) -o build/postrace_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	SDL_VIDEODRIVER=offscreen ./build/postrace_check "$(OPENUG2_DATA)" "$(or $(POSTRACE_SHOTS),build/postrace)"
