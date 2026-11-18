@@ -1131,9 +1131,9 @@ sfx-fe-test: tools/sfx_fe_test.c src/sfx_fe.h $(SFX_FE_TEST_SRC)
 	$(CC) -O1 -g -std=c99 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fsanitize=address,undefined -Isrc tools/sfx_fe_test.c $(SFX_FE_TEST_SRC) -o build/sfx_fe_test -lm
 	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/sfx_fe_test "$$OPENUG2_DATA"
 
-sfx-fe-capture: tools/sfx_fe_capture.c src/audio.c src/audio.h src/sfx_fe.h $(SFX_FE_TEST_SRC) src/sfx_game.c
+sfx-fe-capture: tools/sfx_fe_capture.c src/audio.c src/audio.h src/sfx_fe.h src/sfx_fe.c src/sfx_game.c src/sfx_game.h src/sfx_play.c src/sfx_bank.c
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/sfx_fe_capture.c src/sfx_game.c $(SFX_FE_TEST_SRC) -o build/sfx_fe_capture $(SDL_LIBS) -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/sfx_fe_capture.c src/sfx_play.c src/sfx_bank.c -o build/sfx_fe_capture $(SDL_LIBS) -lm
 .PHONY: sfx-fe-test sfx-fe-capture
 .PHONY: sfx-play-test sfx-play-demo sfx-game-check
 
