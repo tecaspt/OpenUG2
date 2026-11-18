@@ -139,7 +139,7 @@ insisting the spec rejects it (`python3 -I tools/spec_negative_check.py [log dir
 `xdg` name is what shares a save between steps (`s7` -> `s7b`). The three shortest scripts are inline
 in the gate file; anything worth reading line by line belongs in `gate_inputs/`.
 
-Two things a ported run tends to smuggle in, both seen while porting runs out of `reports/`:
+Three things a ported run tends to smuggle in, all seen while porting runs out of `reports/`:
 
 - **A scripted run's frame numbers belong to the state it was calibrated on.** The S2/S3 world-map
   run (`s7s_shop_ask` and `worldmap_gps` are its gate versions) started from a copied career save,
@@ -153,4 +153,9 @@ Two things a ported run tends to smuggle in, both seen while porting runs out of
   scripted pause-menu sequences need real gaps between presses - and a step that fails with the game
   parked in `screen=PAUSE` to its last frame is usually that, not a missing feature.
   `tools/gate_inputs/worldmap_gps.txt` records the gap it needed and why.
+- **Two ways to take a screenshot print two different lines.** A `shot=name.png` event in an input
+  script prints `script: wrote name.png (WxH)`; the `--shot` flag prints `wrote name.png (WxH) after
+  driving to (X,Y)`. A spec written against one rejects the other, and the step's own "closest lines"
+  hint is what shows it - `tools/log_specs/mirror_on.spec` asserts the `--shot` wording because
+  `mirror_on` has no input script at all.
 

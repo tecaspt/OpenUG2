@@ -104,7 +104,7 @@
               "--rear-mirror", "on", "--shot", "mirror-on-STREAML4RA.png", "--frames", "120"],
      "spec": "tools/log_specs/mirror_on.spec", "shots_min": 1},
 
-    {"id": "worldmap_gps", "kind": "game", "binary": "nfsu2", "timeout": 1800, "xdg": "wmgps",
+    {"id": "worldmap_gps", "kind": "game", "binary": "nfsu2", "timeout": 3600, "xdg": "wmgps",
      "env": {"SDL_AUDIODRIVER": "dummy"},
      "args": ["--path", "${OPENUG2_DATA}", "--resolution", "640x480", "--world-map-dev",
               "--input-script", "@tools/gate_inputs/worldmap_gps.txt"],

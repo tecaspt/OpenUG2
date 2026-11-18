@@ -1,28 +1,29 @@
 # worldmap_gps: the race-destination case from the S2/S3 world-map run
 # (reports/worldmap/s3/live.txt), trimmed to one destination. S3 ran on a copy of the s7 career
-# save, so its script went straight from the menu to free roam, and it picked the destination with
-# click=0.275:0.55, a pixel read off that save's own map. This step starts a fresh career instead
-# (TASK-AF-LOG): a Stage 0 career must buy a car before the city is drivable, hence the purchase
-# below - the same key pair on the same frames as tools/gate_inputs/s7s_shop_ask.txt. The icon is
-# chosen with TAB (the map's own next-destination key) and Right, and the spec asserts the id that
-# was really selected, so the choice is pinned by the log rather than by a screen coordinate.
+# save, so its script went straight from the menu to free roam. This step starts a fresh career
+# instead (TASK-AF-LOG): a Stage 0 career must buy a car before the city is drivable, hence the
+# purchase below - the same key pair on the same frames as tools/gate_inputs/s7s_shop_ask.txt.
 #
-# Sequence: buy the starter car, drive a little, pause into the world map, choose a race, read the
-# GPS route back off the WM probe lines, pause again to check the guidance survived closing the map,
-# then F8, which teleports the car into the destination zone to prove arrival. --world-map-dev
-# prints the icon list, the probe lines and the F8 arrival.
+# The pause menu of a career in free roam is
+#   [0] Return to Explore Mode  [1] Options  [2] Replay  [3] Return to World Map  [4] Quit to Main Menu
+# so World Map is two Rights from the opening focus, which sits on [1] (pause_screen.c focuses entry
+# 1) - a third Right overshoots onto Quit to Main Menu. Activating it opens an OK/Cancel dialog that
+# starts focused on Cancel, the retail two-button default (gui_dialog.c, `initial_focus = 1`), so the
+# answer is Left then Return; a bare Return posts MSG_CANCEL and only resumes. S3's
+# key=Left,key=Return pair is that dialog answer, not a menu movement, and the dialog is rebuilt on
+# every pause, so the second visit answers it the same way.
 #
-# Two things the pause menu asks of a script, both from source rather than from trial and error:
-#  * A pause-screen Accept/Back is swallowed while the carousel's authored exit script runs
-#    (fe_screen.c: `if (s->exiting) return;`) and the first one after a screen opens is dropped
-#    outright (pause_screen.c, the `fresh` flag). Hence the >= 40-frame gaps between presses -
-#    a Return 30 frames after the menu opened simply never reached the carousel.
-#  * World Map is the last pause entry (pause_menu.c inserts it before Quit) and needs three
-#    Rights. Activating it opens an OK/Cancel dialog that starts focused on Cancel - the retail
-#    two-button default (gui_dialog.c: `initial_focus = 1`) - so the first visit answers it with
-#    Left then Return; one bare Return would post MSG_CANCEL and only resume. The S3 script's
-#    key=Left,key=Return pair is that answer, not a menu movement. The dialog stays open across
-#    visits, so the second pause answers the same entry with a bare Return.
+# Leave >= 100 frames (~1.5 s) between pause-menu presses. Carousel steps are ignored while a step is
+# tweening (GC_TWEEN_S 0.3 s, gui_carousel.c) and the tween keeps running past the frame that carries
+# the input, so presses closer together read as one - measured on this binary: 40 and 60 frames apart,
+# the second Right never moved the selection and the run sat in PAUSE to its last frame; 100 frames
+# moved it every time (s3 left ~117). Frames after the map is open do not need that clearance - the
+# map has no tween - so the TAB and Return there sit 20 frames apart, as in s3.
+#
+# After that: choose a race icon with TAB (the map's own next-destination key) and Right, read the
+# GPS route back off the WM probe lines, pause again to confirm the guidance survived closing the
+# map, then F8, which teleports the car into the destination zone to prove arrival.
+# --world-map-dev prints the icon list, the probe lines and the F8 arrival.
 10:key=Left
 20:key=Return
 40:key=Return
@@ -32,27 +33,27 @@
 300:tup=gas
 520:shot=wmgps-roam.png
 540:key=Escape
-580:key=Right
-620:key=Right
-660:key=Right
-700:key=Left
-740:key=Return
-820:shot=wmgps-map.png
-840:key=Tab
-855:key=Tab
-870:key=Right
-890:shot=wmgps-race-selected.png
-940:key=Return
-1000:shot=wmgps-route.png
-1040:key=Escape
-1070:shot=wmgps-guidance-paused.png
-1110:key=Right
-1150:key=Right
-1190:key=Right
-1230:key=Return
-1270:shot=wmgps-guidance-map.png
-1300:key=Escape
-1330:shot=wmgps-guidance-resumed.png
-1360:key=F8
-1400:shot=wmgps-arrived.png
-1401:quit
+640:key=Right
+740:key=Right
+840:key=Return
+940:key=Left
+980:key=Return
+1060:shot=wmgps-map.png
+1080:key=Tab
+1100:key=Right
+1120:shot=wmgps-race-selected.png
+1140:key=Return
+1240:shot=wmgps-route.png
+1340:key=Escape
+1390:shot=wmgps-guidance-paused.png
+1490:key=Right
+1590:key=Right
+1690:key=Return
+1790:key=Left
+1830:key=Return
+1910:shot=wmgps-guidance-map.png
+1930:key=Escape
+1980:shot=wmgps-guidance-resumed.png
+2080:key=F8
+2130:shot=wmgps-arrived.png
+2131:quit

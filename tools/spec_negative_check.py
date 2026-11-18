@@ -55,6 +55,21 @@ CASES = {
         lambda t: t.replace("garage saved: GOLF body=1 rim=NFSU STYLE02",
                             "garage saved: GOLF body=0 rim=NFSU STYLE01", 1),
         "the kit surviving the restart"),
+    # s7s_shop_ask is the shop-ask flow: zone, ask, answered Yes, and a lot whose cars are all
+    # unowned. Turning the answer into No is the bug its forbid rule is written for.
+    "s7s_shop_ask.spec": ("s7s_shop_ask.log",
+        lambda t: t.replace("career: shop question answered Yes", "career: shop question answered No", 1),
+        "the shop prompt was answered Yes, and the flow orders ask -> Yes -> owned-car lot"),
+    # mirror_on proves the rear mirror drew: its only positive line is the --shot write. Removing it
+    # leaves a run that never took the screenshot the step is named after.
+    "mirror_on.spec": ("mirror_on.log",
+        lambda t: re.sub(r"^wrote mirror-on-.*\n", "", t, count=1, flags=re.M),
+        "the mirror screenshot must exist"),
+    # worldmap_gps is the route-and-arrive flow. The last line is arrival; without it the run only
+    # ever planned a route.
+    "worldmap_gps.spec": ("worldmap_gps.log",
+        lambda t: re.sub(r"^world map: destination zone reached .*\n", "", t, count=1, flags=re.M),
+        "the car must reach the destination zone, not just be routed to it"),
 }
 
 
