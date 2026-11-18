@@ -121,16 +121,23 @@ table, the per-milestone totals) are this run's numbers, transcribed: re-run the
 after landing screen work and refresh both.
 
 
-#### M1 - 6 packages
+#### M1 - post-race follow-up
+
+[data] The five post-race rows below are now bound and used; the original inventory
+counts above describe the earlier scan. See [POSTRACE.md](POSTRACE.md) for flow,
+measured fields and remaining uncertainty. `MU_QuickRaceCarSelect.fng` remains open:
+it is a separate car-select shell, outside post-race ownership.
+
+#### M1 - 6 original packages
 
 | package | class | nodes | captions | lang keys | size | file |
 |---|---|--:|--:|--:|---|---|
 | `MU_QuickRaceCarSelect.fng` | frontend-screen | 99 | 7 | 1 | L | FRONTEND/FrontB.lzc |
-| `UI_PostRace_TournResults.fng` | frontend-screen | 106 | 40 | 6 | L | GLOBAL/InGameRace.bun |
-| `UI_PostRace_TournStandings.fng` | frontend-screen | 99 | 33 | 6 | L | GLOBAL/InGameRace.bun |
-| `UI_PostRaceReward.fng` | frontend-screen | 61 | 11 | 5 | L | GLOBAL/InGameRace.bun |
-| `UI_PostRaceStats.fng` | frontend-screen | 107 | 47 | 4 | L | GLOBAL/InGameRace.bun |
-| `UI_PostRaceWorldMap.fng` | frontend-screen | 67 | 9 | 0 | L | GLOBAL/InGameRace.bun |
+| `UI_PostRace_TournResults.fng` (done: bound) | frontend-screen | 106 | 40 | 6 | L | GLOBAL/InGameRace.bun |
+| `UI_PostRace_TournStandings.fng` (done: bound) | frontend-screen | 99 | 33 | 6 | L | GLOBAL/InGameRace.bun |
+| `UI_PostRaceReward.fng` (done: bound) | frontend-screen | 61 | 11 | 5 | L | GLOBAL/InGameRace.bun |
+| `UI_PostRaceStats.fng` (done: bound) | frontend-screen | 107 | 47 | 4 | L | GLOBAL/InGameRace.bun |
+| `UI_PostRaceWorldMap.fng` (done: bound) | frontend-screen | 67 | 9 | 0 | L | GLOBAL/InGameRace.bun |
 
 #### M1/M2 - 10 packages
 
