@@ -1740,7 +1740,9 @@ static const CdPaint *career_car_paint(const char *car, int slot) {
 }
 /* Career performance parts of the active owned car -> drivetrain upgrade (docs/parity/PERF-PAINT.md). Stock (0) for
  * any other car or outside a career. Categories: 3 engine (axis 0), 1 transmission (axis 2: the 6-speed axis reaches
- * 1.0 alone), 8 tires (axis 0). Brakes, weight, nitrous, ECU, turbo, suspension: no data-backed effect yet. */
+ * 1.0 alone), 8 tires (axis 0). Suspension 5/0 is carried for the log only: the record's 0x6A0-0x6CC block is a
+ * per-axle retune, not a stock->max pair, and nothing in Stage1-5 consumes it. Brakes, weight, nitrous, ECU and
+ * turbo: no data-backed target (ruled-out census in the same document). */
 static int career_drv_upgrade(const char *car, DrvUpgrade *up) {
     memset(up,0,sizeof *up);
     if(!g_career.active||!car||!g_career.st.nowned||g_career.st.active>=g_career.st.nowned||
@@ -1748,13 +1750,13 @@ static int career_drv_upgrade(const char *car, DrvUpgrade *up) {
     float u[CD_PERF_CATS][4];
     cr_perf_fraction(&g_career.st,&g_career.cd,u);
     up->engine=u[3][0];up->engine_level=cr_perf_level_of(u[3][0]);
-    up->gear_level=cr_perf_level_of(u[1][2]);up->tires=u[8][0];
+    up->gear_level=cr_perf_level_of(u[1][2]);up->tires=u[8][0];up->suspension=u[5][0];
     return up->engine>0||up->gear_level>0||up->tires>0;
 }
 static int career_stage1_read(const unsigned char *data,long len,const char *car,DrvCar *out) {
     DrvUpgrade up;
     if(!career_drv_upgrade(car,&up))return stage1_car_read(data,len,car,out);
-    printf("career: upgrades %s engine %.2f L%d gearbox L%d tires %.2f\n",car,up.engine,up.engine_level,up.gear_level,up.tires);
+    printf("career: upgrades %s engine %.2f L%d gearbox L%d tires %.2f suspension %.2f\n",car,up.engine,up.engine_level,up.gear_level,up.tires,up.suspension);
     return stage1_car_read_upgraded(data,len,car,&up,out);
 }
 /* Performance shop: the career's packages / components for the active car into the FE snapshot (fe_perf.h). */
