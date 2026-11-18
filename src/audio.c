@@ -284,6 +284,50 @@ static float gin_pos_at(const GinsuSweep *s, float rpm) {
            ((float)s->rpm_pos[i+1] - (float)s->rpm_pos[i]);
 }
 
+/* Native engine recordings, one row per playable car model.
+ *
+ * The retail data ships 84 Gnsu20 recordings and no car -> recording table:
+ * a whole-tree string search finds the GIN_ filenames in nothing but the
+ * installer's file list and the executable, and FORMATS.md records the same
+ * conclusion. Car identity therefore lives only in these filenames, so every
+ * row below is [inferred from filename], cross-checked against two things
+ * that are data: the recording's own rpm_min/rpm_max header and the car's
+ * GLOBALB powertrain row (idle / redline / rev-limiter RPM). Where a model
+ * has no recording whose RPM envelope plausibly covers its engine, it is
+ * absent from this table and keeps the CAR_nn bank fallback. See
+ * docs/parity/AUDIO.md for the per-car reasoning and the exclusions.
+ *
+ * Names are compared case-insensitively and the recordings are opened in the
+ * same order the previous directory scan produced (acceleration first), so a
+ * car that already matched keeps byte-identical PCM. */
+typedef struct EngineRecordings { const char *accel, *decel; } EngineRecordings;
+static const struct { const char *car; EngineRecordings rec; } ENG_RECORDINGS[] = {
+    { "240SX",    { "GIN_Nissan_240SX.gin",     "GIN_240SX_Decel.gin"  } },
+    { "350Z",     { "GIN_350Z_01d_shrt2.gin",   ""                     } },
+    { "ECLIPSE",  { "GIN_MitsEclipse_2000.gin", "GIN_Eclipse_2000_DCL.gin" } },
+    { "FOCUS",    { "GIN_FordFocus_Road.gin",   "GIN_Ford_Focus2_DCL.gin" } },
+    { "G35",      { "GIN_G35_350ZX_Comp_v2_AB.gin", "GIN_Infinit_G35_DCL.gin" } },
+    { "GOLF",     { "GIN_GTi_Pull_01b_shrt.gin", "GIN_GTi_01b_DCL.gin" } },
+    { "HUMMER",   { "GIN_Hummer.gin",           ""                     } },
+    { "MIATA",    { "GIN_Mazda_Miata.gin",      "GIN_Mazda_Miata_DCL.gin" } },
+    { "RX7",      { "GIN_Mazda_RX7.gin",        "GIN_Mazda_RX7_DCL.gin" } },
+    { "RX8",      { "GIN_RX8_Ramp_v1_CD.gin",   "GIN_Mazda_RX8_DCL.gin" } },
+    { "SKYLINE",  { "GIN_Nissan_Skyline.gin",   ""                     } },
+    { "TT",       { "GIN_VR6_Jetta_M3.gin",     "GIN_VW_Jetta_M3_DCL.gin" } },
+};
+
+/* The model's recordings, or NULL when the table has no row for it. */
+const EngineRecordings *audio_engine_recordings(const char *carname) {
+    for (unsigned i = 0; i < sizeof ENG_RECORDINGS / sizeof ENG_RECORDINGS[0]; i++) {
+        size_t k = 0;
+        for (; carname[k] && ENG_RECORDINGS[i].car[k]; k++) {
+            if (toupper((unsigned char)carname[k]) != ENG_RECORDINGS[i].car[k]) break;
+        }
+        if (!carname[k] && !ENG_RECORDINGS[i].car[k]) return &ENG_RECORDINGS[i].rec;
+    }
+    return 0;
+}
+
 int audio_load_ginsu_sweeps(const char *dataroot, const char *carname) {
     Ginsu20State *g = &g_engine.gin;
     if (g->has_gin_data) {
@@ -291,40 +335,15 @@ int audio_load_ginsu_sweeps(const char *dataroot, const char *carname) {
         if (!g->decel_is_alias) free_sweep(&g->decel_sweep);
         memset(g, 0, sizeof *g);
     }
-    char dirp[512], up_car[64], up_f[256];
+    const EngineRecordings *rec = audio_engine_recordings(carname);
+    if (!rec) return 0;                   /* no authored recording: keep the fallback */
+    char dirp[512], path[768];
     snprintf(dirp, sizeof dirp, "%s/SOUND/ENGINE", dataroot);
-    size_t cl = strlen(carname);
-    if (cl >= sizeof up_car) return 0;
-    for (size_t i = 0; i <= cl; i++) up_car[i] = (char)toupper((unsigned char)carname[i]);
-    DIR *dir = opendir(dirp);
-    if (!dir) return 0;
-    char best[2][256] = { "", "" };            /* [0]=accel, [1]=decel */
-    struct dirent *e;
-    while ((e = readdir(dir))) {
-        size_t fl = strlen(e->d_name);
-        if (fl < 5 || fl >= sizeof up_f) continue;
-        for (size_t i = 0; i <= fl; i++) up_f[i] = (char)toupper((unsigned char)e->d_name[i]);
-        if (strncmp(up_f, "GIN_", 4) != 0 || strcmp(up_f + fl - 4, ".GIN") != 0) continue;
-        /* [inferred] The Golf GTI recordings use GTi in the retail filenames.
-         * Select the road pair explicitly: a substring search for GTi would
-         * also admit the shorter VW_Drag_GTi competition recording. */
-        if (!strcmp(up_car, "GOLF")) {
-            if (strcmp(up_f, "GIN_GTI_PULL_01B_SHRT.GIN") &&
-                strcmp(up_f, "GIN_GTI_01B_DCL.GIN")) continue;
-        } else if (!strstr(up_f, up_car)) continue;
-        int dcl = strstr(up_f, "DCL") || strstr(up_f, "DECEL") ? 1 : 0;
-        if (!best[dcl][0] || strlen(e->d_name) < strlen(best[dcl]) ||
-            (strlen(e->d_name) == strlen(best[dcl]) && strcmp(e->d_name, best[dcl]) < 0))
-            snprintf(best[dcl], sizeof best[dcl], "%s", e->d_name);
-    }
-    closedir(dir);
-    if (!best[0][0]) return 0;
-    char path[768];
-    snprintf(path, sizeof path, "%s/%s", dirp, best[0]);
+    snprintf(path, sizeof path, "%s/%s", dirp, rec->accel);
     if (!gin_load(path, &g->accel_sweep)) return 0;
     int n = 1;
-    if (best[1][0]) {
-        snprintf(path, sizeof path, "%s/%s", dirp, best[1]);
+    if (rec->decel[0]) {
+        snprintf(path, sizeof path, "%s/%s", dirp, rec->decel);
         if (gin_load(path, &g->decel_sweep)) n = 2;
     }
     if (n == 1) { g->decel_sweep = g->accel_sweep; g->decel_is_alias = 1; }
