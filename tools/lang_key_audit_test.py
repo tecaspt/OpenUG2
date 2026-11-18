@@ -244,6 +244,62 @@ class Scanner(unittest.TestCase):
             ['    {gv_text(a,ug_hash_upper("BACK"),"Back"),gv_text(a,ug_hash_upper("SELECT"),"Select"),1},'])
         self.assertEqual({"0x001335f0", "0x79ad657f"}, set(rows))
 
+    def test_key_field_assignment_is_a_row(self):
+        rows, notes = self.statuses([
+            '        out->label_key[0] = 0x00000639u; out->label[0] = "OK";',
+            '        out->message_key = 0x0aab553eu;'])
+        self.assertEqual({"0x00000639", "0x0aab553e"}, set(rows))
+        self.assertEqual([], notes["unresolved"])
+
+    def test_designated_initialiser_is_a_row(self):
+        rows, notes = self.statuses(['    GdSpec s = { .message_key = 0x00000639u, .message = "OK" };'])
+        self.assertEqual({"0x00000639"}, set(rows))
+        self.assertEqual([], notes["unresolved"])
+
+    def test_text_record_table_is_a_row(self):
+        rows, notes = self.statuses([
+            'typedef struct LangKey { uint32_t key; const char *en; } LangKey;',
+            'static const LangKey K_QUIT = { 0x00000639u, "OK" };',
+            'static const LangKey K_BACK = { 0x001335f0u, "Back" };'])
+        self.assertEqual({"0x00000639", "0x001335f0"}, set(rows))
+        self.assertEqual([], notes["unresolved"])
+
+    def test_a_package_table_row_is_not_read_as_a_key(self):
+        rows, notes = self.statuses([
+            'static const Frame gd_frames[] = {',
+            '    { 0x6962C0CDu, "GenericDialog_SMALL.fng", 4 },',
+            '    { 0x9943D584u, "U2_Menu_Arrow.tga", 1 },',
+            '};'])
+        self.assertEqual({}, rows)
+        self.assertEqual([], notes["unresolved"] + notes["ambiguous"])
+
+    def test_node_id_and_message_id_defines_are_not_rows(self):
+        rows, notes = self.statuses([
+            '#define FES_ROW_TOP     0x9a3674c8u   /* node 13: the top subject row */',
+            '#define KEY_PKG_SMALL 0x6962C0CDu',
+            'd->result_msg[0] = 0xD05FC3A3u;         /* FE message for the first button */'])
+        self.assertEqual({}, rows)
+        self.assertEqual([], notes["unresolved"])
+
+    def test_other_namespaces_that_end_in_key_stay_out_of_the_rows(self):
+        # A model handle shares the `_key` spelling and never becomes a row; `label` holds the
+        # English text; and an unnamed `.key` outside a language record has no literal to judge,
+        # so it is neither a row nor an unresolved note.
+        rows, notes = self.statuses([
+            '    e->model_key = model_key;',
+            '    n->world_base_model_key = base_key;',
+            '    s.label = label;',
+            '    .key = key'])
+        self.assertEqual({}, rows)
+        self.assertEqual([], notes["unresolved"])
+
+    def test_a_key_named_by_a_constant_is_unresolved(self):
+        rows, notes = self.statuses(['    out->message_key = T_DEFAULTS.key;',
+                                     '    out->label_key[0] = FIRST_LABEL;'])
+        self.assertEqual({}, rows)
+        self.assertEqual(2, len(notes["unresolved"]))
+        self.assertIn("message_key", notes["unresolved"][0])
+
 
 class CommandLine(unittest.TestCase):
     def setUp(self):
