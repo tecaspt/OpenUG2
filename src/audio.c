@@ -293,9 +293,16 @@ int audio_load_ginsu_sweeps(const char *dataroot, const char *carname) {
         if (fl < 5 || fl >= sizeof up_f) continue;
         for (size_t i = 0; i <= fl; i++) up_f[i] = (char)toupper((unsigned char)e->d_name[i]);
         if (strncmp(up_f, "GIN_", 4) != 0 || strcmp(up_f + fl - 4, ".GIN") != 0) continue;
-        if (!strstr(up_f, up_car)) continue;
+        /* [inferred] The Golf GTI recordings use GTi in the retail filenames.
+         * Select the road pair explicitly: a substring search for GTi would
+         * also admit the shorter VW_Drag_GTi competition recording. */
+        if (!strcmp(up_car, "GOLF")) {
+            if (strcmp(up_f, "GIN_GTI_PULL_01B_SHRT.GIN") &&
+                strcmp(up_f, "GIN_GTI_01B_DCL.GIN")) continue;
+        } else if (!strstr(up_f, up_car)) continue;
         int dcl = strstr(up_f, "DCL") || strstr(up_f, "DECEL") ? 1 : 0;
-        if (!best[dcl][0] || strlen(e->d_name) < strlen(best[dcl]))
+        if (!best[dcl][0] || strlen(e->d_name) < strlen(best[dcl]) ||
+            (strlen(e->d_name) == strlen(best[dcl]) && strcmp(e->d_name, best[dcl]) < 0))
             snprintf(best[dcl], sizeof best[dcl], "%s", e->d_name);
     }
     closedir(dir);
