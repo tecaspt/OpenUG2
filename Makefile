@@ -58,6 +58,7 @@ HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
 SRC += src/sfx_bank.c src/sfx_play.c src/sfx_game.c   # M8: retail .abk banks -> in-game impact/skid/road/shift effects
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
+HDRS += src/postrace_stats.h
 SRC += src/fe_sms.c
 SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
@@ -1238,3 +1239,19 @@ fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_paint_test
+
+# Retail post-race family render/flow check. Output is supplied by the caller.
+postrace-check: tools/postrace_check.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build/postrace
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_check.c $(SCREENS_TEST_SRC) -o build/postrace_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	SDL_VIDEODRIVER=offscreen ./build/postrace_check "$(OPENUG2_DATA)" "$(or $(POSTRACE_SHOTS),build/postrace)"
+
+postrace-stats-test: tools/postrace_stats_test.c src/postrace_stats.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc tools/postrace_stats_test.c -o build/postrace_stats_test -lm
+	./build/postrace_stats_test
+
+postrace-lap-test: tools/postrace_lap_test.c src/postrace_stats.h $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/postrace_lap_test.c src/world.c -Wl,--gc-sections -o build/postrace_lap_test -lm
+	./build/postrace_lap_test
