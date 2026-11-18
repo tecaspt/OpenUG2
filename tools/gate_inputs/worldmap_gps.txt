@@ -1,0 +1,58 @@
+# worldmap_gps: the race-destination case from the S2/S3 world-map run
+# (reports/worldmap/s3/live.txt), trimmed to one destination. S3 ran on a copy of the s7 career
+# save, so its script went straight from the menu to free roam, and it picked the destination with
+# click=0.275:0.55, a pixel read off that save's own map. This step starts a fresh career instead
+# (TASK-AF-LOG): a Stage 0 career must buy a car before the city is drivable, hence the purchase
+# below - the same key pair on the same frames as tools/gate_inputs/s7s_shop_ask.txt. The icon is
+# chosen with TAB (the map's own next-destination key) and Right, and the spec asserts the id that
+# was really selected, so the choice is pinned by the log rather than by a screen coordinate.
+#
+# Sequence: buy the starter car, drive a little, pause into the world map, choose a race, read the
+# GPS route back off the WM probe lines, pause again to check the guidance survived closing the map,
+# then F8, which teleports the car into the destination zone to prove arrival. --world-map-dev
+# prints the icon list, the probe lines and the F8 arrival.
+#
+# Two things the pause menu asks of a script, both from source rather than from trial and error:
+#  * A pause-screen Accept/Back is swallowed while the carousel's authored exit script runs
+#    (fe_screen.c: `if (s->exiting) return;`) and the first one after a screen opens is dropped
+#    outright (pause_screen.c, the `fresh` flag). Hence the >= 40-frame gaps between presses -
+#    a Return 30 frames after the menu opened simply never reached the carousel.
+#  * World Map is the last pause entry (pause_menu.c inserts it before Quit) and needs three
+#    Rights. Activating it opens an OK/Cancel dialog that starts focused on Cancel - the retail
+#    two-button default (gui_dialog.c: `initial_focus = 1`) - so the first visit answers it with
+#    Left then Return; one bare Return would post MSG_CANCEL and only resume. The S3 script's
+#    key=Left,key=Return pair is that answer, not a menu movement. The dialog stays open across
+#    visits, so the second pause answers the same entry with a bare Return.
+10:key=Left
+20:key=Return
+40:key=Return
+100:key=Return
+120:key=Return
+240:tdown=gas
+300:tup=gas
+520:shot=wmgps-roam.png
+540:key=Escape
+580:key=Right
+620:key=Right
+660:key=Right
+700:key=Left
+740:key=Return
+820:shot=wmgps-map.png
+840:key=Tab
+855:key=Tab
+870:key=Right
+890:shot=wmgps-race-selected.png
+940:key=Return
+1000:shot=wmgps-route.png
+1040:key=Escape
+1070:shot=wmgps-guidance-paused.png
+1110:key=Right
+1150:key=Right
+1190:key=Right
+1230:key=Return
+1270:shot=wmgps-guidance-map.png
+1300:key=Escape
+1330:shot=wmgps-guidance-resumed.png
+1360:key=F8
+1400:shot=wmgps-arrived.png
+1401:quit
