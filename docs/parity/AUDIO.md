@@ -122,6 +122,216 @@ Closed-throttle callback output (RMS / >2 kHz energy):
 Full-load 240SX/350Z/HUMMER captures and coast HUMMER captures remain
 byte-identical at all four RPMs. No engine-only capture reaches a clipping rail.
 
+## Native recordings for every playable car
+
+The substring heuristic is gone; `src/audio.c` now carries an explicit model →
+recording table. This section records how that table was derived, what it
+changed, and where it stops.
+
+### Where the association lives in the data
+
+[data] The retail data contains **no** car → recording table. A case-insensitive
+search of the whole install tree for `GIN_` hits exactly three files: the
+installer list `filelist.txt` (a flat path list with no car records), the
+language label file (`Labels.bin`, unrelated UI keys such as
+`OPT_AUDIO_ENGINE_VOL`), and `SPEED2.EXE` — which is out of scope for this
+clean-room effort. The `SOUND/EVT_SYS/*.csi` event-system files name engine
+*event* strings (`CAR`, `CAR_SputOutput`, `CAR_SputOut`, `CAR_SWTN`) but no
+recording names. The `CAR_nn_ENG_MB` banks carry no car identifier either.
+Consequently a recording's only link to a car is its filename, exactly as
+`docs/FORMATS.md` states, so **every row of the map is [inferred from filename]**.
+
+Two independent record sets *are* data and are used to test each inference:
+
+1. [data] each recording's own `Gnsu20` header (`rpm_min`, `rpm_max`, sample
+   rate, and whether the RPM marker curve ascends or descends);
+2. [data] each model's GLOBALB powertrain row (idle / redline / rev-limiter RPM),
+   read through the project's existing `n2_global_physics_attr` record reader.
+
+A mapping survives only if the recording's RPM envelope covers the model's tacho
+band. All twelve mapped models pass: for example RX7 records 1597–7239 RPM
+against an 850/8000/8500 row, and HUMMER records 1267–4783 against
+800/5500/6000 — a low-revving truck engine, which is why the truck-family RPM
+floor is lower than the sports-car floor. Full table in the evidence log.
+
+### The map
+
+| Model | Acceleration | Coast | Basis |
+|---|---|---|---|
+|240SX|`GIN_Nissan_240SX.gin`|`GIN_240SX_Decel.gin`|[inferred] name match, road take|
+|350Z|`GIN_350Z_01d_shrt2.gin`|same recording, aliased|[inferred] name match; see below|
+|ECLIPSE|`GIN_MitsEclipse_2000.gin`|`GIN_Eclipse_2000_DCL.gin`|[inferred] road pair replaces an aftermarket take|
+|FOCUS|`GIN_FordFocus_Road.gin`|`GIN_Ford_Focus2_DCL.gin`|[inferred] "Road" is the road take|
+|G35|`GIN_G35_350ZX_Comp_v2_AB.gin`|`GIN_Infinit_G35_DCL.gin`|[inferred] name match|
+|GOLF|`GIN_GTi_Pull_01b_shrt.gin`|`GIN_GTi_01b_DCL.gin`|[inferred] unchanged from the Golf fix|
+|HUMMER|`GIN_Hummer.gin`|same recording, aliased|[inferred] name match|
+|MIATA|`GIN_Mazda_Miata.gin`|`GIN_Mazda_Miata_DCL.gin`|[inferred] name match|
+|RX7|`GIN_Mazda_RX7.gin`|`GIN_Mazda_RX7_DCL.gin`|[inferred] name match|
+|RX8|`GIN_RX8_Ramp_v1_CD.gin`|`GIN_Mazda_RX8_DCL.gin`|[inferred] the only RX8 pair|
+|SKYLINE|`GIN_Nissan_Skyline.gin`|same recording, aliased|[inferred] name match, no coast twin|
+|TT|`GIN_VR6_Jetta_M3.gin`|`GIN_VW_Jetta_M3_DCL.gin`|[inferred] name match, VR6 Jetta pair|
+
+The table is keyed case-insensitively and the recordings are opened in the order
+the old scan produced (acceleration first), so a car the old scan already matched
+cannot move. `make engine-map-test` asserts exactly that, plus file existence,
+parse success, envelope sanity, coast-aliasing and the fallbacks.
+
+The fallback banks carry no usable identifier: the `CAR_nn_ENG_MB_SPU.abk`
+prefixes hold executable content, which is out of scope, and their sample tables
+expose only `BNKl`/`PT` rate, count and offset tags — no car name and no
+recording name. One unrelated engine event string family does exist in the data
+(`CAR_10_SWTN_MB.abk`, matching the `CAR_SWTN` string in
+`SOUND/EVT_SYS/UG2_ENGINES_AEMS2.csi`), but nothing maps it to a model. So the
+filename plus the two RPM record sets above are the whole evidential basis, and
+no row is stronger than another in data terms.
+
+### What actually changed
+
+Because the retired rule was a *substring* search, nine of the twelve models were
+already matched and stay byte-identical. Only two rows differ, and one of them is
+a deliberate brief-mandated preference:
+
+- **ECLIPSE** moved off `GIN_Eclipse_5Zigen.gin` (an aftermarket variant take)
+  onto the `MitsEclipse_2000` road pair. The old rule reached it because
+  "ECLIPSE" is a substring of `GIN_Eclipse_5Zigen.gin` and that filename is
+  shorter than `GIN_MitsEclipse_2000.gin`. The road recordings also track the
+  model's 850/7000/7500 row more faithfully. This is the same fault class as
+  GOLF's drag-vs-road mistake, and the brief's "prefer road" instruction covers
+  it.
+- **350Z** no longer borrows `GIN_Nissan_350ZX_Jason_DCL.gin` as its coast
+  sweep. That file is the tuned variant's coast take and contains that variant's
+  entire acceleration sweep; measured, its last-decile RMS is 15069 against the
+  selected recording's 18889, so the old cross-family pairing imposed a ~14.5 dB
+  output step every time the driver lifted off. Aliasing to the model's own
+  recording (the same mechanism HUMMER and SKYLINE use) removes the step. At
+  full throttle the 350Z is unaffected and byte-identical.
+
+`[inferred]` Neither change is confirmed by a data table — none exists — but
+ECLIPSE is a variant-preference call and 350Z is a loudness-discontinuity call,
+both testable from the files themselves.
+
+### Cars that keep the bank fallback
+
+32 installed models have no plausible native recording and keep the hashed
+`CAR_nn_ENG_MB` path unchanged. All 84 recordings are accounted for in the
+inventory: 21 used, 63 unused, each with a reason. The unused ones fall into:
+
+- **models not installed** — Ferrari 360, Acura Integra/ITR, Chevrolet Cavalier,
+  Ford Bronco, Honda Prelude, Porsche Cayenne, Mazda Protege, Nissan 300ZX,
+  Toyota Trueno AE86 / Sprinter GTS, VW Cabriolet and Scirocco. A recording with
+  no car to receive it stays unused; inventing an owner for it would be a guess
+  with no supporting data at all.
+- **the S2000 family (12 recordings; three of them — `HondaS2000_APEX_V1`,
+  `S2000_5Zigen_v2`, `S2000_ApexChurch2F2F_v3_SH` — are named without the
+  `GIN_` prefix).** The loader keys on the `Gnsu20` magic and the explicit map,
+  never on a filename prefix, so the naming is only a cataloguing note, not a
+  reason for exclusion. The reason is that there is no
+  `CARS/S2000/GEOMETRY.BIN` in this install: the model is not drivable, so
+  nothing can receive the recordings. If a S2000 body is ever installed, this is
+  the first family to revisit.
+- **competition variants of a mapped car** — `Eclip2000_v1_CD` (Eclipse ramp),
+  `FordFocus_comp2` (Focus competition), `VW_Jetta_M4` (TT upgrade tier),
+  `VW_Drag_GTi` (Golf drag). Road takes win per the brief.
+- **no road recording exists** — Mustang (`Mustang_Drag`, `Mustang_Nscr_COMP`,
+  `Mustang_Saleen_DCL`, `MustSal_Ramp_V2_CD`) and NASCAR takes only. MUSTANGGT's
+  engine revs 800/6000/6500, but every Mustang take is a drag or ovals recording
+  and `MustSal_Ramp_V2_CD` tops out at 5122 RPM, below the model's 6000 redline.
+  Mapping the car to a wrong-sounding variant was rejected in favour of the
+  fallback.
+- **IMPREZAWRX against the WRX family.** The closest road take,
+  `GIN_WRX_Street.gin`, ends at 6314 RPM against the model's 7000 redline, and
+  `GIN_WRX_Street_DCL.gin` starts at 3916 RPM — no idle coverage. The other WRX
+  files are aftermarket tunes. Left on the fallback rather than mapped to a
+  recording that cannot reach the tacho band.
+- **LANCEREVO8** — `GIN_Mits_5zigen_DCL.gin` is the only Mitsubishi-named coast
+  take and has no acceleration twin, and "5Zigen" is an aftermarket variant. No
+  mapping.
+
+### Measured renders
+
+Full-throttle renders through the production dummy callback, 45056 frames at
+44100 Hz, RMS in s16 units and >2 kHz share of a DC-removed Hann power spectrum
+(the AE method). "Source" is what the loader picked; `bank` is the fallback. The
+before column is the retired selection rule, the after column this map.
+
+| Car | Source | RPM | RMS before → after | >2 kHz % before → after | PCM |
+|---|---|---:|---:|---:|---|
+| ECLIPSE | sweeps | 1000 | 3692.13 → 3863.55 | 0.02278 → 0.00153 | changed |
+| ECLIPSE | sweeps | 3000 | 3672.04 → 3684.97 | 0.85924 → 0.10475 | changed |
+| ECLIPSE | sweeps | 6000 | 3655.23 → 3190.51 | 1.00624 → 2.17638 | changed |
+| FOCUS | sweeps | 1000 | 3358.28 → 3358.28 | 0.03047 → 0.03047 | identical |
+| FOCUS | sweeps | 3000 | 3326.24 → 3326.24 | 0.18441 → 0.18441 | identical |
+| FOCUS | sweeps | 6000 | 2675.75 → 2675.75 | 7.52130 → 7.52130 | identical |
+| G35 | sweeps | 1000 | 1988.34 → 1988.34 | 0.03307 → 0.03307 | identical |
+| G35 | sweeps | 3000 | 3472.20 → 3472.20 | 0.09955 → 0.09955 | identical |
+| G35 | sweeps | 6000 | 2882.15 → 2882.15 | 1.98105 → 1.98105 | identical |
+| MIATA | sweeps | 1000 | 3625.41 → 3625.41 | 0.00271 → 0.00271 | identical |
+| MIATA | sweeps | 3000 | 2989.51 → 2989.51 | 0.59956 → 0.59956 | identical |
+| MIATA | sweeps | 6000 | 3133.98 → 3133.98 | 2.33555 → 2.33555 | identical |
+| RX7 | sweeps | 1000 | 4177.07 → 4177.07 | 0.02762 → 0.02762 | identical |
+| RX7 | sweeps | 3000 | 4161.61 → 4161.61 | 0.38881 → 0.38881 | identical |
+| RX7 | sweeps | 6000 | 3146.25 → 3146.25 | 4.03582 → 4.03582 | identical |
+| 240SX | sweeps | 1000 | 2607.24 → 2607.24 | 0.02605 → 0.02605 | identical |
+| 240SX | sweeps | 3000 | 3047.04 → 3047.04 | 0.07702 → 0.07702 | identical |
+| 240SX | sweeps | 6000 | 2668.26 → 2668.26 | 1.81739 → 1.81739 | identical |
+| 350Z | sweeps | 1000 | 2516.81 → 2516.81 | 0.02000 → 0.02000 | identical |
+| 350Z | sweeps | 3000 | 3243.88 → 3243.88 | 0.10117 → 0.10117 | identical |
+| 350Z | sweeps | 6000 | 3588.98 → 3588.98 | 1.02866 → 1.02866 | identical |
+| GOLF | sweeps | 1000 | 2970.00 → 2970.00 | 0.03021 → 0.03021 | identical |
+| GOLF | sweeps | 3000 | 2725.96 → 2725.96 | 1.87858 → 1.87858 | identical |
+| GOLF | sweeps | 6000 | 3026.01 → 3026.01 | 11.27755 → 11.27755 | identical |
+| HUMMER | sweeps | 1000 | 1328.26 → 1328.26 | 0.34884 → 0.34884 | identical |
+| HUMMER | sweeps | 3000 | 2146.81 → 2146.81 | 3.76371 → 3.76371 | identical |
+| HUMMER | sweeps | 6000 | 3037.01 → 3037.01 | 7.59486 → 7.59486 | identical |
+| RX8 | sweeps | 1000 | 3185.17 → 3185.17 | 0.03400 → 0.03400 | identical |
+| RX8 | sweeps | 3000 | 2956.66 → 2956.66 | 0.59490 → 0.59490 | identical |
+| RX8 | sweeps | 6000 | 2920.42 → 2920.42 | 1.83798 → 1.83798 | identical |
+| SKYLINE | sweeps | 1000 | 35.25 → 35.25 | 3.77267 → 3.77267 | identical |
+| SKYLINE | sweeps | 3000 | 3775.11 → 3775.11 | 0.02395 → 0.02395 | identical |
+| SKYLINE | sweeps | 6000 | 3256.66 → 3256.66 | 1.58358 → 1.58358 | identical |
+| TT | sweeps | 1000 | 3251.84 → 3251.84 | 0.00853 → 0.00853 | identical |
+| TT | sweeps | 3000 | 4099.13 → 4099.13 | 0.07839 → 0.07839 | identical |
+| TT | sweeps | 6000 | 2806.98 → 2806.98 | 4.19242 → 4.19242 | identical |
+| SUPRA | bank | 1000 | 11207.14 → 11207.14 | 0.01066 → 0.01066 | identical |
+| SUPRA | bank | 3000 | 9040.96 → 9040.96 | 0.04514 → 0.04514 | identical |
+| SUPRA | bank | 6000 | 7711.59 → 7711.59 | 0.39160 → 0.39160 | identical |
+| CELICA | bank | 1000 | 8349.39 → 8349.39 | 0.00161 → 0.00161 | identical |
+| CELICA | bank | 3000 | 7681.93 → 7681.93 | 0.00168 → 0.00168 | identical |
+| CELICA | bank | 6000 | 8033.76 → 8033.76 | 0.08905 → 0.08905 | identical |
+| COROLLA | bank | 1000 | 5042.40 → 5042.40 | 0.17819 → 0.17819 | identical |
+| COROLLA | bank | 3000 | 9040.67 → 9040.67 | 0.04524 → 0.04524 | identical |
+| COROLLA | bank | 6000 | 7711.47 → 7711.47 | 0.39222 → 0.39222 | identical |
+| MUSTANGGT | bank | 1000 | 8809.95 → 8809.95 | 0.00349 → 0.00349 | identical |
+| MUSTANGGT | bank | 3000 | 6456.39 → 6456.39 | 0.98237 → 0.98237 | identical |
+| MUSTANGGT | bank | 6000 | 7347.58 → 7347.58 | 1.05277 → 1.05277 | identical |
+
+45 of 48 renders are byte-identical.
+
+`make engine-map-test` prints these rows and writes the raw renders; the before
+column comes from the same test built against the retired selection source. Every
+"identical" row is a control, not a measurement coincidence — the PCM files are
+byte-for-byte equal. `SUPRA`, `CELICA`, `COROLLA` and `MUSTANGGT` are included as
+fallback controls: their bank renders are unchanged, and their bank RMS
+(5042–11207) is roughly double the native-sweep levels, one measured facet of the
+reported muffled sound.
+
+`SKYLINE` at 1000 RPM is quiet (RMS 35) because its only recording starts at
+1524 RPM and has no coast twin; the callback then extrapolates the endpoint
+grain. That is pre-existing behaviour, unchanged here, and is the reason the RPM
+envelope check in `engine-map-test` reports rather than hides envelope limits.
+
+### Reproducing this section
+
+`SDL_AUDIODRIVER=dummy ./build/engine_map_test ROOT` runs the checks; add
+`--render CAR... [--dump-pcm DIR]` for the render rows. Build the before binary
+from the retired `src/audio.c` with `-DEMAP_NO_MAP`, which keeps the GOLF pair
+check and the renders but skips the table assertions. See
+`reports/parity/engmap/` for `selection_diff.py` (old rule vs map over every
+installed model), `rpm_coverage.py` (recording envelope vs GLOBALB tacho row),
+`recording_inventory.py` (all 84 recordings with a use or a reason),
+`z350_coast_check.py` (the 350Z coast loudness measurement) and
+`render_table.py` (this table from the two logs). PCM dumps stay out of git.
+
 ## Impacts
 
 [data] `SOUND/EVT_SYS/UG2_STITCH_AEMS.csi` names `AEMS_StichCollision`;

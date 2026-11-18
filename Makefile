@@ -1226,6 +1226,12 @@ audio-ae-capture: tools/audio_ae_capture.c src/audio.c src/audio.h src/sfx_game.
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/audio_ae_capture.c src/sfx_play.c src/sfx_bank.c -o build/audio_ae_capture $(SDL_LIBS) -lm
 .PHONY: audio-ae-test audio-ae-capture
+
+# Car -> native engine recording map: file/RPM checks, fallbacks and callback renders.
+engine-map-test: tools/engine_map_test.c src/audio.c src/audio.h src/sfx_game.c src/sfx_play.c src/sfx_bank.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/engine_map_test.c src/sfx_play.c src/sfx_bank.c -o build/engine_map_test $(SDL_LIBS) -lm
+.PHONY: engine-map-test
 .PHONY: fe-paint-test
 fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
