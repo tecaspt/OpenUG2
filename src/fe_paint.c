@@ -62,7 +62,13 @@ static int node(GvScreen *s,uint32_t hash) {
 static void text(GvScreen *s,uint32_t hash,const char *v) {
  int i=node(s,hash);if(i>=0){s->scene.nodes[i].text_override=v;s->scene.nodes[i].app_hidden=!v;}
 }
-static void hide(GvScreen *s,uint32_t hash,int v) { int i=node(s,hash);if(i>=0)s->scene.nodes[i].app_hidden=v; }
+static void hide(GvScreen *s,uint32_t hash,int v) {
+ int i=node(s,hash);
+ if(i>=0) {
+  s->scene.nodes[i].app_hidden=v;
+  if(!v){float alpha=s->scene.nodes[i].obj->color.a;ug_scene_app_write(&s->scene,i,UG_P_COLOR+3,1,&alpha);}
+ }
+}
 int fpt_bind(FePaint *p,GvScreen *s,const UgAssets *a) {
  if(!p || !s || !gv_screen_load(s,a,fpt_package(p)))return 0;
  for(unsigned k=0;k<sizeof fe_binding_sets/sizeof fe_binding_sets[0];k++)if(!strcmp(fe_binding_sets[k].package,fpt_package(p)))

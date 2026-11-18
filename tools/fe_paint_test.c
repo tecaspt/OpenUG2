@@ -64,6 +64,10 @@ int main(void) {
   CK(swatches==60 && visible==60);
   gv_screen_update(&screen,1000);CK(fpt_sync(&p,&screen,1000));
   for(int i=0;i<screen.scene.n;i++)if(screen.scene.nodes[i].obj->guid==0xe00fbu)CK(screen.scene.nodes[i].wcolor.a==255);
+  p.sel=2;CK(fpt_sync(&p,&screen,0));
+  for(int i=0;i<screen.scene.n;i++)if(screen.scene.nodes[i].obj->name_hash==0x23a43844u) {
+   CK(screen.scene.nodes[i].visible && screen.scene.nodes[i].wcolor.a>0);
+  }
   gv_screen_free(&screen);ug_assets_close(&assets);
  }
  printf("fe_paint_test: %d checks, %d failures\n",checks,fails);return fails?1:0;

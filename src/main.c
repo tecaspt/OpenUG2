@@ -1725,6 +1725,17 @@ static int career_save_parts(void *user,const char *car,const GarageConfig *cfg)
     printf("%s\n",ch->last);
     return rc;
 }
+/* Resolve a saved paint only for the active career car; zero preserves stock. */
+static const CdPaint *career_car_paint(const char *car, int slot) {
+    if (!g_career.active || !car || !g_career.st.nowned ||
+        g_career.st.active >= g_career.st.nowned ||
+        strcmp(g_career.st.owned[g_career.st.active], car)) return NULL;
+    uint32_t key = cr_paint_installed(&g_career.st, slot);
+    if (!key) return NULL;
+    for (int i = 0; i < g_career.cd.npaint; i++)
+        if (g_career.cd.paint[i].key == key) return &g_career.cd.paint[i];
+    return NULL;
+}
 /* Career performance parts of the active owned car -> drivetrain upgrade (docs/parity/PERF-PAINT.md). Stock (0) for
  * any other car or outside a career. Categories: 3 engine (axis 0), 1 transmission (axis 2: the 6-speed axis reaches
  * 1.0 alone), 8 tires (axis 0). Brakes, weight, nitrous, ECU, turbo, suspension: no data-backed effect yet. */
@@ -1770,11 +1781,23 @@ static void career_perf_shop(FePerfShop *o) {
 static const char *career_perf_error(int rc) {
     return rc==CR_PERF_E_LOCKED?"locked":rc==CR_PERF_E_FUNDS?"funds":rc==CR_PERF_E_OWNED?"owned":rc==CR_PERF_E_ARG?"argument":"save";
 }
+static void career_paint_shop(FePaintShop *o) {
+    memset(o,0,sizeof *o);o->bank=g_career.st.bank;
+    for(int i=0;i<g_career.cd.npaint && i<CD_MAX_PAINT;i++) {
+        FePaintColor *c=&o->color[o->n++];c->paint=g_career.cd.paint[i];c->index=i;
+        c->price=cr_paint_price(&g_career.cd,i);c->open=cr_paint_open(&g_career.st,&g_career.cd,i);
+        c->installed=cr_paint_installed(&g_career.st,cr_paint_slot(c->paint.group))==c->paint.key;
+    }
+}
 static void career_open_shop(FeMenu *fem) {
     int sh=g_career.at_shop;
     if(sh<0||sh>=g_career.cd.nshop)return;
     int type=g_career.cd.shop[sh].type;
     if(type==CD_SHOP_CAR_LOT){career_open_lot(fem,g_career.st.nowned==0);return;}
+    if(type==CD_SHOP_PAINT) {
+        static FePaintShop paint;career_paint_shop(&paint);fem_open_paint(fem,&paint);
+        printf("career: opened shop %s type %d\n",g_career.cd.shop[sh].name,type);return;
+    }
     if(type==CD_SHOP_PERF) {
         static FePerfShop perf;
         career_perf_shop(&perf);
@@ -7645,8 +7668,23 @@ int main(int argc, char **argv) {
                     career_launch = gl;
                 } else career_open_lot(fem, lot_must_buy);   /* refused: the menu unlocks on re-open */
             }
-            /* Performance shop purchase: validate + install + debit (cr_perf_buy), save (rolled back on failure), then reload
-               the active car in process so career_stage1_read applies the new parts. */
+            /* Paint purchase uses the same save/rollback transaction as performance parts. */
+            else if (frq.kind == FEM_REQ_PAINT_BUY) {
+                CareerState before=g_career.st;
+                int32_t charged=0;
+                int pi=frq.paint_index;
+                const CdPaint *paint=pi>=0 && pi<g_career.cd.npaint?&g_career.cd.paint[pi]:NULL;
+                int rc=g_career.active && g_career.race<0?
+                    cr_paint_buy(&g_career.st,&g_career.cd,g_career.at_shop,pi,&charged):CR_PERF_E_ARG;
+                if(rc==CR_PERF_OK && cr_save_file(g_career.root,g_career.profile,&g_career.st)!=ST_OK){g_career.st=before;rc=1;}
+                if(rc==CR_PERF_OK)printf("career: paint bought %s slot %d $%d bank %lld\n",paint->name,cr_paint_slot(paint->group),(int)charged,(long long)g_career.st.bank);
+                else printf("career: paint refused %s (%s)\n",paint?paint->name:"unknown",career_perf_error(rc));
+                fflush(stdout);
+                static FePaintShop shop;career_paint_shop(&shop);
+                fem_paint_refresh(fem,&shop,rc==CR_PERF_E_FUNDS?FPT_MSG_NO_FUNDS:rc==CR_PERF_E_LOCKED?FPT_MSG_LOCKED:
+                    rc==CR_PERF_E_OWNED?FPT_MSG_OWNED:rc==CR_PERF_OK?FPT_MSG_NONE:FPT_MSG_SAVE);
+            }
+            /* Performance upgrades require a same-car reload to refresh the drivetrain. */
             else if (frq.kind == FEM_REQ_PERF_BUY) {
                 CareerState before = g_career.st;
                 int32_t charged = 0;
@@ -11345,8 +11383,11 @@ int main(int argc, char **argv) {
             rp.p->uUnlit = 0.0f; rp.p->uSoft = 0.0f;
             /* per-mesh: each part wears its own bound texture (body/wheel/...);
                parts with no in-TPK texture get a sensible flat colour by class. */
+            const CdPaint *body_paint = fem_paint_preview(fem, 0);
+            if (!body_paint) body_paint = career_car_paint(carname, 0);
             for (int i = 0; !player_hidden && i < ncar; i++) {
                 int c = cgm[i].cat;
+                rp.p->uRimTint = 0.0f;
                 int mount = car.meshes[i].car_mount;
                 if (mount == N2_MOUNT_WHEEL) continue; /* complete tier drawn below */
                 int is_light = (c==N2_CAR_LIGHT || c==N2_CAR_BRAKELIGHT);
@@ -11497,6 +11538,9 @@ int main(int argc, char **argv) {
                     rhi_cmd_set_wireframe(1);
                 if (insp_on && g_dbg.insp_flipn) rp.p->uFlipN = 1.0f;
 #endif
+                if (body_paint && material == N2_MAT_CARSKIN) {
+                    render_body_paint(&rp,body_paint->rgb,body_paint->group);
+                }
                 if (mount == N2_MOUNT_FRONT_BRAKE || mount == N2_MOUNT_REAR_BRAKE) {
                     int first = mount == N2_MOUNT_FRONT_BRAKE ? 0 : 2;
                     for (int k=first;k<first+2;k++) {
@@ -11525,6 +11569,7 @@ int main(int argc, char **argv) {
                 if (insp_on && g_dbg.insp_flipn) rp.p->uFlipN = 0.0f;
 #endif
             }
+            rp.p->uRimTint = 0.0f;
             rp.p->uUnlit = 0.0f;
             ug2_vec3(rp.p->uEmissive, 0.0f, 0.0f, 0.0f);
             rp.p->uVColor = 0.0f;
@@ -11826,11 +11871,19 @@ int main(int argc, char **argv) {
                         rp.p->uSpec = inner?0.04f:0.5f;
                         if(cgm[i].cbo.id)ug2_vec3(rp.p->uColor, 1, 1, 1);
                         else ug2_vec3(rp.p->uColor, 0.05f, 0.05f, 0.06f);
+                        const CdPaint *stock_rim_paint=fem_paint_preview(fem,1);
+                        if(!stock_rim_paint)stock_rim_paint=career_car_paint(carname,1);
+                        rp.p->uRimTint=0.0f;
+                        if(stock_rim_paint && (cgm[i].car_material==N2_MAT_MAGSILVER || cgm[i].car_material==N2_MAT_MAGCHROME)) {
+                            ug2_vec3(rp.p->uColor,stock_rim_paint->rgb[0]/255.0f,stock_rim_paint->rgb[1]/255.0f,stock_rim_paint->rgb[2]/255.0f);
+                            rp.p->uRimTint=stex.id?1.0f:0.0f;
+                        }
                         if(stex.id) rhi_cmd_bind_texture(0, stex);
                         for(int k=0;k<4;k++){float MW[16];mat_mul(MVPwheel,wheelT[k],MW);
                             ug2_copy(rp.p->uMVP, MW, 16);render_model(&rp,wheelWorld[k]);render_wheel_mesh(&rp,&cgm[i],stex,smode);}
                         g_dbg.drawn+=4;
                     }
+                    rp.p->uRimTint=0.0f;
                     ug2_copy(rp.p->uMVP, MVPc, 16);
                     goto wheels_drawn;
                 }
@@ -11888,8 +11941,12 @@ int main(int argc, char **argv) {
                        keeping the spoke detail. rim_paint=0 shows the raw gold. */
                     rp.p->uUseTex = rimtex.id ? 1.0f : 0.0f;
                     rp.p->uEnv = 0.0f; rp.p->uSpec = 0.85f;
-                    ug2_copy(rp.p->uColor, g_dbg.rim_color, 3);
-                    rp.p->uRimTint = rimtex.id && g_dbg.rim_paint ? 1.0f : 0.0f;
+                    const CdPaint *rim_paint = fem_paint_preview(fem, 1);
+                    if (!rim_paint) rim_paint = career_car_paint(carname, 1);
+                    if (rim_paint) ug2_vec3(rp.p->uColor, rim_paint->rgb[0]/255.0f,
+                                             rim_paint->rgb[1]/255.0f, rim_paint->rgb[2]/255.0f);
+                    else ug2_copy(rp.p->uColor, g_dbg.rim_color, 3);
+                    rp.p->uRimTint = rimtex.id && (rim_paint || g_dbg.rim_paint) ? 1.0f : 0.0f;
                     if (rimtex.id) rhi_cmd_bind_texture(0, rimtex);
                 } else {
                     rp.p->uUseTex = 1.0f; rp.p->uEnv = 0.3f;

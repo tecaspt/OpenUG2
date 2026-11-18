@@ -54,3 +54,30 @@ Example, fully upgraded: GOLF +50% peak torque, 5 -> 6 gears, +1500 rpm, front g
 Effect targets for brakes, weight, nitrous, ECU, turbo, suspension axes; whether retail uses u or the package level;
 exact discount formula; unlock record `a`/`b` meaning; graphics ids 37-68 and 80-84; vinyl colour channel count;
 unlock on discovery vs shop open.
+
+## Career paint screen and rendering
+
+`fe_paint.c` binds FrontB's `UI_ChoosePaintCategory.fng` -> `UI_Paint.fng`, verifying each
+retail object identity. The paint package has 60 mini-icon swatches [data], sorted spatially
+into three rows of 20 [inferred navigation]. Left/right browse one, up/down browse a row.
+Body gloss/metallic/pearl are separate categories; rims, calipers, muffler, hoses and vinyl
+combine their levels into 60 entries [inferred]. Category names use platform English captions. FrontB carries six numbered paint-drop icons
+`PAINT_ICON_1..6` [data, inspected]; body finishes share icon 1 and the other groups use 2..6 [inferred].
+Swatches use the parsed RGB, dim locked choices and show the authored lock for the selected
+locked colour. The authored highlight follows focus, and Installed marks the saved colour.
+Total Cost and Bank show the current rules snapshot. Accept asks before purchase; insufficient
+funds uses retail key `0xd1ac60be`. Back cancels the question, returns to categories, then roam.
+
+The host validates with `cr_paint_buy`, saves, rolls the state back on save failure, and refreshes
+the snapshot. Browsing never changes career state. Body/rim preview ends when leaving the palette,
+and saved paint is resolved only for the active career car. Restart reads the same per-car paint keys.
+
+CARSKIN slices receive body RGB; opaque texture detail uses the existing luminance tint shader
+path, alpha decals retain their own artwork over the new base. Gloss/metallic/pearl differ only
+by a specular multiplier (0.8/1.0/1.1) [inferred]; no decoded metallic-flake/pearl optics are claimed.
+Rims use the existing rim tint. Key zero bypasses paint application entirely, preserving the stock
+shader and material path. No new shader uniform or shader-source change is required.
+
+Caliper/muffler/hose/vinyl colour purchases persist, but their material effects are not implemented:
+brake mount identity does not isolate a paintable caliper from its disc, and no verified muffler,
+hose or vinyl colour-channel material mapping is available. Whole assemblies are left untouched.
