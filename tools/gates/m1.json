@@ -78,7 +78,7 @@
     {"id": "s7", "kind": "game", "binary": "nfsu2", "timeout": 1500, "xdg": "s7",
      "env": {"SDL_AUDIODRIVER": "dummy"},
      "args": ["--path", "${OPENUG2_DATA}", "--resolution", "1280x720", "--career-dev", "1",
-              "--input-script", "10:key=Left,20:key=Return,40:key=Return,80:shot=s7_lot.png,175:shot=s7_roam.png,4200:shot=s7_end.png,4201:quit"],
+              "--input-script", "10:key=Left,20:key=Return,40:key=Return,80:shot=s7_lot.png,175:shot=s7_roam.png,5600:shot=s7_end.png,5601:quit"],
      "spec": "tools/log_specs/s7_carlot.spec", "shots_min": 3},
 
     {"id": "s7b", "kind": "game", "binary": "nfsu2", "timeout": 900, "xdg": "s7",
