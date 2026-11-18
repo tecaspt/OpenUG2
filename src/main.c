@@ -1725,6 +1725,25 @@ static int career_save_parts(void *user,const char *car,const GarageConfig *cfg)
     printf("%s\n",ch->last);
     return rc;
 }
+/* Career performance parts of the active owned car -> drivetrain upgrade (docs/parity/PERF-PAINT.md). Stock (0) for
+ * any other car or outside a career. Categories: 3 engine (axis 0), 1 transmission (axis 2: the 6-speed axis reaches
+ * 1.0 alone), 8 tires (axis 0). Brakes, weight, nitrous, ECU, turbo, suspension: no data-backed effect yet. */
+static int career_drv_upgrade(const char *car, DrvUpgrade *up) {
+    memset(up,0,sizeof *up);
+    if(!g_career.active||!car||!g_career.st.nowned||g_career.st.active>=g_career.st.nowned||
+       strcmp(g_career.st.owned[g_career.st.active],car))return 0;
+    float u[CD_PERF_CATS][4];
+    cr_perf_fraction(&g_career.st,&g_career.cd,u);
+    up->engine=u[3][0];up->engine_level=cr_perf_level_of(u[3][0]);
+    up->gear_level=cr_perf_level_of(u[1][2]);up->tires=u[8][0];
+    return up->engine>0||up->gear_level>0||up->tires>0;
+}
+static int career_stage1_read(const unsigned char *data,long len,const char *car,DrvCar *out) {
+    DrvUpgrade up;
+    if(!career_drv_upgrade(car,&up))return stage1_car_read(data,len,car,out);
+    printf("career: upgrades %s engine %.2f L%d gearbox L%d tires %.2f\n",car,up.engine,up.engine_level,up.gear_level,up.tires);
+    return stage1_car_read_upgraded(data,len,car,&up,out);
+}
 static void career_open_shop(FeMenu *fem) {
     int sh=g_career.at_shop;
     if(sh<0||sh>=g_career.cd.nshop)return;
@@ -8024,7 +8043,7 @@ int main(int argc, char **argv) {
                     }
                     DrvCar next_stage1;ResCar next_resistance;BrkCar next_brakes;LatCar next_lateral;CtCar next_contacts;BodyCar next_body;
                     if (!saved_ready ||
-                        (g_stage1_requested && (!stage1_car_read(candidate.globaldata,candidate.globallen,next_car,&next_stage1) ||
+                        (g_stage1_requested && (!career_stage1_read(candidate.globaldata,candidate.globallen,next_car,&next_stage1) ||
                          !stage2_car_read(candidate.globaldata,candidate.globallen,next_car,&next_resistance) ||
                          !stage3_car_read(candidate.globaldata,candidate.globallen,next_car,&next_brakes) ||
                          !stage4_car_read(candidate.globaldata,candidate.globallen,next_car,&next_lateral) ||
