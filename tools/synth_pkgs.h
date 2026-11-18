@@ -294,4 +294,45 @@ static void build_dialog_pkg(Pkg *p) {
     handler(p, "FORWARD", 140, 140);
     finish(p);
 }
+
+/* TASK-AL: the retail GenericDialog_ThreeButton.fng structure -- three full-width row buttons
+ * stacked L1 bottom / L2 middle / L3 top, each with the authored Focus/UnFocus responses, plus the
+ * message and the L1/L2/L3 captions. Node name hashes match dialog_bind; positions are the retail
+ * composed row centres (164/120/76). The button3 name is the lowercase retail form (hash-equal to
+ * Button2's). No retail data. */
+static void build_three_button_pkg(Pkg *p) {
+    add(p, UG_OBJ_TEXT, "message_blurb", 0, -60, 0.75f, 0.75f);
+    static const float row_y[3] = { 164.0f, 120.0f, 76.0f };        /* L1 bottom, L2 middle, L3 top */
+    static const uint32_t lbl[3] = { 0xDA473D2Fu, 0xDA473D30u, 0xDA473D31u };
+    const char *btn_name[3] = { "button1", "Button2", "button3" };
+    for (int i = 0; i < 3; i++) {
+        UgFngObject *b = add(p, UG_OBJ_GROUP, btn_name[i], 0, row_y[i], 512, 42);
+        b->flags = UG_OF_BUTTON;
+        script(p, b, hn("Focus"), 100);
+        script(p, b, hn("UnFocus"), 100);
+        respond(p, b, UG_MSG_FOCUS_GAINED, UG_CMD_START_SCRIPT, hn("Focus"));
+        respond(p, b, UG_MSG_FOCUS_LOST, UG_CMD_START_SCRIPT, hn("UnFocus"));
+        UgFngObject *l = add(p, UG_OBJ_TEXT, NULL, 0, row_y[i] - 11, 0.75f, 0.75f);
+        l->name_hash = lbl[i];
+    }
+    handler(p, "FORWARD", 140, 140);
+    finish(p);
+}
+
+/* TASK-AL: the retail HelpDialog sheet structure -- a title (T), a body (M) and a back caption (B)
+ * located by their retail node name hashes, plus the console controller-glyph hint beside the
+ * caption. None of these is a button node: a help sheet has no scene focus, it only dismisses.
+ * Positions differ per sheet size but do not affect binding. No retail data. */
+static void build_help_pkg(Pkg *p) {
+    UgFngObject *t = add(p, UG_OBJ_TEXT, NULL, -288, -101, 0.75f, 0.75f);
+    t->name_hash = 0x426C7B4Du;                                       /* T: the "Help" title */
+    UgFngObject *m = add(p, UG_OBJ_TEXT, "message_blurb", -281, -60, 0.9f, 0.9f);
+    m->justify = 0;                                                 /* left-justified body (the retail help M) */
+    UgFngObject *b = add(p, UG_OBJ_TEXT, NULL, 220, 87, 0.75f, 0.75f);
+    b->name_hash = 0x426C7B4Eu;                                       /* B: the "Back" caption */
+    UgFngObject *g = add(p, UG_OBJ_TEXT, NULL, 187, 87, 0.75f, 0.75f);
+    g->name_hash = 0x35E8F0B2u;                                       /* "$JOY_EVENT_FENG_CANCEL$": console hint */
+    handler(p, "FORWARD", 140, 140);
+    finish(p);
+}
 #endif
