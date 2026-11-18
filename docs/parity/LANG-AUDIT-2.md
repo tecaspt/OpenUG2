@@ -306,6 +306,22 @@ evidence of the switch; the evidence is the key values and their table lookups. 
 builds its own diagnostic icons and still names `CAREER_CAR_LOT_TITLE` / `0x7ce21662u` for the two shop
 markers; that is a control path that constructs its own labels, not the map's, and stays valid.
 
+**How far a PNG can actually be pushed here (measured by Task AN, so the next agent does not spend an
+evening rediscovering it).** The caption is `ugui_scene.c:574`'s `text_override` on node `0xe336a`, which
+`fwm_sync` (`src/fe_worldmap.c:181`) only un-hides for `m->icon[m->selected]`, and `fwm_open` starts at
+`selected = -1`. So:
+- The gate's `wmgps-map.png` is taken at a frame with no destination chosen — its md5 is the same before
+  and after this change, and it does not contain a shop caption at all.
+- Cycling the destinations with `Tab` does not change `selected` either; and with the caption key deleted
+  from a copy of `English.bin`, plus two builds drawing two *different* texts ("Car Lot" vs
+  "ACCELERATION") through this line, every one of those shots came out byte-identical. The icon-caption
+  node is not what those frames show, so no world-map PNG in the gate can distinguish a correct caption
+  key from a broken one.
+- What does prove the values: the run's own `--world-map-dev` log line for each icon
+  (`world map: icon=2 kind=2 id=ec17e618 … caption=Car Lot`, `icon=3 kind=2 id=55446b8f … caption=Garage`),
+  which reads `icons[i].label_key` back out of the same expression, plus `fe_lot_test`'s retail block, now
+  asserting both keys resolve. A caption that stopped resolving would print `<none>` and fail that test.
+
 ### 5.3 The car-lot display name has no catalogue-wide check in any gate
 
 `src/fe_lot.c:96` builds `CAR_NAME_<model>` at run time, so no static scan can judge it; the key is also
@@ -402,7 +418,8 @@ under a `texture names` header comment). All 13 rows are gone and `--src src` ex
 - The same tool on the scoped copy of the named files: 48 rows, 47 OK and the 1 MISSING of 5.1.
   **After Task AN: exit 0, 47 rows, 47 OK / 0 MISSING / 0 skipped** (`main.c` shrank a row because
   5.2b's QR-caption row was itself the fix target and the car-lot keys are not accessor calls).
-- `tools/fe_lot_test.c` retail block — 29 installed cars, 0 missing `CAR_NAME_<model>`; exits 77 when
+- `tools/fe_lot_test.c` retail block — 29 installed cars, 0 missing `CAR_NAME_<model>`, and both map
+  captions (`MINIMAP_CARLOT`, `MINIMAP_GARAGE`) resolve; 32 checks. Exits 77 when
   `OPENUG2_DATA` is unset and 1 when the table lacks a key (verified with an entry hash deleted).
 - `git grep -n` for the home-directory prefix over this branch's files — empty, including the check
   line itself once committed.
