@@ -64,7 +64,8 @@ typedef enum { OM_SCREEN_CLOSED = 0, OM_SCREEN_DISPLAY, OM_SCREEN_CUSTOMIZE, OM_
 typedef enum { OM_ROW_CHOICE = 0, OM_ROW_SLIDER, OM_ROW_BUTTON, OM_ROW_SPACER } OmRowKind;  /* 2.1 */
 typedef enum {                   /* what the row does */
     OM_ID_OPTION = 0,            /* an ordinary graphics option, `gfx` names its slot */
-    OM_ID_RESOLUTION, OM_ID_LEVEL, OM_ID_CUSTOMIZE, OM_ID_DEFAULTS, OM_ID_SPACER, OM_ID_MOUSE_LOOK, OM_ID_PROFILE
+    OM_ID_RESOLUTION, OM_ID_LEVEL, OM_ID_CUSTOMIZE, OM_ID_DEFAULTS, OM_ID_SPACER, OM_ID_MOUSE_LOOK, OM_ID_PROFILE,
+    OM_ID_N                      /* count of ids (task AQ: the view keeps one value memo per id) */
 } OmRowId;
 typedef enum {                   /* how the value text is produced (SPEC_GUI 3.1, 4.1) */
     OM_VT_NONE = 0, OM_VT_RESOLUTION, OM_VT_ONOFF, OM_VT_LOWHIGH, OM_VT_VSYNC
@@ -177,6 +178,9 @@ typedef struct OptionsMenu {
     unsigned build_serial;       /* bumped whenever a screen is (re)built */
     unsigned blink_serial;       /* bumped on Left/Right on a row or hub entry */
     int blink_dir;               /* direction of the latest blink */
+    unsigned activate_serial;    /* bumped when a row or hub entry was activated (ACCEPT/click): an
+                                  * attempt, not an outcome -- a locked row activates too. Consumed
+                                  * by gui_view's navigation-event emission (task AQ). */
     unsigned exit_serial;        /* bumped when an exit begins */
     int profile_requested;
     unsigned dialog_serial;      /* bumped when the dialog opens or closes */
@@ -226,6 +230,9 @@ void om_notify_resolution_lowered(OptionsMenu *m);
 int om_row_count(const OptionsMenu *m);
 const OmRow *om_row(const OptionsMenu *m, int i);
 int om_focus(const OptionsMenu *m);
+/* The value the row's value text shows (task AQ: lets the view tell an authored value from an
+ * edited one without the OM_VT_RESOLUTION special case in om_row_value's text path). */
+int om_row_display_value(const OptionsMenu *m, int i);
 int om_top(const OptionsMenu *m);
 int om_row_visible(const OptionsMenu *m, int i);
 int om_row_value(const OptionsMenu *m, int i);    /* displayed value (sliders clamped, SPEC_GUI 2.7) */

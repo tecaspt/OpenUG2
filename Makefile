@@ -57,6 +57,8 @@ HDRS += src/ug2_track_collision.h src/drivetrain.h src/braking.h src/resistance.
 HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
 SRC += src/sfx_bank.c src/sfx_play.c src/sfx_game.c   # M8: retail .abk banks -> in-game impact/skid/road/shift effects
+SRC += src/sfx_fe.c   # task AQ: retail FE banks -> menu navigation sounds (drained by the audio callback)
+SFX_FE_TEST_SRC := src/sfx_fe.c src/sfx_play.c src/sfx_bank.c
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 HDRS += src/postrace_stats.h
 SRC += src/fe_sms.c
@@ -1120,6 +1122,19 @@ sfx-game-check: tools/sfx_game_check.c src/sfx_game.c src/sfx_game.h src/sfx_pla
 	@mkdir -p build
 	$(CC) -O1 -g -std=c99 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fsanitize=address,undefined -Isrc tools/sfx_game_check.c src/sfx_game.c src/sfx_play.c src/sfx_bank.c -o build/sfx_game_check -lm
 	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/sfx_game_check "$$OPENUG2_DATA"
+
+# Task AQ: front-end menu sounds. sfx-fe-test checks the mapping ABI, debounce, one-shot gate and
+# volume scaling (exit 77 SKIP without OPENUG2_DATA); the capture pulls scripted menu events
+# through the real audio callback on the dummy driver and writes raw pcm evidence outside the repo.
+sfx-fe-test: tools/sfx_fe_test.c src/sfx_fe.h $(SFX_FE_TEST_SRC)
+	@mkdir -p build
+	$(CC) -O1 -g -std=c99 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -fsanitize=address,undefined -Isrc tools/sfx_fe_test.c $(SFX_FE_TEST_SRC) -o build/sfx_fe_test -lm
+	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/sfx_fe_test "$$OPENUG2_DATA"
+
+sfx-fe-capture: tools/sfx_fe_capture.c src/audio.c src/audio.h src/sfx_fe.h $(SFX_FE_TEST_SRC) src/sfx_game.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/sfx_fe_capture.c src/sfx_game.c $(SFX_FE_TEST_SRC) -o build/sfx_fe_capture $(SDL_LIBS) -lm
+.PHONY: sfx-fe-test sfx-fe-capture
 .PHONY: sfx-play-test sfx-play-demo sfx-game-check
 
 # M6 career (data reader, rules/save, host glue). Data-dependent checks need OPENUG2_DATA (exit 77 = SKIP).

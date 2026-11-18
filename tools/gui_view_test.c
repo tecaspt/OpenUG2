@@ -26,6 +26,30 @@ static int g_checks, g_fail;
     if (g_fail <= 60) { printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } } while (0)
 #define NEAR(a, b, tol) (fabs((double)(a) - (double)(b)) <= (tol))
 
+/* ---- task AQ: navigation-event capture --------------------------------------------------------------
+ * The sink gui_view would talk to (a sfx_fe ring in the game). Events are timestamped by a frame
+ * counter, not by time; the syncs here run with dt 0. */
+static int g_nav_events[64];
+static int g_nav_count;
+static void nav_capture(void *user, int event) {
+    (void)user;
+    if (g_nav_count < (int)(sizeof g_nav_events / sizeof g_nav_events[0])) g_nav_events[g_nav_count++] = event;
+}
+static void nav_reset(void) { g_nav_count = 0; }
+/* index of the first occurrence of `ev`, -1 absent */
+static int nav_find(int ev) {
+    for (int i = 0; i < g_nav_count; i++) if (g_nav_events[i] == ev) return i;
+    return -1;
+}
+/* the capture as a printable list, for failure messages */
+static const char *nav_dump(void) {
+    static char b[4 * 64];
+    int k = 0;
+    for (int i = 0; i < g_nav_count && k < (int)sizeof b - 8; i++) k += snprintf(b + k, sizeof b - (size_t)k, "%d,", g_nav_events[i]);
+    b[k] = 0;
+    return b;
+}
+
 
 /* ---- base-key property writes (SPEC_GUI_ART 1.2) ----------------------------------------------------- */
 static void test_app_write(void) {
@@ -261,6 +285,13 @@ static void test_list_view(void) {
     lfx_open(&x, OM_CTX_FRONTEND, 0);
     GvList v;
     CHECK(gv_list_bind(&v, &s, &x.m), "bind: %s", s.status);
+    /* task AQ: every bound screen emits. A bind itself is silent; the enter-complete of the
+     * screen's own update is the SCREEN_IN moment. */
+    gv_set_nav_hook(nav_capture, NULL);
+    nav_reset();
+    gv_screen_update(&s, 0);
+    gv_list_sync(&v, &x.m, 0);
+    CHECK(g_nav_count == 0, "bind and the first sync emit nothing (events %s)", nav_dump());
     CHECK(NEAR(v.anchors.tx, -271, 0.001) && NEAR(v.anchors.ty, -138, 0.001) && NEAR(v.anchors.dx, 18, 0.001) && NEAR(v.anchors.dw, 216, 0.001), "anchors from TITLE_MASTER / DATA_MASTER");
     CHECK(v.arrow_tex > 0, "arrow texture resolved");
     gv_screen_update(&s, 0);
@@ -306,10 +337,14 @@ static void test_list_view(void) {
     gv_screen_update(&s, 400);
     gv_list_sync(&v, &x.m, 400);
     CHECK(s.enter_done && ug_scene_script_id(sc, v.row[1].name) == hn("Highlight"), "Highlight starts on the focused row at enter-complete");
+    CHECK(nav_find(GV_NAV_SCREEN_IN) == 0 && g_nav_count == 1, "enter-complete emits exactly SCREEN_IN (%d events)", g_nav_count);
+    nav_reset();
     CHECK(NEAR(nm->wf, -138 + 12, 0.01) || NEAR(rn(&v, 1, 0)->wf, -138, 0.01) || NEAR(rn(&v, 1, 0)->wf, -126, 0.01), "name position survives the script change");
     /* focus moves: UnHighlight / Highlight, arrows linger while fading, tab moves */
     om_input(&x.m, OM_IN_DOWN);
     gv_list_sync(&v, &x.m, 0);
+    CHECK(nav_find(GV_NAV_MOVE) == 0 && g_nav_count == 1, "a focus move emits exactly MOVE (events %s)", nav_dump());
+    nav_reset();
     CHECK(ug_scene_script_id(sc, v.row[1].name) != hn("Highlight"), "old row no longer highlighted");
     CHECK(!sc->nodes[v.row[1].left].app_hidden, "old row's arrows linger for the fade-out");
     CHECK(!sc->nodes[v.row[2].left].app_hidden && !sc->nodes[v.row[2].right].app_hidden && !sc->nodes[v.row[2].backing].app_hidden, "new row lit");
@@ -324,27 +359,40 @@ static void test_list_view(void) {
     om_input(&x.m, OM_IN_RIGHT);
     gv_list_sync(&v, &x.m, 0);
     CHECK(ug_scene_script_id(sc, v.row[2].right) == hn("Blink"), "right arrow blinks");
+    CHECK(nav_find(GV_NAV_TAB) == 0 && g_nav_count == 1, "a Left/Right change emits exactly TAB (events %s)", nav_dump());
+    nav_reset();
     CHECK(NEAR(sc->nodes[v.row[2].handle].props.w[UG_P_SIZE], om_row_fill(&x.m, 1) * 142.92, 0.03), "slider follows the new value");
     /* dialog: DIM then UNDIM on the handler */
     om_input(&x.m, OM_IN_DOWN); om_input(&x.m, OM_IN_DOWN);
+    gv_list_sync(&v, &x.m, 0);                                 /* the two approach moves fire here; the assert below wants only the ACCEPT pair */
+    nav_reset();
     om_input(&x.m, OM_IN_ACCEPT);
     gv_list_sync(&v, &x.m, 0);
     CHECK(om_dialog_is_open(&x.m), "dialog open");
+    CHECK(nav_find(GV_NAV_ACCEPT) == 0 && nav_find(GV_NAV_DIALOG_OPEN) == 1 && g_nav_count == 2,
+          "ACCEPT then the dialog opening, in order (events %s)", nav_dump());
+    nav_reset();
     /* DIM is a 0 ms script: it has finished by the time we look; its effect is the broadcast */
     om_input(&x.m, OM_IN_BACK);
     om_update(&x.m, 0.2f);
     gv_list_sync(&v, &x.m, 0);
     CHECK(!om_dialog_is_open(&x.m), "dialog closed");
+    CHECK(nav_find(GV_NAV_DIALOG_CLOSE) >= 0, "the dialog closing emits DIALOG_CLOSE (events %s)", nav_dump());
+    nav_reset();
     /* leaving: exit script on the handler, exit-complete after 140 ms */
     om_input(&x.m, OM_IN_BACK);
     gv_list_sync(&v, &x.m, 0);
     CHECK(s.exit_started && ug_scene_script_id(sc, s.handler) == hn("Forward"), "exit script started when the menu begins to leave");
+    CHECK(nav_find(GV_NAV_SCREEN_OUT) >= 0 && nav_find(GV_NAV_SCREEN_IN) < 0, "the exit emits SCREEN_OUT only (events %s)", nav_dump());
+    nav_reset();
     gv_screen_update(&s, 139);
     CHECK(!s.exit_done, "not yet");
     gv_screen_update(&s, 2);
     CHECK(s.exit_done, "exit-complete after 140 ms");
     gv_screen_free(&s);
     st_reg_close(&x.store);
+    gv_set_nav_hook(NULL, NULL);                               /* task AQ: later tests stay unhooked */
+    nav_reset();
 
     /* Customize: scrolling window, rows outside it are parked */
     free(p);
