@@ -43,6 +43,10 @@ typedef struct Stage1Drive {
 } Stage1Drive;
 /* Read only approved stock S1-1 fields via independent GLOBALB framing. */
 int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCar *out);
+/* Career performance upgrades applied while reading (fractions 0..1 from cr_perf_fraction, levels 0..3);
+ * NULL or all-zero = stock, identical to stage1_car_read. */
+typedef struct DrvUpgrade { float engine; int engine_level; int gear_level; float tires; } DrvUpgrade;
+int stage1_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,DrvCar *out);
 /* Read only approved S2-1 stock fields from the same independent framing. */
 int stage2_car_read(const unsigned char *data,long length,const char *name,ResCar *out);
 /* Read only approved S3-1 stock fields via the same framing. */

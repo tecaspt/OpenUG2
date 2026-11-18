@@ -117,6 +117,10 @@ int render_headlight_pool(const RProg *r, const float model[16], const float mvp
 void render_headlights(const RProg *r, const float model[16], const float anchors[4][4],
                        int high, float pitch, float range, float gain);
 
+/* Apply body RGB over the existing material; finish 0/1/2 adjusts specular [inferred].
+ * Caller invokes only for saved/preview CARSKIN paint; stock never enters this path. */
+void render_body_paint(const RProg *r,const uint8_t rgb[3],int finish);
+
 /* Select the material for a proven rear lens. Texture presence must not
  * disable emission. Brake lamps work independently of night running lights. */
 void render_tail_lamp(const RProg *r,RhiTexture texture,int running,int braking,

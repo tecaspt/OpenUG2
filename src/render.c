@@ -2064,3 +2064,10 @@ void draw_text(GpuMesh *quad, const RProg *r, const char *s, float x, float y, f
     }
 }
 float text_width(const char *s, float px) { return (float)strlen(s) * 4 * px; }
+
+void render_body_paint(const RProg *r,const uint8_t rgb[3],int finish) {
+    ug2_vec3(r->p->uColor,rgb[0]/255.0f,rgb[1]/255.0f,rgb[2]/255.0f);
+    if(r->p->uUseTex>0.5f && r->p->uDecal<0.5f)r->p->uRimTint=1.0f;
+    /* [inferred] Finish response only: retail RGB/GLOSS do not specify metallic flakes. */
+    r->p->uSpec *= finish==0?0.8f:finish==2?1.1f:1.0f;
+}

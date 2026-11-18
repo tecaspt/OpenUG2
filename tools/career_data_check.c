@@ -104,8 +104,42 @@ static int cls_matches_kind(const CdSms *q) {
     return q->cls <= 5 && q->cls >= 2 && q->kind == pair[q->cls];
 }
 
+/* docs/parity/PERF-PAINT.md: performance packages, brands and the unlock table. */
+static void check_perf(const CareerData *cd) {
+    int cat, lvl, priced = 0;
+    EXPECT(cd->nperf_comp == 66, "perf comps %d != 66", cd->nperf_comp);
+    EXPECT(cd->nbrand == 35, "brands %d != 35", cd->nbrand);
+    EXPECT(cd->nulk == 86, "unlock records %d != 86", cd->nulk);
+    for (cat = 0; cat < CD_PERF_CATS; cat++) for (lvl = 0; lvl < CD_PERF_LEVELS; lvl++)
+        EXPECT(cd->perf_pkg[cat][lvl].n >= 1 && cd->perf_pkg[cat][lvl].n <= 4, "pkg %d L%d n %d", cat, lvl + 1, cd->perf_pkg[cat][lvl].n);
+    EXPECT(!cd->perf_comp[33].valid && !cd->perf_comp[34].valid, "comps 33/34 must be unused");
+    EXPECT(cd->perf_comp[28].cat == 4 && cd->perf_comp[28].lvl == 3 && cd->perf_comp[28].price == 8000, "turbo L3 $8000");
+    EXPECT(cd->perf_comp[11].cat == 1 && cd->perf_comp[11].price == 5000, "transmission L3 $5000");
+    for (int c = 0; c < CD_PERF_COMPS; c++) if (cd->perf_comp[c].valid && cd->perf_comp[c].price > 0) priced++;
+    EXPECT(priced == 54, "priced comps %d != 54 (aero cat 9 is free/hidden)", priced);
+    {
+        int n[CD_PAINT_GROUPS][4] = {{0}};
+        EXPECT(cd->npaint == 450, "paints %d != 450", cd->npaint);
+        for (int i = 0; i < cd->npaint; i++) n[cd->paint[i].group][cd->paint[i].level & 3]++;
+        EXPECT(n[CD_PAINT_GLOSS][1] == 60 && n[CD_PAINT_METAL][2] == 60 && n[CD_PAINT_PEARL][3] == 30, "body paints");
+        for (int g = CD_PAINT_RIM; g < CD_PAINT_GROUPS; g++)
+            EXPECT(n[g][1] == 10 && n[g][2] == 20 && n[g][3] == 30, "paint group %d tiers", g);
+        int k = cd_find_paint(cd, cd_hash("GLOSS_L1_COLOR03"));
+        EXPECT(k >= 0 && cd->paint[k].rgb[0] == 8 && cd->paint[k].rgb[1] == 60 && cd->paint[k].rgb[2] == 161, "GLOSS_L1_COLOR03 rgb");
+    }
+    for (int b = 0; b < cd->nbrand; b++) EXPECT(cd->brand[b].hash == cd_hash(cd->brand[b].key), "brand %d hash", b);
+    {
+        int u = cd_find_ulk(cd, 1);
+        EXPECT(u >= 0 && cd->ulk[u].l[0].type == CD_ULK_START && cd->ulk[u].l[1].type == CD_ULK_WINS &&
+               cd->ulk[u].l[1].value == ((3u << 16) | 13u) && cd->ulk[u].l[2].type == CD_ULK_SPONSOR_WINS, "engine unlocks");
+        u = cd_find_ulk(cd, 10);
+        EXPECT(u >= 0 && cd->ulk[u].l[0].type == CD_ULK_START && cd->ulk[u].l[2].type == CD_ULK_START, "aero always open");
+    }
+}
+
 /* docs/parity/SMS-TABLE.md: the 167 records of the retail career table, decoded. */
 static void check_sms(const CareerData *cd) {
+    check_perf(cd);
     int k, kind[4] = { 0, 0, 0, 0 }, self = 0, flagged = 0, weighted = 0, i;
     EXPECT(cd->nsms == 167, "nsms %d != 167", cd->nsms);       /* the 280-byte demo table must not be read */
     for (i = 0; i < cd->nsms; i++) {

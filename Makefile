@@ -58,7 +58,7 @@ HDRS += src/drive_trace.h src/drive_presentation.h src/drive_session.h
 SRC += src/hud_race.c
 SRC += src/sfx_bank.c src/sfx_play.c src/sfx_game.c   # M8: retail .abk banks -> in-game impact/skid/road/shift effects
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
-SRC += src/fe_lot.c
+SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
 SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
@@ -70,7 +70,7 @@ SRC += src/rear_mirror.c
 HDRS += src/rear_mirror.h
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
-HDRS += src/fe_lot.h
+HDRS += src/fe_lot.h src/fe_perf.h src/fe_paint.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
 
 map-bake-test: tools/map_bake_test.c src/map_bake.h src/nfsu2.h
@@ -992,7 +992,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
-SCREENS_TEST_SRC = src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC = src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/fe_perf.c src/fe_paint.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
 SCREENS_TEST_SRC += src/fe_worldmap.c src/career_data.c src/pause_menu.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
@@ -1013,6 +1013,11 @@ fe-sms-test: tools/fe_sms_test.c $(SMS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_sms_test.c $(SMS_TEST_SRC) -o build/fe_sms_test $(SDL_LIBS) $(SETTINGS_LIBS) $(UGUI_IMAGE_LIBS) -lz -lm
 	./build/fe_sms_test
+.PHONY: fe-perf-test
+fe-perf-test: tools/fe_perf_test.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_perf_test.c $(SCREENS_TEST_SRC) -o build/fe_perf_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/fe_perf_test
 postrace-test: tools/postrace_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/postrace_test.c $(SCREENS_TEST_SRC) -o build/postrace_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
@@ -1221,3 +1226,8 @@ audio-ae-capture: tools/audio_ae_capture.c src/audio.c src/audio.h src/sfx_game.
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/audio_ae_capture.c src/sfx_play.c src/sfx_bank.c -o build/audio_ae_capture $(SDL_LIBS) -lm
 .PHONY: audio-ae-test audio-ae-capture
+.PHONY: fe-paint-test
+fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/fe_paint_test

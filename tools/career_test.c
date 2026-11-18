@@ -314,6 +314,108 @@ static int state_eq(const CareerState *a, const CareerState *b)
     return 1;
 }
 
+/* ---- performance shop (synthetic data) ---- */
+static void test_perf(void)
+{
+    static CareerData pd;
+    static CareerState s, t;
+    static uint8_t buf[16384];
+    int32_t paid;
+    float u[CD_PERF_CATS][4];
+    size_t len;
+    memset(&pd, 0, sizeof pd);
+    /* one race in stage 3 for the win counter, one perf shop open from stage 0, one gated shop open at stage 4 */
+    pd.race[0].name_hash = 0x500; pd.race[0].stage = 3; pd.race[0].category = CD_CAT_WORLD; pd.race[0].unlock_mode = CD_UNLOCK_STAGE;
+    pd.nrace = 1; pd.nstage = 0;
+    pd.shop[0].hash = 0x9001; pd.shop[0].type = CD_SHOP_PERF; pd.shop[0].open_stage = 0;
+    pd.shop[1].hash = 0x9002; pd.shop[1].type = CD_SHOP_PERF; pd.shop[1].open_stage = 4;
+    pd.shop[2].hash = 0x9003; pd.shop[2].type = CD_SHOP_BODY; pd.shop[2].open_stage = 0;
+    pd.nshop = 3;
+    /* engine (cat 3): L1 = comps 15 ($500, 0.1) + 16 ($250, 0.2); L2 = comp 19 ($1000, 0.7) exclusive with 15 */
+    pd.perf_comp[15] = (CdPerfComp){ .valid = 1, .cat = 3, .lvl = 1, .price = 500,  .axis = { 0.1f, -1, -1, -1 }, .excl = { -1, -1, -1, -1, -1 } };
+    pd.perf_comp[16] = (CdPerfComp){ .valid = 1, .cat = 3, .lvl = 1, .price = 250,  .axis = { 0.2f, -1, -1, -1 }, .excl = { -1, -1, -1, -1, -1 } };
+    pd.perf_comp[19] = (CdPerfComp){ .valid = 1, .cat = 3, .lvl = 2, .price = 1000, .axis = { 0.9f, -1, -1, -1 }, .excl = { 15, -1, -1, -1, -1 } };
+    pd.perf_pkg[3][0] = (CdPerfPkg){ 2, { 15, 16 } };
+    pd.perf_pkg[3][1] = (CdPerfPkg){ 1, { 19 } };
+    pd.nperf_comp = 3;
+    /* unlock id 1 (engine): L1 start, L2 = 1 win in stage 3 (type 2 {count 1, stage 3}), L3 shop 0x9002 */
+    pd.ulk[0].id = 1;
+    pd.ulk[0].l[0] = (CdUnlockLvl){ 0xFFFF, 0xFFFF, CD_ULK_START, 1, 0 };
+    pd.ulk[0].l[1] = (CdUnlockLvl){ 0xFFFF, 0xFFFF, CD_ULK_WINS, 2, (3u << 16) | 1u };
+    pd.ulk[0].l[2] = (CdUnlockLvl){ 0xFFFF, 0xFFFF, CD_ULK_SHOP, 3, 0x9002 };
+    pd.nulk = 1;
+
+    memset(&s, 0, sizeof s);
+    s.started = 1; s.stage = 3; s.nowned = 1; strcpy(s.owned[0], "CAR_P"); strcpy(s.car, "CAR_P");
+    CHECK(cr_perf_unlock_id(3) == 1 && cr_perf_unlock_id(-1) == -1 && cr_perf_unlock_id(CD_PERF_CATS) == -1);
+    CHECK(cr_unlock_ok(&s, &pd, 1, 1));
+    CHECK(!cr_unlock_ok(&s, &pd, 1, 2));                 /* stage 3, 0 wins */
+    CHECK(!cr_unlock_ok(&s, &pd, 1, 3));                 /* gated shop opens at stage 4 */
+    CHECK(!cr_unlock_ok(&s, &pd, 77, 1) && !cr_unlock_ok(&s, &pd, 1, 0) && !cr_unlock_ok(&s, &pd, 1, 4));
+    CHECK(cr_perf_price(&s, &pd, 3, 1, -1) == 675);     /* (500 + 250) * 0.9 */
+    CHECK(cr_perf_price(&s, &pd, 3, 1, 16) == 250 && cr_perf_price(&s, &pd, 3, 1, 19) == -1);
+    s.bank = 600;
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, -1, &paid) == CR_PERF_E_FUNDS && paid == 0 && s.bank == 600);
+    CHECK(cr_perf_buy(&s, &pd, 2, 3, 1, 16, &paid) == CR_PERF_E_ARG);    /* body shop does not sell engines */
+    CHECK(cr_perf_buy(&s, &pd, 1, 3, 1, 16, &paid) == CR_PERF_E_ARG);    /* shop not open yet */
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, 16, &paid) == CR_PERF_OK && paid == 250 && s.bank == 350 && cr_perf_owned(&s, 16));
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, 16, &paid) == CR_PERF_E_OWNED);
+    CHECK(cr_perf_price(&s, &pd, 3, 1, -1) == 450);     /* only comp 15 left: 500 * 0.9 */
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, -1, &paid) == CR_PERF_E_FUNDS && s.bank == 350);
+    s.bank = 450;
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, -1, &paid) == CR_PERF_OK && paid == 450 && s.bank == 0);
+    CHECK(cr_perf_owned(&s, 15) && cr_perf_owned(&s, 16));
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 1, -1, &paid) == CR_PERF_E_OWNED);
+    cr_perf_fraction(&s, &pd, u);
+    CHECK(u[3][0] > 0.299f && u[3][0] < 0.301f && u[3][1] == 0.0f && cr_perf_level_of(u[3][0]) == 0);
+    s.bank = 5000;
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 2, 19, &paid) == CR_PERF_E_LOCKED);
+    s.rec[0].hash = 0x500; s.rec[0].best_place = 1; s.rec[0].flags = CR_REC_WON; s.nrec = 1;   /* 1 win in stage 3 */
+    CHECK(cr_unlock_ok(&s, &pd, 1, 2));
+    CHECK(cr_perf_buy(&s, &pd, 0, 3, 2, 19, &paid) == CR_PERF_OK && paid == 1000 && s.bank == 4000);
+    CHECK(cr_perf_owned(&s, 19) && !cr_perf_owned(&s, 15) && cr_perf_owned(&s, 16));   /* 19 replaces 15 */
+    cr_perf_fraction(&s, &pd, u);
+    CHECK(u[3][0] == 1.0f && cr_perf_level_of(u[3][0]) == 3);   /* 0.2 + 0.9 clamped */
+    s.stage = 4;
+    CHECK(cr_unlock_ok(&s, &pd, 1, 2) && cr_unlock_ok(&s, &pd, 1, 3));   /* past stage 3; gated shop open */
+    CHECK(cr_perf_level_of(0.33f) == 1 && cr_perf_level_of(0.66f) == 2 && cr_perf_level_of(0.1f) == 0);
+
+    /* paint: two gloss colours (L1, open from start via id 76), one pearl (L3, gated on shop 0x9002) */
+    pd.shop[3].hash = 0x9004; pd.shop[3].type = CD_SHOP_PAINT; pd.shop[3].open_stage = 0; pd.nshop = 4;
+    pd.paint[0] = (CdPaint){ .key = 0xA1, .group = CD_PAINT_GLOSS, .level = 1, .rgb = { 10, 20, 30 } };
+    pd.paint[1] = (CdPaint){ .key = 0xA2, .group = CD_PAINT_GLOSS, .level = 1, .rgb = { 40, 50, 60 } };
+    pd.paint[2] = (CdPaint){ .key = 0xA3, .group = CD_PAINT_PEARL, .level = 3 };
+    pd.paint[3] = (CdPaint){ .key = 0xA4, .group = CD_PAINT_RIM, .level = 1 };
+    pd.npaint = 4;
+    pd.ulk[1].id = 76;
+    pd.ulk[1].l[0] = (CdUnlockLvl){ 0, 25, CD_ULK_START, 1, 0 };
+    pd.ulk[1].l[1] = (CdUnlockLvl){ 0, 60, CD_ULK_START, 2, 0 };
+    pd.ulk[1].l[2] = (CdUnlockLvl){ 0, 100, CD_ULK_SHOP, 3, 0x9009 };   /* shop that does not exist: never */
+    pd.nulk = 2;
+    CHECK(cr_paint_slot(CD_PAINT_METAL) == 0 && cr_paint_slot(CD_PAINT_RIM) == 1 && cr_paint_slot(99) == -1);
+    CHECK(cr_paint_unlock_id(CD_PAINT_CALIPER) == 79 && cr_paint_unlock_id(CD_PAINT_PEARL) == 76);
+    CHECK(cr_paint_open(&s, &pd, 0) && !cr_paint_open(&s, &pd, 2) && !cr_paint_open(&s, &pd, 3));   /* id 77 missing */
+    CHECK(cr_paint_price(&pd, 0) == 25 && cr_paint_price(&pd, 2) == 100 && cr_paint_price(&pd, 3) == 0);
+    s.bank = 30;
+    CHECK(cr_paint_buy(&s, &pd, 0, 0, &paid) == CR_PERF_E_ARG);          /* a perf shop does not paint */
+    CHECK(cr_paint_buy(&s, &pd, 3, 0, &paid) == CR_PERF_OK && paid == 25 && s.bank == 5 && cr_paint_installed(&s, 0) == 0xA1);
+    CHECK(cr_paint_buy(&s, &pd, 3, 0, &paid) == CR_PERF_E_OWNED);
+    CHECK(cr_paint_buy(&s, &pd, 3, 1, &paid) == CR_PERF_E_FUNDS && cr_paint_installed(&s, 0) == 0xA1);
+    CHECK(cr_paint_buy(&s, &pd, 3, 2, &paid) == CR_PERF_E_LOCKED);
+    s.bank = 4000;
+    /* save round trip (schema 4) and corrupt TLV 7 */
+    len = cr_serialize(&s, buf, sizeof buf);
+    CHECK(len > 0);
+    CHECK(cr_parse(&t, buf, len) == ST_OK && t.perf[0][0] == s.perf[0][0] && t.perf[0][1] == s.perf[0][1] && t.paint[0][0] == 0xA1u);
+    CHECK(t.bank == s.bank && cr_perf_owned(&t, 19) && cr_perf_owned(&t, 16) && !cr_perf_owned(&t, 15));
+    /* a new lot car starts stock */
+    {
+        static CareerState n2; n2 = s;
+        memset(n2.perf, 0, sizeof n2.perf);
+        CHECK(!cr_perf_owned(&n2, 19));
+    }
+}
+
 int main(void)
 {
     static CareerState s, s2, s3;
@@ -324,6 +426,7 @@ int main(void)
     size_t len;
     char root[256], prof[300], path[400];
 
+    test_perf();
     build_data();
     cr_new(&s, &cd, "CAR_X");
     CHECK(s.started && s.stage == 1 && s.intro_done && s.bank == 0);

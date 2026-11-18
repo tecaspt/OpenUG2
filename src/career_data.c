@@ -16,6 +16,10 @@
 #define CD_ID_SHOPS    0x00034A12u
 #define CD_ID_UNLOCKS  0x00034A1Fu
 #define CD_ID_SMS      0x00034A17u
+#define CD_ID_PERF     0x00034A15u
+#define CD_ID_BRANDS   0x00034A14u
+#define CD_ID_ULK      0x00034A1Cu
+#define CD_ID_PARTSDB  0x80034602u
 #define CD_ID_ZONES    0x0003414Au
 #define CD_ID_MARKERS  0x00034146u
 #define CD_MAX_FILE    (256u * 1024u * 1024u)
@@ -140,6 +144,126 @@ static void parse_sms(CareerData *cd, const uint8_t *buf, size_t co, size_t cs, 
     cd->nsms = (int)n;
 }
 
+
+/* 0x34A15 performance packages, 0x34A14 brands, 0x34A1C unlock table. Missing or malformed -> counts 0. */
+static void parse_perf(CareerData *cd, const uint8_t *buf, size_t co, size_t cs) {
+    size_t o, sz;
+    unsigned i, k, j, n;
+    memset(cd->perf_comp, 0, sizeof cd->perf_comp); memset(cd->perf_pkg, 0, sizeof cd->perf_pkg);
+    cd->nperf_comp = 0; cd->nbrand = 0; cd->nulk = 0;
+    if (find_chunk(buf, co, co + cs, CD_ID_PERF, &o, &sz) && sz % CD_PERF_PKG_BYTES == 0) {
+        n = (unsigned)(sz / CD_PERF_PKG_BYTES);
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_PERF_PKG_BYTES;
+            int32_t cat = (int32_t)rd32(r), lvl = (int32_t)rd32(r + 4), cnt = (int32_t)rd32(r + 8);
+            if (cat < 0 || cat >= CD_PERF_CATS || lvl < 1 || lvl > CD_PERF_LEVELS || cnt < 0 || cnt > 4) continue;
+            CdPerfPkg *pk = &cd->perf_pkg[cat][lvl - 1];
+            pk->n = 0;
+            for (k = 0; k < (unsigned)cnt; k++) {
+                const uint8_t *q = r + 12 + k * CD_PERF_DESC_BYTES;
+                int32_t c = (int32_t)rd32(q);
+                if (c < 0 || c >= CD_PERF_COMPS) continue;
+                CdPerfComp *d = &cd->perf_comp[c];
+                if (!d->valid) cd->nperf_comp++;
+                d->valid = 1; d->cat = (uint8_t)cat; d->lvl = (uint8_t)lvl;
+                d->name_key = rd32(q + 4); d->price = (int32_t)rd32(q + 8);
+                d->nbrand = (uint8_t)(rd32(q + 12) > 8 ? 8 : rd32(q + 12));
+                for (j = 0; j < 8; j++) d->brand[j] = rd32(q + 16 + 4 * j);
+                for (j = 0; j < 4; j++) d->axis[j] = rdf(q + 48 + 4 * j);
+                for (j = 0; j < 5; j++) { int32_t e = (int32_t)rd32(q + 64 + 4 * j); d->excl[j] = (int8_t)(e >= 0 && e < CD_PERF_COMPS ? e : -1); }
+                pk->comp[pk->n++] = (int8_t)c;
+            }
+        }
+    }
+    if (find_chunk(buf, co, co + cs, CD_ID_BRANDS, &o, &sz) && sz % CD_BRAND_BYTES == 0) {
+        n = (unsigned)(sz / CD_BRAND_BYTES); if (n > CD_MAX_BRANDS) n = CD_MAX_BRANDS;
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_BRAND_BYTES;
+            CdBrand *d = &cd->brand[i];
+            memcpy(d->key, r, 31); d->key[31] = 0;
+            memcpy(d->display, r + 32, 31); d->display[31] = 0;
+            d->hash = rd32(r + 64);
+        }
+        cd->nbrand = (int)n;
+    }
+    if (find_chunk(buf, co, co + cs, CD_ID_ULK, &o, &sz) && sz % CD_ULK_BYTES == 0) {
+        n = (unsigned)(sz / CD_ULK_BYTES); if (n > CD_MAX_ULK) n = CD_MAX_ULK;
+        for (i = 0; i < n; i++) {
+            const uint8_t *r = buf + o + (size_t)i * CD_ULK_BYTES;
+            CdUnlock *d = &cd->ulk[i];
+            d->id = rd32(r);
+            for (k = 0; k < 3; k++) {
+                const uint8_t *q = r + 4 + 12 * k;
+                d->l[k].a = rd16(q); d->l[k].b = rd16(q + 2);
+                d->l[k].type = q[4]; d->l[k].level = q[5];
+                d->l[k].value = rd32(q + 8);
+            }
+        }
+        cd->nulk = (int)n;
+    }
+}
+
+/* Paint colours from the parts database (see career_data.h). Missing or malformed -> npaint 0. */
+static void parse_paint(CareerData *cd, const uint8_t *buf, size_t len) {
+    static const char *grp[CD_PAINT_GROUPS] = { "GLOSS", "METAL", "PEARL", "RIM", "CALIPER", "MUFFLER", "HOSE", "VINYL" };
+    size_t po, ps, so, ss, lo, ls, ao, as, co, cs;
+    uint32_t ghash[CD_PAINT_GROUPS], kr = cd_hash("RED"), kg = cd_hash("GREEN"), kb = cd_hash("BLUE"), kgl = cd_hash("GLOSS");
+    unsigned i, np, nl, na;
+    cd->npaint = 0;
+    if (!find_chunk(buf, 0, len, CD_ID_PARTSDB, &co, &cs)) return;
+    if (!find_chunk(buf, co, co + cs, 0x00034604u, &po, &ps) || ps < 14) return;   /* [data] 12167 x 14 + 2 pad bytes */
+    if (!find_chunk(buf, co, co + cs, 0x00034606u, &so, &ss)) return;
+    if (!find_chunk(buf, co, co + cs, 0x0003460Cu, &lo, &ls) || ls < 2) return;
+    if (!find_chunk(buf, co, co + cs, 0x00034605u, &ao, &as) || as < 8) return;
+    for (i = 0; i < CD_PAINT_GROUPS; i++) ghash[i] = cd_hash(grp[i]);
+    np = (unsigned)(ps / 14); nl = (unsigned)(ls / 2); na = (unsigned)(as / 8);
+    for (i = 0; i < np && cd->npaint < CD_MAX_PAINT; i++) {
+        const uint8_t *r = buf + po + (size_t)i * 14;
+        unsigned list = rd16(r + 10), k, cnt, have = 0;
+        uint32_t red = 0, green = 0, blue = 0, gloss = 0, group = 0;
+        if (list == 0xFFFFu || list >= nl) continue;
+        cnt = rd16(buf + lo + 2 * (size_t)list);
+        if (list + cnt >= nl) continue;
+        for (k = 0; k < cnt; k++) {
+            unsigned ai = rd16(buf + lo + 2 * (size_t)(list + 1 + k));
+            uint32_t key, val;
+            if (ai >= na) break;
+            key = rd32(buf + ao + 8 * (size_t)ai); val = rd32(buf + ao + 8 * (size_t)ai + 4);
+            if (key == kr) { red = val; have |= 1; } else if (key == kg) { green = val; have |= 2; }
+            else if (key == kb) { blue = val; have |= 4; } else if (key == kgl) gloss = val;
+            else if (key == 0xEBB03E66u) { group = val; have |= 8; }
+        }
+        if (have != 15) continue;
+        for (k = 0; k < CD_PAINT_GROUPS && ghash[k] != group; k++) {}
+        if (k == CD_PAINT_GROUPS) continue;
+        {
+            CdPaint *d = &cd->paint[cd->npaint++];
+            memset(d, 0, sizeof *d);
+            d->key = rd32(r); d->group = (uint8_t)k; d->level = (uint8_t)(r[5] >> 5);
+            d->rgb[0] = (uint8_t)(red > 255 ? 255 : red); d->rgb[1] = (uint8_t)(green > 255 ? 255 : green);
+            d->rgb[2] = (uint8_t)(blue > 255 ? 255 : blue); d->gloss = (uint8_t)(gloss > 255 ? 255 : gloss);
+            {
+                size_t off = (size_t)rd16(r + 8) * 4;
+                if (off < ss) {
+                    const uint8_t *nm = buf + so + off;
+                    size_t m = 0;
+                    while (m < sizeof d->name - 1 && off + m < ss && nm[m]) { d->name[m] = (char)nm[m]; m++; }
+                }
+            }
+        }
+    }
+}
+
+int cd_find_paint(const CareerData *cd, uint32_t key) {
+    for (int i = 0; i < cd->npaint; i++) if (cd->paint[i].key == key) return i;
+    return -1;
+}
+
+int cd_find_ulk(const CareerData *cd, uint32_t id) {
+    for (int i = 0; i < cd->nulk; i++) if (cd->ulk[i].id == id) return i;
+    return -1;
+}
+
 int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     size_t co, cs, ro, rs, so, ss, bo, bs;
     unsigned i, nr, ns;
@@ -198,6 +322,8 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     parse_shops(cd, buf, co, cs);
     parse_unlocks(cd, buf, co, cs);
     parse_sms(cd, buf, co, cs, bo, bs);
+    parse_perf(cd, buf, co, cs);
+    parse_paint(cd, buf, len);
     return (int)nr;
 }
 

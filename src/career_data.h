@@ -84,6 +84,40 @@ typedef struct CdSms {
 } CdSms;
 #define CD_SMS_ARG_LO(a) ((uint16_t)((a) & 0xFFFFu))      /* the +0x08 u16 half, where the pair reading applies */
 #define CD_SMS_ARG_HI(a) ((uint16_t)(((a) >> 16) & 0xFFFFu))
+/* Performance shop data (docs/parity/PERF-PAINT.md). 0x34A15: 30 package records {i32 cat, i32 lvl, i32 n,
+ * n x 92-byte component descriptor}; component index = descriptor +0 (0..67). 0x34A14: 68-byte brands. 0x34A1C:
+ * 40-byte unlock records {u32 id, 3 x {u16 a, u16 b, u8 type, u8 level, u16, u32 value}}. [data] layouts; meanings of
+ * a/b and of unlock types 1..4 are [inferred] (see the doc). */
+#define CD_PERF_CATS     10      /* 0 weight 1 transmission 2 nitrous 3 engine 4 turbo 5 suspension 6 brakes 7 ECU 8 tires 9 aero [inferred] */
+#define CD_PERF_LEVELS   3
+#define CD_PERF_COMPS    68
+#define CD_PERF_PKG_BYTES 380
+#define CD_PERF_DESC_BYTES 92
+#define CD_MAX_BRANDS    48
+#define CD_BRAND_BYTES   68
+#define CD_MAX_ULK       128
+#define CD_ULK_BYTES     40
+typedef struct CdPerfComp {
+    uint8_t  valid, cat, lvl, nbrand;   /* cat/lvl of the package that lists it */
+    uint32_t name_key;                  /* language key (descriptor +4) */
+    int32_t  price;                     /* descriptor +8, dollars [inferred] */
+    uint32_t brand[8];                  /* ug_hash of brand keys (0x34A14) */
+    float    axis[4];                   /* share of the category upgrade fraction; -1 = unused */
+    int8_t   excl[5];                   /* mutually exclusive component indices, -1 = none */
+} CdPerfComp;
+typedef struct CdPerfPkg { uint8_t n; int8_t comp[4]; } CdPerfPkg;
+typedef struct CdBrand { char key[32], display[32]; uint32_t hash; } CdBrand;
+typedef struct CdUnlockLvl { uint16_t a, b; uint8_t type, level; uint32_t value; } CdUnlockLvl;
+typedef struct CdUnlock { uint32_t id; CdUnlockLvl l[3]; } CdUnlock;
+enum { CD_ULK_NEVER = 0, CD_ULK_SHOP = 1, CD_ULK_WINS = 2, CD_ULK_SPONSOR_WINS = 3, CD_ULK_URL_WINS = 4, CD_ULK_START = 6 };
+/* Paint colours from the GLOBALB parts database (top-level chunk 0x80034602: 0x34604 parts x 14 bytes
+ * {u32 key, u8, u8 flags (level = flags >> 5), u16, u16 name/4 into 0x34606, u16 attribute list into 0x3460C, u16};
+ * 0x3460C u16 {count, indices into 0x34605}; 0x34605 {u32 key, u32 value} pairs). A paint is a part with RED, GREEN,
+ * BLUE and a group attribute (key 0xEBB03E66) naming GLOSS/METAL/PEARL/RIM/CALIPER/MUFFLER/HOSE/VINYL [data]. */
+#define CD_MAX_PAINT 512
+enum { CD_PAINT_GLOSS = 0, CD_PAINT_METAL, CD_PAINT_PEARL, CD_PAINT_RIM, CD_PAINT_CALIPER, CD_PAINT_MUFFLER,
+       CD_PAINT_HOSE, CD_PAINT_VINYL, CD_PAINT_GROUPS };
+typedef struct CdPaint { uint32_t key; uint8_t group, level, rgb[3], gloss; char name[32]; } CdPaint;
 typedef struct CdZone   { uint32_t hash; float cx, cy, poly[4][2]; } CdZone;           /* hash = locator hash */
 typedef struct CdMarker { uint32_t hash; float x, y, z, heading; } CdMarker;
 typedef struct CareerData {
@@ -94,8 +128,15 @@ typedef struct CareerData {
     CdShop   shop[CD_MAX_SHOPS];   int nshop;       /* 0 when the table is missing */
     CdCarUnlock unlock[CD_MAX_UNLOCKS]; int nunlock; /* 0 when the table is missing */
     CdSms    sms[CD_MAX_SMS];      int nsms;        /* 0 when the table is missing */
+    CdPerfComp perf_comp[CD_PERF_COMPS]; int nperf_comp;           /* valid entries; 0 when the table is missing */
+    CdPerfPkg  perf_pkg[CD_PERF_CATS][CD_PERF_LEVELS];
+    CdBrand    brand[CD_MAX_BRANDS]; int nbrand;
+    CdUnlock   ulk[CD_MAX_ULK];      int nulk;
+    CdPaint    paint[CD_MAX_PAINT];  int npaint;           /* 0 when the parts database is missing */
     char     error[96];
 } CareerData;
+int cd_find_ulk(const CareerData *cd, uint32_t id);   /* index into ulk[] or -1 */
+int cd_find_paint(const CareerData *cd, uint32_t key); /* index into paint[] or -1 */
 
 /* Each returns the number of records parsed (>0), or 0 with cd->error set. cd_parse_globalb also reads the shop,
  * car-unlock and SMS tables when present (missing or malformed -> nshop / nunlock / nsms 0, not an error).

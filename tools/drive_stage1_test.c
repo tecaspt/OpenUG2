@@ -61,6 +61,33 @@ static void parser_test(void){
     PUT(c.torque_primary,0x310);PUT(c.torque_secondary,0x334);PUT(c.engine_brake,0x358);
     assert(stage1_car_read(bytes,sizeof bytes,"SYNTH",&out));
     assert(!memcmp(&out,&c,sizeof c));
+    {   /* career upgrades (stage1_car_read_upgraded) */
+        DrvCar st=out,u;DrvUpgrade z={0};
+        assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",NULL,&u)&&!memcmp(&u,&st,sizeof st));
+        assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&z,&u)&&!memcmp(&u,&st,sizeof st));
+        /* gearbox L3 block = stock block with a different final drive */
+        unsigned char blk[0x40];memcpy(blk,row+0x2c0,0x40);float fd=c.final_front*1.1f;memcpy(blk+0x8,&fd,4);
+        memcpy(row+0x4e0,blk,0x40);
+        DrvUpgrade g={0};g.gear_level=3;
+        assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&g,&u));
+        assert(fabsf(u.final_front-fd)<1e-6f && u.gear_count==c.gear_count);
+        g.gear_level=1;   /* L1 block 0x460 is all zero: invalid car, read refused */
+        assert(!stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&g,&u));
+        /* engine: master add-curve 0x530 = 0.05 per sample, L2 header raise 500/700 rpm */
+        float add=.05f,r1=500,r2=700;for(int k=0;k<9;k++)memcpy(row+0x530+4*k,&add,4);
+        memcpy(row+0x5a0+4,&r1,4);memcpy(row+0x5a0+8,&r2,4);
+        DrvUpgrade e={0};e.engine=.5f;e.engine_level=2;
+        assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&e,&u));
+        for(int k=0;k<9;k++)assert(fabsf(u.torque_primary[k]-(c.torque_primary[k]+.025f))<1e-5f);
+        assert(fabsf(u.shift_rpm-(c.shift_rpm+500))<1e-3f && fabsf(u.max_rpm-(c.max_rpm+700))<1e-3f);
+        /* tyres: max block 0x650/0x670 = stock + 0.4; half fraction -> + 0.2 */
+        for(int a=0;a<2;a++){float pk=c.mu_peak[a]+.4f,sl=c.mu_slide[a]+.4f;memcpy(row+0x650+0x20*a+0xc,&pk,4);memcpy(row+0x650+0x20*a+0x10,&sl,4);}
+        DrvUpgrade t={0};t.tires=.5f;
+        assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&t,&u));
+        for(int a=0;a<2;a++)assert(fabsf(u.mu_peak[a]-(c.mu_peak[a]+.2f))<1e-5f && fabsf(u.mu_slide[a]-(c.mu_slide[a]+.2f))<1e-5f);
+        memset(row+0x460,0,0x40*3);memset(row+0x530,0,4*9);memset(row+0x5a0,0,12);memset(row+0x650,0,0x40);
+        assert(stage1_car_read(bytes,sizeof bytes,"SYNTH",&u)&&!memcmp(&u,&st,sizeof st));
+    }
     DrvCar saved=out;
     float huge[9];for(int k=0;k<9;k++)huge[k]=FLT_MAX;
     PUT(huge,0x310);PUT(huge,0x334);

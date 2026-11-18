@@ -27,6 +27,15 @@ static int valid_car(const DrvCar *c) {
 }
 
 int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCar *out) {
+    return stage1_car_read_upgraded(data,length,name,NULL,out);
+}
+
+/* Career performance parts (docs/parity/PERF-PAINT.md). All blocks are in the same 0x890 record [data]:
+ * gearbox L1..L3 replace the stock 0x2C0..0x2FF block with 0x460/0x4A0/0x4E0 (same layout); the engine master
+ * add-curve 0x530 (9 samples, primary-torque units; L1..L3 blocks are 0.34/0.68/1.0 of it) is added to the primary
+ * torque scaled by the engine fraction, and the level block header (+4 shift, +8 max, floats) raises the rpm;
+ * tyre grip lerps from the stock axle blocks 0x1E0/0x200 to the per-car maximum 0x650/0x670. */
+int stage1_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,DrvCar *out) {
     if(!data || !name || !out)return 0;
     long row=n2_global_car_record(data,length,name);
     if(row<0 || row>length-0x890)return 0;
@@ -38,16 +47,37 @@ int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCa
         if(n2_u32(data+row+w+0x18)!=(unsigned)i)return 0;
         READ(c.wheel_radius[i],w+0x10);
     }
+    float tire=up?up->tires:0.0f;
+    if(!(tire>=0.0f))tire=0.0f;
+    if(tire>1.0f)tire=1.0f;
     for(int a=0;a<2;a++){
-        int w=0x1e0+0x20*a;
+        int w=0x1e0+0x20*a,m=0x650+0x20*a;
+        float pk,sl;
         READ(c.theta_max[a],w);READ(c.mu_peak[a],w+0xc);READ(c.mu_slide[a],w+0x10);
+        READ(pk,m+0xc);READ(sl,m+0x10);
+        if(tire>0.0f && isfinite(pk) && isfinite(sl) && pk>=c.mu_peak[a] && sl>=c.mu_slide[a] && pk<5.0f && sl<5.0f){
+            c.mu_peak[a]+=tire*(pk-c.mu_peak[a]);c.mu_slide[a]+=tire*(sl-c.mu_slide[a]);
+        }
     }
-    READ(c.launch_fraction,0x2c0);READ(c.final_front,0x2c8);READ(c.final_rear,0x2cc);
-    READ(c.rear_share,0x2d0);READ(c.clutch_k,0x2d4);
-    c.gear_count=(int)n2_u32(data+row+0x2d8);READ(c.clutch_rate,0x2dc);
-    READ(c.ratio,0x2e0);READ(c.idle_rpm,0x300);READ(c.shift_rpm,0x304);
+    int gl=up?up->gear_level:0, gb=(gl>=1&&gl<=3)?0x460+0x40*(gl-1):0x2c0;
+    READ(c.launch_fraction,gb);READ(c.final_front,gb+0x8);READ(c.final_rear,gb+0xc);
+    READ(c.rear_share,gb+0x10);READ(c.clutch_k,gb+0x14);
+    c.gear_count=(int)n2_u32(data+row+gb+0x18);READ(c.clutch_rate,gb+0x1c);
+    READ(c.ratio,gb+0x20);READ(c.idle_rpm,0x300);READ(c.shift_rpm,0x304);
     READ(c.max_rpm,0x308);READ(c.engine_inertia,0x30c);
     READ(c.torque_primary,0x310);READ(c.torque_secondary,0x334);READ(c.engine_brake,0x358);
+    if(up && up->engine>0.0f){
+        float e=up->engine>1.0f?1.0f:up->engine;
+        for(int i=0;i<DRV_TORQUE_SAMPLES;i++){
+            float add;READ(add,0x530+4*i);
+            if(isfinite(add) && add>=0.0f && add<5.0f)c.torque_primary[i]+=e*add;
+        }
+    }
+    if(up && up->engine_level>=1 && up->engine_level<=3){
+        float rs,rm;int hb=0x560+0x40*(up->engine_level-1);
+        READ(rs,hb+4);READ(rm,hb+8);
+        if(isfinite(rs) && isfinite(rm) && rs>=0.0f && rm>=0.0f && rs<=3000.0f && rm<=3000.0f){c.shift_rpm+=rs;c.max_rpm+=rm;}
+    }
 #undef READ
     if(!valid_car(&c) || drv_car_finalize(&c))return 0;
     *out=c;return 1;
