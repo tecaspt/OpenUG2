@@ -1744,11 +1744,44 @@ static int career_stage1_read(const unsigned char *data,long len,const char *car
     printf("career: upgrades %s engine %.2f L%d gearbox L%d tires %.2f\n",car,up.engine,up.engine_level,up.gear_level,up.tires);
     return stage1_car_read_upgraded(data,len,car,&up,out);
 }
+/* Performance shop: the career's packages / components for the active car into the FE snapshot (fe_perf.h). */
+static void career_perf_shop(FePerfShop *o) {
+    const CareerState *st=&g_career.st;const CareerData *cd=&g_career.cd;
+    memset(o,0,sizeof *o);
+    o->bank=(long long)st->bank;
+    for(int c=0;c<FEP_CATS&&c<CD_PERF_CATS;c++)for(int l=1;l<=FEP_LEVELS&&l<=CD_PERF_LEVELS;l++) {
+        const CdPerfPkg *pk=&cd->perf_pkg[c][l-1];FePerfLevel *L=&o->cat[c].lvl[l-1];
+        if(!pk->n)continue;
+        L->n=pk->n>FEP_PARTS?FEP_PARTS:pk->n;
+        L->open=cr_perf_level_open(st,cd,c,l)!=0;
+        L->price=cr_perf_price(st,cd,c,l,-1);
+        L->owned_all=1;
+        for(int i=0;i<L->n;i++) {
+            int comp=pk->comp[i];FePerfPart *pt=&L->part[i];
+            pt->comp=(int16_t)comp;
+            if(comp<0||comp>=CD_PERF_COMPS)continue;
+            pt->name_key=cd->perf_comp[comp].name_key;
+            pt->price=cr_perf_price(st,cd,c,l,comp);
+            pt->owned=cr_perf_owned(st,comp)!=0;
+            if(!pt->owned){L->owned_all=0;L->full+=pt->price;}
+        }
+    }
+}
+static const char *career_perf_error(int rc) {
+    return rc==CR_PERF_E_LOCKED?"locked":rc==CR_PERF_E_FUNDS?"funds":rc==CR_PERF_E_OWNED?"owned":rc==CR_PERF_E_ARG?"argument":"save";
+}
 static void career_open_shop(FeMenu *fem) {
     int sh=g_career.at_shop;
     if(sh<0||sh>=g_career.cd.nshop)return;
     int type=g_career.cd.shop[sh].type;
     if(type==CD_SHOP_CAR_LOT){career_open_lot(fem,g_career.st.nowned==0);return;}
+    if(type==CD_SHOP_PERF) {
+        static FePerfShop perf;
+        career_perf_shop(&perf);
+        fem_open_perf(fem,&perf);
+        printf("career: opened shop %s type %d\n",g_career.cd.shop[sh].name,type);
+        return;
+    }
     uint32_t slots=0;
     for(int i=0;i<=GARAGE_RIM;i++)if(cr_shop_slot(type,i))slots|=1u<<i;
     fem_open_career_shop(fem,type,slots,career_save_parts,&g_career);
@@ -2474,7 +2507,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--gps-marker", "--hud-nav-arrow-2d", "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--rear-mirror", "--perf-csv", "--career-dev", "--career-ask", "--career-place-raw", "--world-map-dev", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--rear-mirror", "--perf-csv", "--career-dev", "--career-ask", "--career-place-raw", "--career-bank", "--world-map-dev", "--debug-sink",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2739,6 +2772,7 @@ int main(int argc, char **argv) {
     int world_map_dev = 0; /* explicit scripted arrival check; F8 teleports only to a validated destination */
     int career_ask = 0;   /* --career-ask */
     int career_place_raw = 0;   /* --career-place-raw: dev/test only, career pose not road-snapped */
+    long long career_bank = -1;  /* --career-bank N: test only, sets the career bank after load/new */
     float career_raw_pose[4] = {0};
     int career_dev = 0;                  /* --career-dev PLACE: developer automation of the career loop (M6 S6):
                                             engage the first available event, finish it in PLACE */
@@ -2780,7 +2814,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--career-dev") && i+1 < argc) career_dev = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--world-map-dev")) world_map_dev=1;
         else if (!strcmp(argv[i], "--career-ask")) career_ask = 1;   /* with --career-dev: still ask the race question */
-        else if (!strcmp(argv[i], "--career-place-raw")) career_place_raw = 1;   /* tests: keep the exact shop/zone pose */
+        else if (!strcmp(argv[i], "--career-place-raw")) career_place_raw = 1;
+        else if (!strcmp(argv[i], "--career-bank") && i+1 < argc) career_bank = atoll(argv[++i]);   /* tests: bank after a career load/new */   /* tests: keep the exact shop/zone pose */
         else if (!strcmp(argv[i], "--debug-sink") && i+1 < argc) debug_sink = atol(argv[++i]);
         else if (!strcmp(argv[i], "--circuit") && i+1 < argc) { circuit = argv[++i]; explicit_circuit = 1; }
         else if (!strcmp(argv[i], "--objdump") && i+1 < argc) objdump = argv[++i];
@@ -7584,6 +7619,7 @@ int main(int argc, char **argv) {
                     fem_open(fem, FEM_SCR_PROFILE);
                 } else {
                     printf("%s\n", g_career.last);
+                    if (career_bank >= 0) { g_career.st.bank = career_bank; printf("career: bank set to %lld (--career-bank)\n", career_bank); }
                     career_save_shown = 1; fem_set_career(fem, 1, 1);
                     garage_reload_pending = 1; garage_load_failed = 0;
                     career_place = 1;
@@ -7608,6 +7644,25 @@ int main(int argc, char **argv) {
                     gf_start(&gflow, &gl);
                     career_launch = gl;
                 } else career_open_lot(fem, lot_must_buy);   /* refused: the menu unlocks on re-open */
+            }
+            /* Performance shop purchase: validate + install + debit (cr_perf_buy), save (rolled back on failure), then reload
+               the active car in process so career_stage1_read applies the new parts. */
+            else if (frq.kind == FEM_REQ_PERF_BUY) {
+                CareerState before = g_career.st;
+                int32_t charged = 0;
+                int rc = g_career.active && g_career.race < 0 ?
+                    cr_perf_buy(&g_career.st, &g_career.cd, g_career.at_shop, frq.perf_cat, frq.perf_lvl, frq.perf_comp, &charged) : CR_PERF_E_ARG;
+                int saved = rc == CR_PERF_OK ? cr_save_file(g_career.root, g_career.profile, &g_career.st) : ST_OK;
+                if (rc == CR_PERF_OK && saved != ST_OK) { g_career.st = before; rc = 1; }
+                static FePerfShop perf;
+                if (rc == CR_PERF_OK) {
+                    printf("career: perf bought cat %d L%d comp %d $%d bank %lld\n", frq.perf_cat, frq.perf_lvl, frq.perf_comp, (int)charged, (long long)g_career.st.bank);
+                    garage_reload_pending = 1; garage_load_failed = 0;   /* same-car in-process switch: drivetrain re-read */
+                } else printf("career: perf refused cat %d L%d comp %d (%s)\n", frq.perf_cat, frq.perf_lvl, frq.perf_comp, career_perf_error(rc));
+                fflush(stdout);
+                career_perf_shop(&perf);
+                fem_perf_refresh(fem, &perf, rc == CR_PERF_E_FUNDS ? FEP_MSG_NO_FUNDS : rc == CR_PERF_E_LOCKED ? FEP_MSG_LOCKED :
+                                             rc == CR_PERF_E_OWNED ? FEP_MSG_OWNED : FEP_MSG_NONE);
             }
             else if (frq.kind == FEM_REQ_CAREER_ROAM) {
                 GfLaunch gl;

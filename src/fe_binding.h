@@ -1106,6 +1106,64 @@ static const FeIdentity fe_UI_CareerWorldMap[] = {
  {0x1e948cd4u,0x000db907u,0x00000000u,1,0},
  {0xc8e97c9cu,0x000db8e9u,0x00000000u,2,1},
 };
+/* Performance shop (fe_perf.c): UI_ChoosePerformanceCategory / UI_ChoosePerformancePackage / UI_BuyPerformanceParts
+ * (FRONTEND/FrontB.lzc). Only the objects fe_perf writes by GUID; the carousel / list objects bind by name. */
+static const FeIdentity fe_UI_ChoosePerformanceCategory[] = {
+ {0x8d7e0c53u,0x000dd2ffu,0x00000000u,5,0},
+ {0x42adb44cu,0x000dcdadu,0x000dd2ffu,2,1},
+ {0x5e7b09c9u,0x000dd13au,0x000dd2ffu,2,1},
+ {0xa2f11b13u,0x000e520fu,0x000dd2ffu,1,12},
+ {0x02ddf58cu,0x000e4fe6u,0x00000000u,5,0},
+ {0xeb406fecu,0x000e4fe7u,0x000e4fe6u,2,1},
+ {0xeb3a688au,0x000e4fe8u,0x000e4fe6u,2,1},
+};
+static const FeIdentity fe_UI_ChoosePerformancePackage[] = {
+ {0x42adb44cu,0x000df12bu,0x000df12au,2,1},
+ {0x0666176bu,0x000df142u,0x000df12au,2,1},
+ {0xa2f11b13u,0x000e520du,0x000df12au,1,11},
+ {0xa2f11b13u,0x000e52dfu,0x000df12au,1,11},
+ {0x02ddf58cu,0x000e5048u,0x00000000u,5,0},
+ {0xeb406fecu,0x000e5049u,0x000e5048u,2,1},
+ {0xeb3a688au,0x000e504au,0x000e5048u,2,1},
+ {0x3d3f9f04u,0x000e0f41u,0x00000000u,5,0},
+ {0xbe8693e1u,0x000e0befu,0x000e0f41u,2,1},
+ {0x06e0c9a8u,0x000e06a7u,0x000e0f41u,2,1},
+ {0xfb717aa7u,0x000e067bu,0x000e0f41u,2,1},
+ {0xfb717aa8u,0x000e067eu,0x000e0f41u,2,1},
+ {0xfb717aa9u,0x000e0681u,0x000e0f41u,2,1},
+ {0xfb717aaau,0x000e0684u,0x000e0f41u,2,1},
+ {0x2af31879u,0x000e06e0u,0x000e0f41u,2,1},
+ {0x2af3187au,0x000e06e1u,0x000e0f41u,2,1},
+ {0x2af3187bu,0x000e06e2u,0x000e0f41u,2,1},
+ {0x2af3187cu,0x000e06e3u,0x000e0f41u,2,1},
+ {0xa415c33eu,0x000e0c1fu,0x000e0f41u,5,0},
+ {0xa415c35fu,0x000e0c23u,0x000e0f41u,5,0},
+ {0xa415c31du,0x000e0c10u,0x000e0f41u,5,0},
+ {0xde2f4e94u,0x000e05e4u,0x000e0f41u,5,0},
+ {0x8c69e4b9u,0x000e0d10u,0x000e0f41u,1,16},
+ {0x8c69e4b7u,0x000e0d21u,0x000e0f41u,1,16},
+ {0x8c69e4b8u,0x000e0d26u,0x000e0f41u,1,16},
+ {0x8c69e4b6u,0x000e0d2bu,0x000e0f41u,1,16},
+ {0x0380b632u,0x000e5ccbu,0x000e0f41u,2,1},
+ {0xf5a9d520u,0x000e1240u,0x00000000u,5,0},
+};
+static const FeIdentity fe_UI_BuyPerformanceParts[] = {
+ {0xf601f2d4u,0x000e0676u,0x000df12au,2,3},
+ {0x38be24efu,0x000e06a7u,0x000df12au,2,3},
+ {0x38be24ceu,0x000e06a6u,0x000df12au,2,3},
+ {0x18531358u,0x000e06bau,0x000df12au,2,3},
+ {0x6bb32446u,0x000e06b9u,0x000df12au,2,3},
+ {0xde2f5230u,0x000e0666u,0x000df12au,5,0},
+ {0xde2f520fu,0x000e0661u,0x000df12au,5,0},
+ {0x2b95a91bu,0x000e0acbu,0x000df12au,1,13},
+ {0xcea9c0a3u,0x000e0ac9u,0x000df12au,1,4},
+ {0x6e15a6e2u,0x000e0acau,0x000df12au,1,4},
+ {0x147447cau,0x000e0accu,0x000df12au,1,14},
+ {0xe433adb4u,0x000e0ad8u,0x000df12au,1,4},
+ {0x44c7c775u,0x000e0ad7u,0x000df12au,1,4},
+ {0xdeb96fdcu,0x000e0adau,0x000df12au,1,14},
+ {0x0aed16edu,0x000e0ad9u,0x000df12au,1,13},
+};
 static const FeBindingSet fe_binding_sets[] = {
  {"UI_QRTrackSelect.fng", fe_UI_QRTrackSelect, sizeof fe_UI_QRTrackSelect/sizeof fe_UI_QRTrackSelect[0]},
  {"UI_QRTrackOptions.fng", fe_UI_QRTrackOptions, sizeof fe_UI_QRTrackOptions/sizeof fe_UI_QRTrackOptions[0]},
@@ -1117,6 +1175,9 @@ static const FeBindingSet fe_binding_sets[] = {
  {"UI_CareerCarLot.fng", fe_UI_CareerCarLot, sizeof fe_UI_CareerCarLot/sizeof fe_UI_CareerCarLot[0]},
  /* Append only: fe_car/postrace retain the established binding-set indexes. */
  {"UI_CareerWorldMap.fng", fe_UI_CareerWorldMap, sizeof fe_UI_CareerWorldMap/sizeof fe_UI_CareerWorldMap[0]},
+ {"UI_ChoosePerformanceCategory.fng", fe_UI_ChoosePerformanceCategory, sizeof fe_UI_ChoosePerformanceCategory/sizeof fe_UI_ChoosePerformanceCategory[0]},
+ {"UI_ChoosePerformancePackage.fng", fe_UI_ChoosePerformancePackage, sizeof fe_UI_ChoosePerformancePackage/sizeof fe_UI_ChoosePerformancePackage[0]},
+ {"UI_BuyPerformanceParts.fng", fe_UI_BuyPerformanceParts, sizeof fe_UI_BuyPerformanceParts/sizeof fe_UI_BuyPerformanceParts[0]},
 };
 /* Duplicate hashes are valid (notably track_icon); GUIDs must be unique. */
 static inline int fe_identity_find(const UgFngPackage *p,const FeIdentity *key) {

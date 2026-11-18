@@ -68,6 +68,7 @@ struct FeMenu {
     FeWorldMap world_map;
     int map_pressed;
     FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
+    FePerf perf;                 /* career Performance Shop state (fe_perf.h) */
     int pending_input, pressed;
     int loading_event;
     OptionsMenu options;
@@ -100,6 +101,7 @@ static const char *screen_name(FemScreen s) {
     case FEM_SCR_CAREER: return "CAREER";
     case FEM_SCR_GARAGE:return "GARAGE";
     case FEM_SCR_CAREER_LOT: return "CAREER_LOT";
+    case FEM_SCR_CAREER_PERF: return "CAREER_PERF";
     case FEM_SCR_LOADING: return "LOADING";
     default: return "NONE";
     }
@@ -109,6 +111,7 @@ static const char *package_of(FemScreen s) {
     case FEM_SCR_WORLD_MAP:return "UI_CareerWorldMap.fng";
     case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
     case FEM_SCR_CAREER_LOT: return "UI_CareerCarLot.fng";
+    case FEM_SCR_CAREER_PERF: return "UI_ChoosePerformanceCategory.fng";   /* the current page: fpr_package */
     case FEM_SCR_OPTIONS:return "UI_OptionsMain.fng";
     case FEM_SCR_PROFILE:return "UI_ProfileManager.fng";
     case FEM_SCR_MAIN: return "UI_Main.fng";
@@ -186,6 +189,11 @@ static void build_screen(FeMenu *m) {
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
         return;
     }
+    if(m->screen==FEM_SCR_CAREER_PERF) {
+        m->visual=fpr_bind(&m->perf,&m->scr,&m->assets);
+        if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
+        return;
+    }
     if(m->screen==FEM_SCR_OPTIONS) {
         m->visual=build_options(m);
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
@@ -258,7 +266,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_WORLD_MAP)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -285,6 +293,7 @@ static void views_update(FeMenu *m, float ms) {
     if(m->screen==FEM_SCR_GARAGE && !feg_sync(m->garage,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",feg_status(m->garage));return;}
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
     else if(m->screen==FEM_SCR_CAREER_LOT)fel_sync(&m->lot,&m->scr);
+    else if(m->screen==FEM_SCR_CAREER_PERF && !fpr_sync(&m->perf,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->perf.status);return;}
     else if(m->screen==FEM_SCR_QR_TRACK || m->screen==FEM_SCR_QR_OPTIONS)
         fet_sync(&m->choice,&m->scr,ms,m->screen==FEM_SCR_QR_OPTIONS);
     if(m->screen==FEM_SCR_QR_TRACK && m->status[0])for(int i=0;i<m->scr.scene.n;i++)
@@ -474,6 +483,7 @@ const char *fem_status(const FeMenu *m) {
     if(m->screen==FEM_SCR_QR_TRACK)return m->choice.track_status;
     if(m->screen==FEM_SCR_QR_CAR)return m->choice.car_status;
     if(m->screen==FEM_SCR_CAREER_LOT)return m->lot.status;
+    if(m->screen==FEM_SCR_CAREER_PERF)return m->perf.status;
     return m->status;
 }
 
@@ -738,6 +748,12 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         else if(ev==FEL_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
         fel_advance(&m->lot,seconds);
     }
+    if(m->screen==FEM_SCR_CAREER_PERF) {
+        FepEvent ev=in && !m->locked?fpr_input(&m->perf,in):FEP_EV_NONE;
+        if(ev==FEP_EV_BUY){req.kind=FEM_REQ_PERF_BUY;req.perf_cat=m->perf.buy_cat;req.perf_lvl=m->perf.buy_lvl;req.perf_comp=m->perf.buy_comp;m->locked=1;}
+        else if(ev==FEP_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+        else if(ev==FEP_EV_PAGE){fprintf(stderr,"fem: performance shop page %s\n",fpr_package(&m->perf));build_screen(m);}
+    }
     if (is_logic_screen(m)) {
         fes_update(&m->fes, seconds);
         if (m->fes.exiting) {
@@ -792,7 +808,7 @@ FemRequest fem_update(FeMenu *m, float seconds) {
 
 void fem_draw(FeMenu *m, int w, int h) {
     if (!fem_is_open(m) || w <= 0 || h <= 0) return;
-    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE && m->screen != FEM_SCR_CAREER_LOT) {   /* 3D car behind */
+    if (m->screen != FEM_SCR_QR_CAR && m->screen != FEM_SCR_GARAGE && m->screen != FEM_SCR_CAREER_LOT && m->screen != FEM_SCR_CAREER_PERF) {   /* 3D car behind */
         static const float black[4] = { 0, 0, 0, 1 };
         rhi_cmd_clear_main(black, 1.0f);
     }
@@ -872,6 +888,19 @@ void fem_open_lot(FeMenu *m,const FeLotCar *cars,int n,int must_buy,long long ba
     fel_open(&m->lot,cars,n,must_buy,bank);
     m->career_garage=0;
     fem_open(m,FEM_SCR_CAREER_LOT);
+}
+void fem_open_perf(FeMenu *m,const FePerfShop *shop) {
+    if(!m || feg_busy(m->garage))return;
+    fpr_open(&m->perf,shop);
+    m->career_garage=0;
+    fem_open(m,FEM_SCR_CAREER_PERF);
+}
+void fem_perf_refresh(FeMenu *m,const FePerfShop *shop,int msg) {
+    if(!m || m->screen!=FEM_SCR_CAREER_PERF)return;
+    fpr_refresh(&m->perf,shop,(FepMsg)msg);
+    m->locked=0;
+    build_screen(m);
+    views_update(m,0);
 }
 void fem_open_career_garage(FeMenu *m) {
     if(!m || feg_busy(m->garage))return;

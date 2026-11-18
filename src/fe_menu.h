@@ -12,6 +12,7 @@
 #include <SDL.h>
 #include "race_rules.h"
 #include "fe_lot.h"
+#include "fe_perf.h"
 #include "fe_worldmap.h"
 
 #ifdef __cplusplus
@@ -23,10 +24,12 @@ struct GameCatalog;                /* game_catalog.h */
 typedef enum { FEM_REQ_NONE = 0, FEM_REQ_QUICK_RACE, FEM_REQ_FREE_RUN, FEM_REQ_QUIT, FEM_REQ_CAREER,
                FEM_REQ_LOT_BUY,       /* M6: buy the lot car named in `car` (second Accept on the Car Lot) */
                FEM_REQ_CAREER_ROAM,   /* M6: leave a career sub-screen back to free roam */
-               FEM_REQ_SET_DESTINATION /* Task S: destination carries world XY and explicit identity */
+               FEM_REQ_SET_DESTINATION, /* Task S: destination carries world XY and explicit identity */
+               FEM_REQ_PERF_BUY       /* performance shop: buy perf_cat / perf_lvl / perf_comp (-1 = the package) */
 } FemReqKind;
-typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; FeMapDestination destination; } FemRequest;
-typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP } FemScreen;
+typedef struct FemRequest { FemReqKind kind; int event_id; char car[32], track[16]; int laps, difficulty; RrOptions rules; FeMapDestination destination;
+                            int perf_cat, perf_lvl, perf_comp; } FemRequest;
+typedef enum { FEM_SCR_NONE = 0, FEM_SCR_MAIN, FEM_SCR_QR_MODE, FEM_SCR_QR_TRACK, FEM_SCR_QR_OPTIONS, FEM_SCR_QR_CAR, FEM_SCR_LOADING, FEM_SCR_OPTIONS, FEM_SCR_PROFILE, FEM_SCR_CAREER, FEM_SCR_GARAGE, FEM_SCR_CAREER_LOT, FEM_SCR_WORLD_MAP, FEM_SCR_CAREER_PERF } FemScreen;
 typedef struct FeMenu FeMenu;
 
 /* `cat` is borrowed (must outlive the menu); NULL is allowed (race modes then report an error and stay).
@@ -76,6 +79,11 @@ void fem_set_career(FeMenu *, int available, int has_save);
  * FEM_REQ_CAREER_ROAM unless `must_buy` (then the CAR_LOT_MUST_BUY caption). An owned car shows
  * CAR_SELECT_SAME_CAR. `bank` fills PLAYER_CASH. The menu is locked after a request until the host reopens. */
 void fem_open_lot(FeMenu *, const FeLotCar *cars, int n, int must_buy, long long bank);
+/* Career Performance Shop (fe_perf.h): category -> package -> optional single part, two-step purchase. Accept on a
+ * purchase question returns FEM_REQ_PERF_BUY; Back from the categories returns FEM_REQ_CAREER_ROAM. The menu is locked
+ * after a request until the host calls fem_perf_refresh (new data, kept position, `msg` caption, FepMsg). */
+void fem_open_perf(FeMenu *, const FePerfShop *shop);
+void fem_perf_refresh(FeMenu *, const FePerfShop *shop, int msg);
 /* M6: the Garage hub opened from career free roam; leaving it returns FEM_REQ_CAREER_ROAM, not Main. */
 void fem_open_career_garage(FeMenu *);
 void fem_open_career_shop(FeMenu *,int type,uint32_t slots,
