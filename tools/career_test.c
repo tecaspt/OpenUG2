@@ -489,6 +489,79 @@ static void test_sms(void)
     CHECK(cr_sms_deliver(&s,&cd,-1,0,1)==1 && s.sms[0].hash==800 && !cr_sms_unread(&s));
 }
 
+static void test_sponsors(void)
+{
+    static CareerData data;
+    CareerState state, loaded;
+    uint8_t bytes[16384];
+    CrOutcome out;
+    memset(&data, 0, sizeof data);
+    data.nstage = 2; data.stage[0].index = 2; data.stage[0].nsponsors = 2;
+    data.stage[0].sponsor[0] = 1001; data.stage[0].sponsor[1] = 1002;
+    data.stage[0].req_total = 4; data.stage[0].req_sponsor = 3; data.stage[0].req_url = 1;
+    data.stage[1].index = 3; data.stage[1].req_total = 20;
+    data.nsponsor = 3;
+    for (int i = 0; i < 3; i++) {
+        strcpy(data.sponsor[i].name, "CONTRACT"); data.sponsor[i].hash = 1001+i;
+        data.sponsor[i].signing = 1275; data.sponsor[i].url_bonus = 900;
+        memset(data.sponsor[i].race, 1, 3);
+    }
+    data.sponsor[1].reputation = 75;
+    data.nrace = 5;
+    for (int i = 0; i < 5; i++) {
+        data.race[i].name_hash = 2001+i; data.race[i].stage = 2;
+        data.race[i].category = i == 4 ? CD_CAT_URL : CD_CAT_SPONSOR;
+        data.race[i].unlock_mode = i == 0 ? CD_UNLOCK_SPONSOR : CD_UNLOCK_STAGE;
+        data.race[i].purse = 1000;
+    }
+    cr_new(&state, &data, "CAR"); state.stage = 2;
+    CHECK(cr_sponsor_pending(&state, &data));
+    CHECK(!cr_sponsor_eligible(&state, &data, 1));
+    CHECK(!cr_sponsor_choose(&state, &data, -1));
+    CHECK(!cr_sponsor_choose(&state, &data, 2));
+    CHECK(!cr_sponsor_choose(&state, &data, 1));
+    CHECK(state.bank == 0 && !state.sponsor[2]);
+    CHECK(!cr_available(&state, &data, 0) && !cr_available(&state, &data, 1));
+    state.rep = 150; state.entered = 2;
+    CHECK(cr_sponsor_eligible(&state, &data, 1));
+    CHECK(cr_sponsor_choose(&state, &data, 0));
+    CHECK(state.bank == 1275 && cr_sponsor_current(&state, &data) == 0);
+    CHECK(!cr_sponsor_choose(&state, &data, 1) && state.bank == 1275);
+    CHECK(!cr_sponsor_pending(&state, &data));
+    CHECK(cr_available(&state, &data, 0) && cr_available(&state, &data, 1));
+    CHECK(!cr_available(&state, &data, 3)); /* only the three selected events */
+    size_t length = cr_serialize(&state, bytes, sizeof bytes);
+    CHECK(length && cr_parse(&loaded, bytes, length) == ST_OK);
+    CHECK(loaded.sponsor[2] == 1001 && loaded.bank == 1275);
+    CHECK(!cr_sponsor_choose(&loaded, &data, 0));
+    CrResult result = {2005, 2, 4, 0, 0, 20};
+    CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out));
+    CHECK(!out.sponsor_bonus && state.bank == 1275);
+    result.place = 1; result.failed = 1;
+    CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out) && !out.sponsor_bonus);
+    result.failed = 0; result.aborted = 1;
+    CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out) && !out.sponsor_bonus);
+    result.aborted = 0;
+    CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out));
+    CHECK(out.sponsor_bonus == 900 && out.reward.cash == 1900 && state.bank == 3175);
+    CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out) && !out.sponsor_bonus && !out.reward.cash);
+    for (int i = 0; i < 3; i++) {
+        result.race_hash = 2001+i;
+        CHECK(cr_apply(&state, &data, &result, NULL, NULL, &out));
+        CHECK(!out.sponsor_bonus && out.reward.cash == 1000);
+    }
+    CHECK(state.stage == 3 && out.stage_after == 3 && state.bank == 6175);
+    CHECK(state.sponsor[2] == 1001 && cr_sponsor_current(&state, &data) == -1);
+    /* Previous schema has no selection and must offer a contract without phantom credit. */
+    StContainerView view;
+    CHECK(st_container_parse(bytes, length, &view) == ST_OK);
+    uint8_t header[8], oldbody[16384]; memcpy(header, view.a, 8); header[4] = 5;
+    memcpy(oldbody, view.b, view.size_b);
+    size_t oldlength = st_container_build(bytes, sizeof bytes, header, 8, oldbody, view.size_b - 40);
+    CHECK(oldlength && cr_parse(&loaded, bytes, oldlength) == ST_OK);
+    CHECK(!loaded.sponsor[2] && loaded.bank == 1275 && cr_sponsor_pending(&loaded, &data));
+}
+
 int main(void)
 {
     static CareerState s, s2, s3;
@@ -660,6 +733,7 @@ int main(void)
         rmdir(root);
     }
 
+    test_sponsors();
     test_lot();
     test_save2();
     test_save3();
