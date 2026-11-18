@@ -20,12 +20,15 @@
 # map has no tween - so the TAB and Return there sit 20 frames apart, as in s3.
 #
 # After that: choose a race icon with TAB (the map's own next-destination key), read the GPS route
-# back off the WM probe lines, close the map and drive on - the WM probe line going active=1 again
-# with the same route is the evidence that guidance survived the map. F8 teleports the car into the
-# destination zone, and arrival is printed by the game itself, not by this script: it has to drive the
-# last few frames and let the zone test notice it. No second visit to the map is needed for that, and
-# one run that opened it twice printed 'world map: opened' twice, which is exactly the kind of
-# coincidence a spec should not be left to forgive.
+# back off the WM probe lines, close the map and drive on - the WM probe line staying active=1 with
+# the same route after the map closed is the evidence that guidance survived it. F8 teleports the car
+# into the destination zone, and arrival is printed by the game itself, not by this script: it needs
+# frames of real driving after the teleport for the zone test to notice. Two things that ordering has
+# to get right, both measured the hard way: F8 is read only on a driving frame, so it must not land
+# while the map is still closing (a press at f=1500, 100 frames after the Escape, was never seen at
+# all, while the same press at f=2250 in an earlier draft teleported fine), and it must land before
+# the car has driven into the zone under its own power - arrival clears the destination, so a later
+# F8 has nothing left to teleport to.
 # --world-map-dev prints the icon list, the probe lines and the F8 arrival.
 #
 # A `shot=` is captured on its own frame, before the frame's keys are pushed, so a shot never shares
@@ -53,8 +56,9 @@
 1080:key=Return
 1200:shot=wmgps-route.png
 1300:key=Escape
-1400:tdown=gas
-1460:tup=gas
-1500:key=F8
-1700:shot=wmgps-arrived.png
-1701:quit
+1400:key=F8
+1500:shot=wmgps-arrived.png
+1700:tdown=gas
+1900:tup=gas
+2100:shot=wmgps-reached.png
+2101:quit

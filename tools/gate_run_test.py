@@ -481,6 +481,26 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not found", self.detail_of(steps, "g"))
 
+    def test_shots_min_catches_a_script_that_stops_early(self):
+        """shots_min is the rule that catches a scripted sequence dying before its last shot, and it
+        is the only one the log spec cannot stand in for: the runner counts PNGs in the step dir, and
+        no spec line can see the file system. A fake game that writes the shot of every frame it is
+        told about is enough - what matters is that the missing one fails the step and names itself.
+        """
+        self.write(self.repo, "tools/gate_inputs/short.txt",
+                   "10:shot=early.png\n5000:shot=late.png\n9999:quit\n")
+        self.game("fake", "import sys, re\n"
+                          "spec = open(sys.argv[2][1:]).read()\n"
+                          "for f, name in re.findall(r'(\\d+):shot=(\\S+)', spec):\n"
+                          "    if int(f) < 2000: open(name, 'w').write('PNG')\n")
+        step = {"id": "g", "kind": "game", "binary": "fake",
+                "args": ["--input-script", "@tools/gate_inputs/short.txt"], "shots_min": 2}
+        code, out, steps = self.run_main(self.gate(step))
+        self.assertEqual(code, 1)
+        self.assertIn("shots 1/2", self.detail_of(steps, "g"))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "g", "early.png")))
+        self.assertFalse(os.path.isfile(os.path.join(self.out, "g", "late.png")))
+
     def test_inline_and_multiline_input_scripts(self):
         # An inline one-liner goes through untouched; a multi-line script cannot be an argv entry
         # the game would parse, so it must reach the game as a @file it can read.

@@ -17,7 +17,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # `gate_run.py ... --out DIR` produced.
 GATE = sys.argv[1] if len(sys.argv) > 1 else None
 
-# spec -> (log file, corruption, the rule the corruption is meant to break)
+# spec -> (log file, corruption, the rule the corruption is meant to break). A spec may appear under
+# more than one key, which is how one step's meaning gets spread over the rules that carry it - each
+# key breaks exactly one of them, so a BAD line names the rule that is not load-bearing.
 CASES = {
     "s2_menu.spec": ("s2.log",
         lambda t: t.replace("fe: launch free run event 0", "fe: launch quick race event 0"),
@@ -65,12 +67,24 @@ CASES = {
     "mirror_on.spec": ("mirror_on.log",
         lambda t: re.sub(r"^wrote mirror-on-.*\n", "", t, count=1, flags=re.M),
         "the mirror screenshot must exist"),
-    # worldmap_gps is the route-and-arrive flow, and the icon it routes to must be the icon the run
-    # actually asked for, so the id of the selected icon has to appear in the map's own icon list.
+    # worldmap_gps is the route-and-arrive flow, and the id ties are what make the whole chain mean
+    # one destination: perturb the id of the icon the run asked for and none of the route, guidance
+    # or arrival lines refer to an icon the map ever offered.
     "worldmap_gps.spec": ("worldmap_gps.log",
         lambda t: re.sub(r"world map: selected kind=1 id=([0-9a-f]{6})[0-9a-f]{2}",
                          r"world map: selected kind=1 id=\1ff", t, count=1),
         "the destination must be one the map really offered"),
+    # The same flow a second way, because two of its rules carry all the meaning and neither is
+    # touched by the id mutation above: a route that is not a route, and an "arrival" that never
+    # cleared the guidance. Each is its own case so each failure names its own rule.
+    "worldmap_gps.spec (zero-node route)": ("worldmap_gps.log",
+        lambda t: re.sub(r"GPS route: [1-9]\d* nodes", "GPS route: 0 nodes", t, count=1),
+        "a destination with no route nodes was never routed to"),
+    "worldmap_gps.spec (guidance never cleared)": ("worldmap_gps.log",
+        lambda t: re.sub(r"world map: destination zone reached (kind=\d+ id=[0-9a-f]{8}) "
+                         r"route=0 marker=0",
+                         r"world map: destination zone reached \1 route=9 marker=1", t, count=1),
+        "reaching the zone has to drop the route and the HUD marker, not keep them"),
 }
 
 
@@ -82,15 +96,16 @@ def main():
         print("no log directory %s" % GATE)
         return 2
     bad = 0
-    for spec, (log, mutate, why) in sorted(CASES.items()):
+    for case, (log, mutate, why) in sorted(CASES.items()):
+        spec = case.split(" (")[0]       # "x.spec (extra mutation)" keys share one spec file
         real = os.path.join(GATE, log)
         if not os.path.isfile(real):
-            print("SKIP %-18s no %s in %s" % (spec, log, GATE))
+            print("SKIP %-40s no %s in %s" % (case, log, GATE))
             continue
         text = open(real, encoding="utf-8", errors="replace").read()
         broken = mutate(text)
         if broken == text:
-            print("BAD  %-18s the corruption changed nothing in %s" % (spec, log))
+            print("BAD  %-40s the corruption changed nothing in %s" % (case, log))
             bad += 1
             continue
         tmp = os.path.join("/tmp", "broken-" + log)
@@ -99,9 +114,9 @@ def main():
         ok = run(spec, real)
         ko = run(spec, tmp)
         if ok == 0 and ko == 1:
-            print("OK   %-18s real pass, broken fail under: %s" % (spec, why))
+            print("OK   %-40s real pass, broken fail under: %s" % (case, why))
         else:
-            print("BAD  %-18s real=%d broken=%d (want 0 and 1) - %s" % (spec, ok, ko, why))
+            print("BAD  %-40s real=%d broken=%d (want 0 and 1) - %s" % (case, ok, ko, why))
             bad += 1
         os.remove(tmp)
     return 1 if bad else 0
