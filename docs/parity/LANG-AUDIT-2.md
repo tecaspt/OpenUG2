@@ -22,9 +22,15 @@ reading. All paths are repo-relative; no absolute host paths, no game data in th
 ```
 mkdir -p /tmp/scope/src && cp src/fe_lot.c src/fe_sms.c src/gui_dialog.c src/career_host.c \
   src/fe_worldmap.c src/rear_mirror.c src/postrace.c src/main.c /tmp/scope/src/
-python3 -I tools/lang_key_audit.py --data "$OPENUG2_DATA" --src /tmp/scope/src --json /tmp/rows.json
-python3 -I tools/lang_key_audit_test.py            # 42 tests
+flock "$HEAVY_LOCK" nice -n 10 \
+  python3 -I tools/lang_key_audit.py --data "$OPENUG2_DATA" --src /tmp/scope/src --json /tmp/rows.json
+python3 -I tools/lang_key_audit_test.py            # 42 tests, no data access, no wrapper needed
 ```
+
+Data-touching runs go under the owner's shared heavy lock plus `nice -n 10`, as in the other parity docs
+(`$HEAVY_LOCK` is that lock file here, not an exported name — use the one your environment defines). The
+commands quoted in section 6 are shown bare for readability, and the `fng_dump.py` / `career_dump.py`
+results this file cites were reproduced under the wrapper (`cmp` clean against the un-wrapped run).
 
 `--src` takes one directory, so the in-scope count comes from a copy of the named files into a scratch
 tree (`main.c` in full, not just the career lines): 48 rows — 26 `key-field`, 18 accessor `call`, 4
@@ -44,7 +50,10 @@ from the source that produces them.
   English text for the dialog specs (`message_key` / `label_key` / `message_english`).
 - **sample** — the key is the `ug_hash_upper` of its own text, the retail "the text is the label"
   spelling `tools/fng_dump.py:label_of` reports; `0x00000639` "OK", `0x0000061c` "No", `0x0000f770`
-  "Yes" all hash from their own caption.
+  "Yes" all hash from their own caption. The two world-map rows are named the same way from the other
+  side: `fng_dump` reports a node's `label_hash` and the text it resolves to, so "World Map" /
+  "Select Event" are the retail labels of nodes 105 / 11, not guesses. `QR_URL` is named because
+  `ug_hash_upper("QR_URL")` reproduces its hash.
 - **—** — retail stores no recoverable label for the key. The string table holds hashes and text only,
   never the label, so identity is unrecoverable unless one of the three above supplies it. This is the
   **UNKNOWN-NAME** case, and it is the majority here: 12 of the 46 keys have no retail label at all —
@@ -103,13 +112,16 @@ from the source that produces them.
 | `src/postrace.c:238` | `0xc7e1420c` | — (UNKNOWN-NAME) | OK | "Quit to Main Menu" |
 | `src/main.c:6453` | `0x5671b2b5` | TRN_GRASSC (comment) | **MISSING** | — (texture name, see 5.1) |
 
-Counts: 46 rows, 47 distinct keys (`0x7edc9715` "Car Lot" is the caption of `fe_lot.c:101` *and* the
-car-lot map icon of `main.c:1678`, one row each) — 34 named from a comment (13 rows), the dialog vectors
-(17) or the key's own text (3), 12 OK that retail leaves unrecoverable (UNKNOWN-NAME), 1 MISSING
-(`0x5671b2b5`, a texture name, not a text key). Every key with a verdict of OK resolves to non-empty
-text in `English.bin`, and every quoted text above was re-checked against the table. Two notes that are
-not key findings but were checked: `fe_lot.c:100`'s fallback text is not retail's (5.4), and
-`postrace.c:65`'s comment is stale (5.4).
+Counts, from the `key` column, one key per row (a name-column counterexample such as
+`ASK_ENTER_BODY_SHOP` is prose about another key and is not counted). 46 rows, 46 distinct keys, none
+repeated: `0x7edc9715` is both `fe_lot.c:101`'s caption and `main.c:1678`'s map-icon key, but only the
+`fe_lot.c` line calls an accessor, so it is one row here and a section 3 line for the other site. Each
+row carries exactly one evidence class, precedence MISSING > UNKNOWN-NAME > vectors > comment > sample:
+1 MISSING (`0x5671b2b5`, a texture name, not a text key), 11 UNKNOWN-NAME, 34 named — 16 from the dialog
+vectors, 13 from a source comment, 5 from the key's own text or the dump's `label_hash`. Every key with a
+verdict of OK resolves to non-empty text in `English.bin`, and every quoted text above was re-checked
+against the table. Two notes that are not key findings but were checked: `fe_lot.c:100`'s fallback text
+is not retail's (5.4), and `postrace.c:65`'s comment is stale (5.4).
 
 ## 2. Keys the tool reads, keys it cannot [data]
 
@@ -141,7 +153,7 @@ it. All resolve OK except where marked.
 
 | path:line | expression | resolves to | verdict |
 | --- | --- | --- | --- |
-| `src/main.c:1680-1682` | `wm_event_label()` → `ug_hash_upper(keys[kind])` | QR_CIRCUIT `0x93fdee74` "Circuit", QR_SPRINT `0xdcb9f861` "Sprint", QR_DRAG `0x35102edf` "Drag", QR_DRIFT `0xd7162cfa` "Drift", QR_STREET_CROSS `0x30da61e1` "Street X", QR_URL `0x75f903f4` "URL Race" | OK (6/6) |
+| `src/main.c:1680-1682` | `wm_event_label()` → `ug_hash_upper(keys[kind])` | QR_CIRCUIT `0x93fdee74` "Circuit", QR_SPRINT `0xdcb9f861` "Sprint", QR_DRAG `0x35102edf` "Drag", QR_DRIFT `0xd7162cfa` "Drift", QR_STREET_CROSS `0x30da61e1` "Street X", QR_URL `0x75f903f4` "URL Race" | OK (6/6) — five of the six have a text-identical `MINIMAP_*` twin and `QR_URL` does not ("U.R.L."); see 5.2b before switching families |
 | `src/main.c:1678` | car-lot map icon `label_key` | `0x7edc9715` | OK "Car Lot" — but see 5.2b: retail's own label for this caption is `MINIMAP_CARLOT` `0x93ff4a6e`, the same text under a different key |
 | `src/main.c:1679` | crib map icon `label_key` | `0x7ce21662` | OK "Garage" — same shape: `MINIMAP_GARAGE` `0x9d53bd10` also reads "Garage"; see 5.2b |
 | `src/main.c:1682` | body / graphics / performance shop icon | MINIMAP_BODY `0x40c7f697` "Body Shop", MINIMAP_GRAPHICS `0x373dad1a` "Graphics Shop", MINIMAP_PERFORMANCE `0xd6f5819b` "Performance Shop" | OK (3/3) — one key each, no second spelling of the family resolves (`MINIMAP_SHOP`, `MINIMAP_CRIB`, `MINIMAP_CAR`, `MINIMAP_SPECIALTY` all absent) |
@@ -180,6 +192,17 @@ every one of them, so "absent" is not just "absent as a hash".
 
 Nothing in section 1 is MISSING, so no in-scope caption can come up blank. These are the real defects
 the audit found, in the order I would take them. I did not edit any `src/` file.
+
+One-line summary, details in the numbered subsections:
+
+- **5.1 / 5.6** comment shape: 13 tree-wide non-OK rows — 1 in scope plus the 12 of 5.6 — where a bare
+  `/* NAME */` makes a texture, node or material id read as a language key; the fix is one word in the
+  comment, and then the tool can exit 0.
+- **5.2** comment shape: three `FES_*` constants are node ids whose comments imply they are caption keys.
+- **5.2b** parity choice: two map captions use screen-title keys where a `MINIMAP_*` twin exists.
+- **5.3** the one code-side gap: no gate checks `CAR_NAME_<model>` across the whole car catalogue.
+- **5.4** three fallback literals differ from retail's text (harmless while the keys resolve).
+- **5.5** two `[data]` comment claims that the data contradicts.
 
 ### 5.1 `0x5671b2b5` is a texture name, not a language key — fix the comment, not the key
 
@@ -220,21 +243,37 @@ either — `SMS-MAILBOX.md` 4 records the same, plus the `$JOY_EVENT_FENG_*` tok
 nodes. That is why `fe_sms_sync` writes `text_override` for the row and count nodes instead of relying on
 the label.
 
-### 5.2b The car-lot and crib map labels duplicate a retail caption under a second key [data]
+### 5.2b The map has two parallel caption families; `wm_snapshot` mixes them [data]
 
-`src/main.c:1678-1679` feeds the world-map icon caption from `0x7edc9715` ("Car Lot", the car-lot screen
-title) and `0x7ce21662` ("Garage"). Both resolve, so nothing is broken, but the minimap / world-map
-family already has purpose-built keys with the same text: `MINIMAP_CARLOT` `0x93ff4a6e` = "Car Lot" and
-`MINIMAP_GARAGE` `0x9d53bd10` = "Garage", sitting next to MINIMAP_BODY / MINIMAP_GRAPHICS /
-MINIMAP_PERFORMANCE / MINIMAP_URL (`0xb46377bc` "U.R.L.") / MINIMAP_CIRCUIT / MINIMAP_DRAG — the family
-`src/main.c:1680-1682` already uses for the other shop kinds. Using the title keys for the lot and the
-crib means those two icons follow the screen-title caption instead of the map-caption family, so a
-translator who differentiates the two ("Car Lot" vs "Lot") gets a mismatch on the map only.
-Fix (orchestrator's call, it is a parity choice, not a bug): switch those two ternaries to
-`ug_hash_upper("MINIMAP_CARLOT")` / `ug_hash_upper("MINIMAP_GARAGE")` so all eight map captions come
-from one family. Note MINIMAP_URL reads "U.R.L." while `wm_event_label` uses QR_URL "URL Race" for URL
-events — if retail's map shows the short form, that line is the third one to change; the audit cannot
-settle which retail displays, only that two keys exist.
+`wm_snapshot` feeds icon captions from two keys that are screen titles rather than map captions:
+`src/main.c:1678` `0x7edc9715` ("Car Lot", also the car-lot screen title at `fe_lot.c:101`) and
+`src/main.c:1679` `0x7ce21662` ("Garage"). Both resolve, so nothing is broken. What the audit found is
+that retail keeps a complete second set of caption keys for exactly these icons, and the file uses the
+`MINIMAP_` spelling for three shop kinds while using the title keys for the other two:
+
+| `main.c` today | text today | retail `MINIMAP_` twin | text there |
+| --- | --- | --- | --- |
+| `:1678` `0x7edc9715` | "Car Lot" | `MINIMAP_CARLOT` `0x93ff4a6e` | "Car Lot" |
+| `:1679` `0x7ce21662` | "Garage" | `MINIMAP_GARAGE` `0x9d53bd10` | "Garage" |
+| `:1682` `ug_hash_upper("MINIMAP_BODY")` | "Body Shop" | — already the twin | |
+| `:1682` `ug_hash_upper("MINIMAP_GRAPHICS")` | "Graphics Shop" | — already the twin | |
+| `:1682` `ug_hash_upper("MINIMAP_PERFORMANCE")` | "Performance Shop" | — already the twin | |
+| `:1682` `0xa4e5ee6c` | "Car Specialties Shop" | no twin exists (`MINIMAP_SHOP` `0x40d12ca3`, `MINIMAP_CRIB` `0x40c89049`, `MINIMAP_CAR` `0xb46328ff`, `MINIMAP_SPECIALTY` `0xd1e8b1b7` all absent) | |
+
+The family is bigger than the shop icons, and that is where the caution below matters — retail also ships
+`MINIMAP_CIRCUIT` `0x268d063c` "Circuit", `MINIMAP_SPRINT` `0xba613729` "Sprint", `MINIMAP_DRAG`
+`0x40c91ba7` "Drag", `MINIMAP_DRIFT` `0x59ecb2c2` "Drift", `MINIMAP_STREETX` `0x0fda6758` "Street X" and
+`MINIMAP_URL` `0xb46377bc` "**U.R.L.**", while `wm_event_label` (`src/main.c:1652-1656`) uses the
+`QR_*` family: the first five carry the same text as their `MINIMAP_` twin, but `QR_URL` `0x75f903f4`
+reads "**URL Race**".
+
+Fix (orchestrator's call — a parity choice, not a bug): switch the two ternaries to
+`ug_hash_upper("MINIMAP_CARLOT")` / `ug_hash_upper("MINIMAP_GARAGE")`, which makes all five shop kinds
+that *have* a map-caption twin use it, and leaves `0xa4e5ee6c` alone because no twin exists. Do **not**
+extend that to the event captions on the theory that one family is tidier: the six `QR_*` keys in
+`wm_event_label` are text-identical to their twins except URL, and retargeting that one changes the drawn
+caption from "URL Race" to "U.R.L." — retail's own choice between the two is unknown to this audit, so
+that line stays as it is until something shows what the retail map draws.
 
 ### 5.3 The car-lot display name has no catalogue-wide check in any gate
 
