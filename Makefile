@@ -1018,9 +1018,9 @@ fe-sms-test: tools/fe_sms_test.c $(SMS_TEST_SRC) $(HDRS)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_sms_test.c $(SMS_TEST_SRC) -o build/fe_sms_test $(SDL_LIBS) $(SETTINGS_LIBS) $(UGUI_IMAGE_LIBS) -lz -lm
 	./build/fe_sms_test
 .PHONY: fe-perf-test
-fe-perf-test: tools/fe_perf_test.c $(SCREENS_TEST_SRC) src/career.c $(HDRS)
+fe-perf-test: tools/fe_perf_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_perf_test.c $(SCREENS_TEST_SRC) src/career.c -o build/fe_perf_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_perf_test.c $(SCREENS_TEST_SRC) -o build/fe_perf_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_perf_test
 postrace-test: tools/postrace_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
@@ -1237,9 +1237,9 @@ engine-map-test: tools/engine_map_test.c src/audio.c src/audio.h src/sfx_game.c 
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/engine_map_test.c src/sfx_play.c src/sfx_bank.c -o build/engine_map_test $(SDL_LIBS) -lm
 .PHONY: engine-map-test
 .PHONY: fe-paint-test
-fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) src/career.c $(HDRS)
+fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) src/career.c -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_paint_test
 .PHONY: fe-vinyl-test
 fe-vinyl-test: tools/fe_vinyl_test.c $(SCREENS_TEST_SRC) src/career.c $(HDRS)

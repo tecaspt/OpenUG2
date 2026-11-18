@@ -103,9 +103,8 @@ static void design_rows(FeVinyl *v) {
  * the colour the car would wear; only the layer row of an empty layer stays uncoloured. */
 static void colour_defaults(FeVinyl *v) {
     const FeVinylDesign *d = fvt_selected(v);
-    int colors = d ? d->colors : (v->shop.current[0] ? cr_vinyl_design_colors(v->shop.current) : 0);
-    if (colors <= 0) colors = CR_VINYL_COLORS;   /* [data] designs ship A/B/C unless the
-                                                  * token is an artFactory house style */
+    int colors = d ? d->colors : CR_VINYL_COLORS;
+    if (colors <= 0) colors = CR_VINYL_COLORS;   /* a snapshot that named none means "A/B/C" */
     if (colors > CR_VINYL_COLORS) colors = CR_VINYL_COLORS;
     /* Walks the catalogue once, filling each channel in turn, so a one-colour shop cannot
      * leave channels B and C pointing at a colour that does not exist. */
