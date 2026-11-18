@@ -19,16 +19,18 @@
 # moved it every time (s3 left ~117). Frames after the map is open do not need that clearance - the
 # map has no tween - so the TAB and Return there sit 20 frames apart, as in s3.
 #
-# After that: choose a race icon with TAB (the map's own next-destination key), read the GPS route
-# back off the WM probe lines, close the map and drive on - the WM probe line staying active=1 with
-# the same route after the map closed is the evidence that guidance survived it. F8 teleports the car
-# into the destination zone, and arrival is printed by the game itself, not by this script: it needs
-# frames of real driving after the teleport for the zone test to notice. Two things that ordering has
-# to get right, both measured the hard way: F8 is read only on a driving frame, so it must not land
-# while the map is still closing (a press at f=1500, 100 frames after the Escape, was never seen at
-# all, while the same press at f=2250 in an earlier draft teleported fine), and it must land before
-# the car has driven into the zone under its own power - arrival clears the destination, so a later
-# F8 has nothing left to teleport to.
+# After that: choose a race icon with TAB (the map's own next-destination key) and Right, read the GPS
+# route back off the WM probe lines, and let the map close itself by choosing the destination - that is
+# what the Return does, and it is the only way off the map this script uses. Escape is not a "close the
+# map" key, it is the pause key: a script that presses it here just opens the pause menu and then finds
+# every driving key it schedules next ignored, because the game is in a menu (measured: Escape at f=1300
+# put the run in PAUSE from f=1320 to its last frame, and the F8 that followed never happened).
+#
+# F8 teleports the car into the destination zone, and arrival is printed by the game itself, not by this
+# script: it needs frames of real driving afterwards for the zone test to notice. F8 is read only on a
+# driving frame and only while a destination is still valid, so it goes on the frame right after the
+# map is gone - before the car could reach the zone under its own power, since arrival clears the
+# destination and a later F8 would have nothing left to teleport to.
 # --world-map-dev prints the icon list, the probe lines and the F8 arrival.
 #
 # A `shot=` is captured on its own frame, before the frame's keys are pushed, so a shot never shares
@@ -55,10 +57,9 @@
 1060:shot=wmgps-race-selected.png
 1080:key=Return
 1200:shot=wmgps-route.png
-1300:key=Escape
-1400:key=F8
-1500:shot=wmgps-arrived.png
-1700:tdown=gas
-1900:tup=gas
-2100:shot=wmgps-reached.png
-2101:quit
+1300:key=F8
+1400:shot=wmgps-arrived.png
+1600:tdown=gas
+1800:tup=gas
+2000:shot=wmgps-reached.png
+2001:quit
