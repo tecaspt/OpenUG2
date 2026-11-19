@@ -240,3 +240,37 @@ invoice; the two-step buy carries the design, the layer and every chosen colour;
 without leaving a preview behind; removal carries no design and costs nothing; house styles
 offer one colour; `fvt_refresh` keeps page, row and layer; and the `FeMenu` host returns
 `FEM_REQ_VINYL_BUY` and stops previewing once the transaction settles.
+
+`tools/career_test.c` covers the rules and the save format without data (1319 checks), including
+the retail spellings the catalogue actually contains (`GOLF_TEAR_002` categorises as TEAR while
+`FLAME_005` on car `FL` stays FLAMES, and a design whose car segment is empty categorises as
+nothing), and a maximal save whose 4088-byte unknown TLV must survive a round trip. The unknown-
+TLV copy in `cr_serialize()` is bounded and refuses rather than walk past the buffer; without the
+bound ASan reports a stack-buffer-overflow on that path.
+
+`make vinyl-catalog-check` runs over all 29 installed cars and fails on a regression; it SKIPs
+with 77 when `OPENUG2_DATA` is unset rather than pretending to have checked.
+
+The render claim is measured, not inferred. `g_dbg.vinyl_binds` / `vinyl_paints` count, per decal,
+how many body/misc meshes fell back to the decal texture and how many were painted at all; the
+SCRIPT line prints them as `vinyl=binds/paints`. `reports/parity/vinyls/render-ab2.sh` runs one
+profile that owns a bought design twice, once normal and once with `--no-vinyl`, each into its own
+directory:
+
+```
+f=420  on  vinyl=6392/14664      off  vinyl=0/14664
+boot frame  AE(on,off) = 0      garage frame AE(on,off) = 476 px, all inside 29x21 at +844+462
+```
+
+The boot frame is bit-identical, so the two arms are otherwise the same run; the garage frame
+differs only in a small block on the car body, which is where a cut-vinyl decal belongs. `binds`
+non-zero with `paints` non-zero is the condition for the decal to be able to show at all - if
+binds were 0 while paints were not, every panel would carry its own texture and the decal could
+never appear.
+
+The roam frames of the same profile differ by ~17000 pixels between arms *and* between two frames
+of one arm, because free-roam traffic animates; whole-frame AE there measures the traffic, not the
+decal, and no render claim is made from it. The tree's existing frozen-capture contract (`--shot`
+with `--heading`, which sets `WorldCapturePolicy.freeze_motion`) applies to a world2 run, and
+`freeze_motion` gates only initial placement, not the per-frame traffic step, so it cannot freeze
+a scripted career run; making the roam frame reproducible is open work.
