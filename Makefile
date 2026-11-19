@@ -225,6 +225,12 @@ vinyl-census: tools/vinyl_census.c src/nfsu2.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/vinyl_census.c -o build/vinyl_census -lm
 
+# Serves the same cr_vinyl_category()/cr_vinyl_design_colors() the graphics shop calls, so the
+# census cannot drift from the shop it measures (see CAREER_CORE at career-test).
+vinyl-rows: tools/vinyl_rows.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_rows.c src/career.c src/career_data.c src/settings.c -o build/vinyl_rows $(SDL_LIBS) -lm
+
 texkey-probe: tools/texkey_probe.c src/nfsu2.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/texkey_probe.c -o build/texkey_probe -lz -lm

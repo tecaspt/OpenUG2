@@ -544,22 +544,39 @@ static void test_vinyl(void)
     CHECK(cr_vinyl_color_channel("FLAME_005", 0) == 0 && cr_vinyl_color_channel("FLAME_005", 2) == 2);
     CHECK(cr_vinyl_color_channel("SKYLINE_ART_F_1", 0) == 0 && cr_vinyl_color_channel("SKYLINE_ART_F_1", 1) == -1 &&
           cr_vinyl_color_channel("SKYLINE_ART_F_1", 2) == -1 && cr_vinyl_color_channel("DEBUG_001", 0) == 0);
-    CHECK(cr_vinyl_category("FLAME_005") == CR_VINYL_CAT_FLAMES);
-    CHECK(cr_vinyl_category("STRIPE_MODERNS_001") == CR_VINYL_CAT_STRIPE);
-    CHECK(cr_vinyl_category("MODERN_TEARS_010") == CR_VINYL_CAT_MODERN);   /* head token decides */
-    CHECK(cr_vinyl_category("TEAR_LIGHTNG_LIQUIDS_002") == CR_VINYL_CAT_TEAR);
-    CHECK(cr_vinyl_category("SKYLINE_ART_F_1") == CR_VINYL_CAT_ARTFACTORY && cr_vinyl_category("arts_9") == CR_VINYL_CAT_ARTFACTORY);
-    CHECK(cr_vinyl_category("HOOD_GOLF_001") == CR_VINYL_CAT_HOODS);
-    CHECK(cr_vinyl_category("TOP_NOSESUCKER_001") == CR_VINYL_CAT_AFTERMARKET && cr_vinyl_category("TOP_001") == CR_VINYL_CAT_TOP);
-    CHECK(cr_vinyl_category("BODY_SKYLINE_002") == CR_VINYL_CAT_BODY);
-    CHECK(cr_vinyl_category("UNIQUE_POOLBALL") == CR_VINYL_CAT_UNIQUE);
-    CHECK(cr_vinyl_category("FLAG_CONTEST_003") == CR_VINYL_CAT_FLAG);
-    CHECK(cr_vinyl_category("CONTEST_001") == CR_VINYL_CAT_CONTEST);
-    CHECK(cr_vinyl_category("CHINGY_MEXIHAT") == CR_VINYL_CAT_MANUFACTURER &&
-          cr_vinyl_category("TOP_STANZA_STANZA") == CR_VINYL_CAT_MANUFACTURER &&
-          cr_vinyl_category("BENZ300SL_VINYL_HOOD_ART") == CR_VINYL_CAT_MANUFACTURER);
-    CHECK(cr_vinyl_category("DEBUG_001") == -1 && cr_vinyl_category("") == -1 && cr_vinyl_category(NULL) == -1 &&
-          cr_vinyl_category("bad-name") == -1);
+    CHECK(cr_vinyl_category("FLAME_005", NULL) == CR_VINYL_CAT_FLAMES);
+    CHECK(cr_vinyl_category("STRIPE_MODERNS_001", NULL) == CR_VINYL_CAT_STRIPE);
+    CHECK(cr_vinyl_category("MODERN_TEARS_010", NULL) == CR_VINYL_CAT_MODERN);   /* head token decides */
+    CHECK(cr_vinyl_category("TEAR_LIGHTNG_LIQUIDS_002", NULL) == CR_VINYL_CAT_TEAR);
+    CHECK(cr_vinyl_category("SKYLINE_ART_F_1", NULL) == CR_VINYL_CAT_ARTFACTORY && cr_vinyl_category("arts_9", NULL) == CR_VINYL_CAT_ARTFACTORY);
+    CHECK(cr_vinyl_category("HOOD_GOLF_001", NULL) == CR_VINYL_CAT_HOODS);
+    CHECK(cr_vinyl_category("TOP_NOSESUCKER_001", NULL) == CR_VINYL_CAT_AFTERMARKET && cr_vinyl_category("TOP_001", NULL) == CR_VINYL_CAT_TOP);
+    CHECK(cr_vinyl_category("BODY_SKYLINE_002", NULL) == CR_VINYL_CAT_BODY);
+    CHECK(cr_vinyl_category("UNIQUE_POOLBALL", NULL) == CR_VINYL_CAT_UNIQUE);
+    CHECK(cr_vinyl_category("FLAG_CONTEST_003", NULL) == CR_VINYL_CAT_FLAG);
+    CHECK(cr_vinyl_category("CONTEST_001", NULL) == CR_VINYL_CAT_CONTEST);
+    CHECK(cr_vinyl_category("CHINGY_MEXIHAT", NULL) == CR_VINYL_CAT_MANUFACTURER &&
+          cr_vinyl_category("TOP_STANZA_STANZA", NULL) == CR_VINYL_CAT_MANUFACTURER &&
+          cr_vinyl_category("BENZ300SL_VINYL_HOOD_ART", NULL) == CR_VINYL_CAT_MANUFACTURER);
+    CHECK(cr_vinyl_category("DEBUG_001", NULL) == -1 && cr_vinyl_category("", NULL) == -1 && cr_vinyl_category(NULL, NULL) == -1 &&
+          cr_vinyl_category("bad-name", NULL) == -1);
+    /* Real VINYLS.BIN names carry the car folder first (every one of GOLF's 1783 slots does), so
+     * with no car argument the head token is "GOLF" and nothing categorises -- which silently sold
+     * 63 designs instead of the car's set. These are the spellings the shop actually feeds it. */
+    CHECK(cr_vinyl_category("GOLF_TEAR_002", "GOLF") == CR_VINYL_CAT_TEAR);
+    CHECK(cr_vinyl_category("GOLF_FLAME_014", "GOLF") == CR_VINYL_CAT_FLAMES);
+    CHECK(cr_vinyl_category("SKYLINE_WILD_059", "SKYLINE") == CR_VINYL_CAT_WILD);
+    CHECK(cr_vinyl_category("GOLF_TOP_NOSESUCKER_001", "GOLF") == CR_VINYL_CAT_AFTERMARKET);
+    CHECK(cr_vinyl_category("BENZ300SL_VINYL_HOOD_ART", "BENZ300SL") == CR_VINYL_CAT_MANUFACTURER);
+    CHECK(cr_vinyl_category("GOLF_ART_F_10", "GOLF") == CR_VINYL_CAT_ARTFACTORY);
+    /* The strip must be a whole leading segment, not a letter count: a car whose folder name is a
+     * prefix of the family token has to keep categorising from the family. */
+    CHECK(cr_vinyl_category("FLAME_005", "FL") == CR_VINYL_CAT_FLAMES);
+    CHECK(cr_vinyl_category("FLAME_005", "GOLF") == CR_VINYL_CAT_FLAMES);   /* wrong car: no strip, no harm */
+    CHECK(cr_vinyl_category("GOLF_TEAR_002", "") == -1);                    /* no car given: retail name cannot resolve */
+    CHECK(cr_vinyl_category("GOLF_AD_BESTBUY", "GOLF") == -1 &&              /* not a sellable family */
+          cr_vinyl_category("GOLF_NFSU2", "GOLF") == -1 &&
+          cr_vinyl_category("GOLF_DEBUG_MASK", "GOLF") == -1);
     CHECK(cr_vinyl_hash("flame_005") == cr_vinyl_hash("FLAME_005"));   /* case-insensitive like cd_hash */
 
     /* shop data: one open paint shop, one perf shop, one closed paint shop; vinyl gates 80 (L1 start, $150) and
@@ -587,49 +604,49 @@ static void test_vinyl(void)
     strcpy(s.owned[0], "SKYLINE"); strcpy(s.car, "SKYLINE"); s.bank = 1000;
     CHECK(cr_vinyl_shop_open(&s, &vd, 0) && !cr_vinyl_shop_open(&s, &vd, 1) && !cr_vinyl_shop_open(&s, &vd, 2) &&
           !cr_vinyl_shop_open(&s, &vd, 9));
-    CHECK(cr_vinyl_open(&s, &vd, "FLAME_005") && !cr_vinyl_open(&s, &vd, "SKYLINE_ART_F_1") && !cr_vinyl_open(&s, &vd, "DEBUG_001"));
-    CHECK(cr_vinyl_price(&s, &vd, "FLAME_005") == 150 && cr_vinyl_price(&s, &vd, "SKYLINE_ART_F_1") == -1);
+    CHECK(cr_vinyl_open(&s, &vd, "FLAME_005", NULL) && !cr_vinyl_open(&s, &vd, "SKYLINE_ART_F_1", NULL) && !cr_vinyl_open(&s, &vd, "DEBUG_001", NULL));
+    CHECK(cr_vinyl_price(&s, &vd, "FLAME_005", NULL) == 150 && cr_vinyl_price(&s, &vd, "SKYLINE_ART_F_1", NULL) == -1);
 
     /* validation errors first (no money moves) */
     c3[0] = 0xC010; c3[1] = 0; c3[2] = 0;
-    CHECK(cr_vinyl_buy(&s, &vd, 1, 0, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* perf shop */
-    CHECK(cr_vinyl_buy(&s, &vd, 2, 0, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* closed */
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 4, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* layer */
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "DEBUG_001", c3, &paid) == CR_PERF_E_ARG);                      /* not a design */
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "SKYLINE_ART_F_1", c3, &paid) == CR_PERF_E_LOCKED);              /* tier 2 locked */
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "SKYLINE_ART_F_1", c3, &paid) == CR_PERF_E_LOCKED);              /* tier 2 locked even with a valid colour */
+    CHECK(cr_vinyl_buy(&s, &vd, 1, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* perf shop */
+    CHECK(cr_vinyl_buy(&s, &vd, 2, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* closed */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 4, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* layer */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "DEBUG_001", c3, &paid) == CR_PERF_E_ARG);                      /* not a design */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "SKYLINE_ART_F_1", c3, &paid) == CR_PERF_E_LOCKED);              /* tier 2 locked */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "SKYLINE_ART_F_1", c3, &paid) == CR_PERF_E_LOCKED);              /* tier 2 locked even with a valid colour */
     c3[1] = 0xC040;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* gloss key */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* gloss key */
     c3[1] = 0xC030;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* locked colour */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_ARG);                      /* locked colour */
     CHECK(s.bank == 1000);
 
     /* funds, install, no-change, recolour, remove */
     c3[0] = 0xC010; c3[1] = 0xC020; c3[2] = 0xC010;
     paid = 0;
     s.bank = 100;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_E_FUNDS && s.bank == 100);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_FUNDS && s.bank == 100);
     s.bank = 1000;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_OK && paid == 150 && s.bank == 850);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_OK && paid == 150 && s.bank == 850);
     CHECK(cr_vinyl_layer(&s, 0) && cr_vinyl_layer(&s, 0)->design == cr_vinyl_hash("FLAME_005") &&
           cr_vinyl_layer(&s, 0)->colour[1] == 0xC020 && cr_vinyl_layer(&s, 1) && cr_vinyl_layer(&s, 4) == NULL);
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_E_OWNED && s.bank == 850);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_E_OWNED && s.bank == 850);
     c3[1] = 0xC010;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "FLAME_005", c3, &paid) == CR_PERF_OK && paid == 0 && s.bank == 850);
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "STRIPE_002", c3, &paid) == CR_PERF_OK && paid == 150 && s.bank == 700);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "FLAME_005", c3, &paid) == CR_PERF_OK && paid == 0 && s.bank == 850);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "STRIPE_002", c3, &paid) == CR_PERF_OK && paid == 150 && s.bank == 700);
     CHECK(cr_vinyl_layer(&s, 0)->design == cr_vinyl_hash("STRIPE_002"));
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, (uint32_t[CR_VINYL_COLORS]){0,0,0}, &paid) == CR_PERF_OK &&
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, NULL, (uint32_t[CR_VINYL_COLORS]){0,0,0}, &paid) == CR_PERF_OK &&
           paid == 0 && cr_vinyl_layer(&s, 0)->design == 0);
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, "", c3, &paid) == CR_PERF_E_ARG);   /* remove must not carry colours */
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 0, NULL, "", c3, &paid) == CR_PERF_E_ARG);   /* remove must not carry colours */
 
     /* tier 2 opens when the gate's shop opens (0x9103: open_stage 2): save round trip incl. TLV 9 */
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 1, "TOP_CIRCUIT_001", c3, &paid) == CR_PERF_E_LOCKED);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 1, NULL, "TOP_CIRCUIT_001", c3, &paid) == CR_PERF_E_LOCKED);
     s.stage = 5;   /* shop 0x9103 opens at stage 5 */
-    CHECK(cr_vinyl_open(&s, &vd, "TOP_CIRCUIT_001") && cr_vinyl_open(&s, &vd, "HOOD_SKYLINE_001"));
+    CHECK(cr_vinyl_open(&s, &vd, "TOP_CIRCUIT_001", NULL) && cr_vinyl_open(&s, &vd, "HOOD_SKYLINE_001", NULL));
     c3[0] = 0xC010; c3[1] = 0xC020; c3[2] = 0;
     s.bank = 1100;
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 1, "TOP_CIRCUIT_001", c3, &paid) == CR_PERF_OK && paid == 400 && s.bank == 700);
-    CHECK(cr_vinyl_buy(&s, &vd, 0, 3, "HOOD_SKYLINE_001", c3, &paid) == CR_PERF_OK && paid == 400 && s.bank == 300);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 1, NULL, "TOP_CIRCUIT_001", c3, &paid) == CR_PERF_OK && paid == 400 && s.bank == 700);
+    CHECK(cr_vinyl_buy(&s, &vd, 0, 3, NULL, "HOOD_SKYLINE_001", c3, &paid) == CR_PERF_OK && paid == 400 && s.bank == 300);
     len = cr_serialize(&s, buf, sizeof buf);
     CHECK(len > 0);
     memset(&t, 0, sizeof t);

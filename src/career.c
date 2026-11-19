@@ -663,7 +663,7 @@ int cr_vinyl_color_channel(const char *design, int ch)
 
 /* Retail category of a design token (docs/parity/VINYLS.md). Returns CR_VINYL_CAT_* or -1 for names no retail
  * category admits (DEBUG, ...). The head token decides; sponsor/unique art is decided by its marker. */
-int cr_vinyl_category(const char *design)
+int cr_vinyl_category(const char *design, const char *car)
 {
     static const struct { const char *key; int cat; } head[] = {
         {"FLAME", CR_VINYL_CAT_FLAMES}, {"FLAMES", CR_VINYL_CAT_FLAMES},
@@ -685,6 +685,7 @@ int cr_vinyl_category(const char *design)
         {"NOSESUCKER", CR_VINYL_CAT_AFTERMARKET}
     };
     char tok[32], head_tok[32];
+    const char *fam;                    /* token with the leading "<CAR>_" segment skipped */
     size_t i = 0, n;
     if (!design || !design[0] || strlen(design) > 31) return -1;
     for (n = 0; design[n]; n++) tok[n] = (design[n] >= 'a' && design[n] <= 'z') ? (char)(design[n] - 32) : design[n];
@@ -693,14 +694,43 @@ int cr_vinyl_category(const char *design)
      * designs are named "<CAR>_ART_F_<n>", so the ART token needs no leading position */
     if (strstr(tok, "ART_F_")) return CR_VINYL_CAT_ARTFACTORY;
     if (strstr(tok, "AEM_") || strstr(tok, "_HOOD_ART")) return CR_VINYL_CAT_MANUFACTURER;
-    while (i < sizeof head_tok - 1 && tok[i] && tok[i] != '_') { head_tok[i] = tok[i]; i++; }
-    head_tok[i] = 0;
+    /* Retail names every design "<CAR>_<family>_<n>" (GOLF_TEAR_002, SKYLINE_FLAME_014), so the
+     * leading segment is usually the car folder rather than the family, and a token built from
+     * the family alone (FLAME_005) has no such prefix. The caller therefore supplies the car
+     * folder it loaded the catalogue from; strip it when it matches, so both spellings land on
+     * the same category. Design families never collide with a car folder name (the census over
+     * all 64 CARS/ folders in docs/parity/VINYLS.md checks this), and VINYL is a wrapper segment
+     * some names carry (GOLF_VINYL_HOOD_ART). Without the strip, only the two substring rules
+     * above ever fire on real data and the shop sells 63 of a car's designs instead of its set. */
+    fam = tok;
+    {
+        const char *p = fam;
+        if (car && car[0]) {
+            size_t cl = strlen(car), j = 0;
+            for (j = 0; j < cl && p[j]; j++) {
+                char a = p[j], b = car[j];
+                if (a >= 'a' && a <= 'z') a -= 32;
+                if (b >= 'a' && b <= 'z') b -= 32;
+                if (a != b) break;
+            }
+            if (j == cl && (p[j] == '_' || !p[j])) p += j ? j + 1 : j;
+        }
+        if (!strncmp(p, "VINYL_", 6)) p += 6;
+        /* A sponsor mark can hide behind the car segment (SKYLINE_AEM_DONZ): the substring
+         * rules above saw the whole token, so re-check the one that matters at the head. */
+        if (!strncmp(p, "AEM_", 4)) return CR_VINYL_CAT_MANUFACTURER;
+        fam = p;
+        for (i = 0; i < sizeof head_tok - 1 && p[i] && p[i] != '_'; i++) head_tok[i] = p[i];
+        head_tok[i] = 0;
+    }
     if (!i) return -1;
-    /* aftermarket brands name their tops "TOP_<brand>_..." (TOP_NOSESUCKER_001): check the second token */
+    /* aftermarket brands name their tops "TOP_<brand>_..." (TOP_NOSESUCKER_001): check the second token.
+     * Read it from p, the car-stripped name, or a retail "GOLF_TOP_NOSESUCKER_001" would look for a
+     * brand four characters in and find "TEAR"-style offsets instead. */
     if (!strcmp(head_tok, "TOP")) {
         char sub[32];
-        size_t m = 0;
-        for (n = 4; tok[n] && tok[n] != '_' && m < sizeof sub - 1; n++) sub[m++] = tok[n];
+        size_t m = 0, q = 4;
+        while (fam[q] && fam[q] != '_' && m < sizeof sub - 1) sub[m++] = fam[q++];
         sub[m] = 0;
         for (unsigned k = 0; k < sizeof head / sizeof head[0]; k++)
             if (sub[0] && !strcmp(sub, head[k].key)) return head[k].cat;
@@ -714,9 +744,9 @@ int cr_vinyl_category(const char *design)
  * [inferred, docs/parity/VINYLS.md] gate 80 tier 1 = buyable categories, gate 83 tier 2 = the exclusive-art
  * branch (art factory, hoods/tops, unique, manufacturer). 76 admits buying vinyl colours (paint rule),
  * 85/86 gate a late-race branch with no matching category names. */
-static int cr_vinyl_gate(const char *design)
+static int cr_vinyl_gate(const char *design, const char *car)
 {
-    switch (cr_vinyl_category(design)) {
+    switch (cr_vinyl_category(design, car)) {
     case CR_VINYL_CAT_ARTFACTORY: case CR_VINYL_CAT_UNIQUE: case CR_VINYL_CAT_HOODS:
     case CR_VINYL_CAT_TOP: case CR_VINYL_CAT_MANUFACTURER:
         return 83;
@@ -725,11 +755,11 @@ static int cr_vinyl_gate(const char *design)
     }
 }
 
-int cr_vinyl_open(const CareerState *s, const CareerData *cd, const char *design)
+int cr_vinyl_open(const CareerState *s, const CareerData *cd, const char *design, const char *car)
 {
     int gate;
-    if (!s || !cd || cr_vinyl_category(design) < 0) return 0;
-    gate = cr_vinyl_gate(design);
+    if (!s || !cd || cr_vinyl_category(design, car) < 0) return 0;
+    gate = cr_vinyl_gate(design, car);
     return cr_unlock_ok(s, cd, (uint32_t)gate, gate == 83 ? 2 : 1);
 }
 
@@ -741,12 +771,12 @@ int cr_vinyl_shop_open(const CareerState *s, const CareerData *cd, int shop)
 
 /* [inferred] one price per design: the `b` field of the gate that admits it - the same price source the paint
  * shop uses (cd_find_ulk + level `b`). Replacing a design charges the new one; recolouring or removing is free. */
-int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *design)
+int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *design, const char *car)
 {
-    int gate = cr_vinyl_gate(design), u;
+    int gate = cr_vinyl_gate(design, car), u;
     uint16_t b;
-    if (!s || !cd || cr_vinyl_category(design) < 0) return -1;
-    if (!cr_vinyl_open(s, cd, design)) return -1;
+    if (!s || !cd || cr_vinyl_category(design, car) < 0) return -1;
+    if (!cr_vinyl_open(s, cd, design, car)) return -1;
     u = cd_find_ulk(cd, (uint32_t)gate);
     if (u < 0) return 0;
     b = cd->ulk[u].l[gate == 83 ? 1 : 0].b;
@@ -755,8 +785,8 @@ int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *d
 
 /* The layer's colours must be open VINYL-group colours of the design's channels; then funds, then install.
  * design NULL/"" removes the layer (free). Returns CR_PERF_* codes (OWNED = the layer already stores this). */
-int cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, const char *design,
-                 const uint32_t colour[CR_VINYL_COLORS], int32_t *charged)
+int cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, const char *car,
+                 const char *design, const uint32_t colour[CR_VINYL_COLORS], int32_t *charged)
 {
     CrVinyl next;
     int32_t price;
@@ -768,7 +798,7 @@ int cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, cons
     if (design && design[0]) {
         int colors = cr_vinyl_design_colors(design);
         int idx;
-        if (cr_vinyl_category(design) < 0 || colors < 0) return CR_PERF_E_ARG;
+        if (cr_vinyl_category(design, car) < 0 || colors < 0) return CR_PERF_E_ARG;
         /* an installed design carries its channel-0 colour (its own for artFactory, A otherwise); B/C may
          * only be set on designs that ship those channels [data: every design except artFactory ships A/B/C] */
         if (colour[0]) {
@@ -785,11 +815,11 @@ int cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, cons
                 return CR_PERF_E_ARG;
             next.colour[c] = colour[c];
         }
-        if (!cr_vinyl_open(s, cd, design)) return CR_PERF_E_LOCKED;
+        if (!cr_vinyl_open(s, cd, design, car)) return CR_PERF_E_LOCKED;
         next.design = cr_vinyl_hash(design);
     } else if (colour[0] || colour[1] || colour[2]) return CR_PERF_E_ARG;
     if (!memcmp(&next, &s->vinyl[s->active][layer], sizeof next)) return CR_PERF_E_OWNED;
-    price = next.design ? cr_vinyl_price(s, cd, design) : 0;
+    price = next.design ? cr_vinyl_price(s, cd, design, car) : 0;
     if (next.design && s->vinyl[s->active][layer].design == next.design) price = 0;   /* recolour is free */
     if (price < 0) return CR_PERF_E_ARG;
     if (s->bank < price) return CR_PERF_E_FUNDS;

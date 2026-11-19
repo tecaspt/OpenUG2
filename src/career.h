@@ -148,19 +148,21 @@ const CrVinyl *cr_vinyl_layer(const CareerState *s, int layer);  /* active car's
 int  cr_vinyl_design_colors(const char *design);
 /* Vinyl colour slot of a design channel: artFactory shares channel 0; others A -> 0, B -> 1, C -> 2. -1 = none. */
 int  cr_vinyl_color_channel(const char *design, int ch);
-/* Retail category of a design token (CR_VINYL_CAT_*), or -1 when no retail category admits the name. */
-int  cr_vinyl_category(const char *design);
+/* Retail category of a design token (CR_VINYL_CAT_*), or -1 when no retail category admits the name.
+ * `car` is the CARS/ folder the catalogue came from, used only to skip the leading "<CAR>_" segment
+ * that retail names carry (GOLF_TEAR_002); pass NULL or "" for a bare family token (FLAME_005). */
+int  cr_vinyl_category(const char *design, const char *car);
 /* Unlock [inferred, docs/parity/VINYLS.md]: id 80 admits the buyable categories (tier 1), id 83 the exclusive
  * art (art factory, hoods/tops, unique, manufacturer; tier 2). */
-int  cr_vinyl_open(const CareerState *s, const CareerData *cd, const char *design);
+int  cr_vinyl_open(const CareerState *s, const CareerData *cd, const char *design, const char *car);
 /* Layer slots trade at a paint shop (the retail graphics shop sells paint and vinyls together). */
 int  cr_vinyl_shop_open(const CareerState *s, const CareerData *cd, int shop);
 /* Price of a design [inferred]: the `b` field of the gate that admits it (the paint price source). -1 = locked. */
-int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *design);
+int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *design, const char *car);
 /* Validates shop, design, colour channels (open VINYL-group colours), funds and a real change; installs the layer
  * and debits the bank. design "" or NULL removes the layer (free). Returns CR_PERF_* (OWNED = no change). */
-int  cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, const char *design,
-                  const uint32_t colour[CR_VINYL_COLORS], int32_t *charged);
+int  cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, const char *car,
+                  const char *design, const uint32_t colour[CR_VINYL_COLORS], int32_t *charged);
 
 /* Ordered, unique receipts keyed by name hash, stable across table reorderings.
  * Receive returns 1 only for a new receipt. Read returns 1 only for a held message. */
