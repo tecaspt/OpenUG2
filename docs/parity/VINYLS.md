@@ -158,9 +158,22 @@ Known limitations, stated plainly:
   the renderer composites the one layer the screen is showing. Showing several at once needs
   either a multi-texture decal path or one composited texture that walks the layers, and both
   are bigger changes than this piece.
-- **The `_MASK` planes are not applied.** Each design ships a soft-alpha plane beside its
-  regions; the composite uses the region footprints directly, so edges are hard where retail
-  fades. The measurements are in `reports/parity/vinyls/` (`vmask.py`, `valpha.py`).
+- **The `_MASK` planes are not applied, and they are not one thing.** The name suggests a
+  soft-alpha plane, and compositing alpha by it is what a first attempt did — but measured on
+  GOLF the plane is not a single kind, so it was reverted rather than shipped on a guess
+  `[data]`: `GOLF_AEM_SCORPION_MASK` is a second low-index *shape* (15 distinct levels, 12901
+  of its pixels inside the design), `GOLF_TEARS_804_MASK` is a 256-level ramp in which only
+  340 of 13096 pixels reach >=224, and `GOLF_AEM_AUDIOBAHN_MASK` holds only 3606
+  non-background pixels against a design that covers 10812. Scaling alpha by that last plane
+  would erase most of the design instead of feathering its edge. Retail must therefore choose
+  per design by a rule this data does not settle. **Consequence: edges are hard where retail
+  fades, and some designs may be missing a second shape layer.** The measurements are in
+  `reports/parity/vinyls/` (`vmask.py`, `valpha.py`).
+- **Design colour is a synthesised ramp, not authored shading.** A vinyl palette *ships
+  all-zero* and the game recolours from the player's colours, so the composite writes a dark
+  cut-vinyl ramp over the shape and tints the bought regions (see the reader note at
+  `src/nfsu2.h` "palette indices (vinyls)"). The index stream backs this up: every covered
+  pixel of the sampled designs sits at index <= 64, so there is no authored gradient to lose.
 - **Design icons stay hidden for most designs.** The design token carries no icon art, and the
   screen hides the icon plate (`0xb04669e3`) rather than inventing artwork for it.
 
