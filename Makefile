@@ -231,6 +231,19 @@ vinyl-rows: tools/vinyl_rows.c src/nfsu2.h src/career.c src/career.h src/career_
 	@mkdir -p build
 	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_rows.c src/career.c src/career_data.c src/settings.c -o build/vinyl_rows $(SDL_LIBS) -lm
 
+# Same filters as vinyl-rows but at the array bounds the game uses (32-byte names, 4096 slots,
+# FEV_MAX), so a gap between the census and the shop's own count is attributable.
+vinyl-shopcensus: tools/vinyl_shopcensus.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_shopcensus.c src/career.c src/career_data.c src/settings.c -o build/vinyl_shopcensus $(SDL_LIBS) -lm
+
+# Checks the retail naming rules over EVERY installed car, not one. Skips when OPENUG2_DATA is
+# unset, like the other data checks.
+vinyl-catalog-check: tools/vinyl_catalog_check.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_catalog_check.c src/career.c src/career_data.c src/settings.c -o build/vinyl_catalog_check -lz -lm $(SDL_LIBS)
+	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/vinyl_catalog_check "$$OPENUG2_DATA"
+
 texkey-probe: tools/texkey_probe.c src/nfsu2.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/texkey_probe.c -o build/texkey_probe -lz -lm

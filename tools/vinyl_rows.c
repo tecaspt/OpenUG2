@@ -1,7 +1,8 @@
-/* vinyl_rows: for a car's VINYLS.BIN, how many design rows would the graphics shop actually
- * list, and how many of them are 3-colour families? This is the census behind
- * docs/parity/VINYLS.md and the career_vinyl_shop() filter; it exists because that filter is
- * the difference between a menu of 399 rows and one of ~200, and nothing else checks it.
+/* vinyl_rows: for a car's VINYLS.BIN, how many design rows the graphics shop would list, and
+ * how many are three-colour families. It applies the shop's filters at the bounds a standalone
+ * reader naturally uses, which is why its counts differ from the running game -- see
+ * tools/vinyl_shopcensus.c, which uses the game's own 32-byte name table and matches the shop to
+ * the unit. Prefer vinyl_shopcensus for any number you intend to quote.
  *   vinyl_rows <DATAROOT> <CAR>            -> summary + one line per sellable design
  *   vinyl_rows <DATAROOT> <CAR> --all      -> also the slots the shop hides, with the reason
  * Read-only; DATAROOT is the game data root, so the file read is <DATAROOT>/CARS/<CAR>/VINYLS.BIN,
@@ -62,9 +63,9 @@ int main(int argc, char **argv) {
         }
     }
     fprintf(stderr, "named %d slots\n", nslot);
-    int sell = 0, three = 0, single = 0, parts = 0, nocat = 0;
+    int sell = 0, three = 0, single = 0, parts = 0, nocat = 0, capped = 0;
     for (int i = 0; i < nslot; i++) {
-        char base[24];
+        char base[32];
         if (is_part(name[i], base, sizeof base)) {
             parts++;
             if (all) printf("HIDE %s part-of=%s\n", name[i], base);
@@ -89,12 +90,13 @@ int main(int argc, char **argv) {
             sub[tn] = (char)('A' + ch); sub[tn + 1] = 0;
             if (!has(sub)) { colors = ch; break; }
         }
+        if (sell >= 512) { capped++; continue; }   /* FEV_MAX, as the shop does */
         sell++;
         if (colors >= CR_VINYL_COLORS) three++; else single++;
         printf("SELL %s cat=%d colors=%d\n", name[i], cat, colors);
     }
-    printf("slots_named=%d sellable=%d three_colour=%d single_colour=%d hidden_parts=%d hidden_no_category=%d\n",
-           nslot, sell, three, single, parts, nocat);
+    printf("slots_named=%d sellable=%d three_colour=%d single_colour=%d hidden_parts=%d hidden_no_category=%d capped=%d\n",
+           nslot, sell, three, single, parts, nocat, capped);
     free(d);
     return 0;
 }

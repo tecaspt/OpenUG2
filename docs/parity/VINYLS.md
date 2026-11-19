@@ -11,12 +11,12 @@ of the shipped files and `[inferred]` for something the data implies but does no
 and inside it a slot table with magic `0x33310003` of 24-byte records:
 
 ```
-offset  field
-0x00    key        uint32   names the texture a slot decodes to
-0x04    absoff     uint32   absolute file offset of the payload
-0x08    enc        uint32   bytes on disk
-0x0c    dec        uint32   bytes after decoding
-0x10    hdr        uint32   header size, counted back from the payload end
+1113 hidden  compositing parts of another design (NAMEA/NAMEB/NAMEC, NAME_MASK)
+ 660 sellable base designs, of which the screen can hold 512 (FEV_MAX): 148 unreachable
+  10 hidden  named slots with no retail family: GOLF_AD_BESTBUY, GOLF_AD_OLDSPICE,
+             GOLF_AD_CINGULAR, GOLF_AD_EDGE, GOLF_AD_D3, GOLF_AD_SHINESTREET_MAS,
+             GOLF_AD_SHINESTREET, GOLF_DEBUG_MASK, GOLF_NFSU2 -- billboards and a debug
+             slot, not shop stock
 ```
 
 SKYLINE has 1786 slots, 1783 of which HUFF-decode. Every slot in the file decodes to exactly
@@ -65,6 +65,61 @@ are resolved first, then the base is filled in, skipping the pixels the regions 
 `<CAR>_ART_F_<n>` - the artFactory house styles - name one colour; every other design names
 three. `cr_vinyl_design_colors()` implements that and the host records the answer in
 `FeVinylDesign.colors`, so the screen module never has to ask the career layer.
+
+`[data]` **Every** design token carries the car's own folder name as its first segment:
+`GOLF_TEAR_002`, `SKYLINE_WILD_059`, `BENZ300SL_VINYL_HOOD_ART`. Measured with
+`tools/vinyl_rows` over GOLF's 1783 named slots, not one is spelled as a bare family token.
+That makes the car folder a prefix to skip rather than part of the category, and it is why
+`cr_vinyl_category()` takes the car as an argument: with the prefix stripped by whole segment
+(`GOLF_`), a token resolves the same as the bare spelling a test or a language key would use.
+No design family token collides with a car folder name, so the strip cannot misread a family -
+the check is `make vinyl-rows`, whose output is only meaningful against the 64 folders in `CARS/`.
+
+`[data]` What one car actually sells (GOLF, `tools/vinyl_rows $OPENUG2_DATA GOLF`):
+
+```
+1783 of VINYLS.BIN's 1786 slots are named. Of those, for GOLF:
+
+```
+1113 hidden  compositing parts of another design (NAMEA/NAMEB/NAMEC, NAME_MASK)
+ 660 sellable base designs - 148 of them beyond the screen's 512-row cap (FEV_MAX)
+  10 hidden  named slots with no retail family: GOLF_AD_BESTBUY, GOLF_AD_OLDSPICE,
+             GOLF_AD_CINGULAR, GOLF_AD_EDGE, GOLF_AD_D3, GOLF_AD_SHINESTREET_MAS,
+             GOLF_AD_SHINESTREET, GOLF_DEBUG_MASK, GOLF_NFSU2 -- billboards and a debug
+             slot, not shop stock
+```
+
+`make vinyl-catalog-check` runs `tools/vinyl_catalog_check` over all 29 installed cars and fails
+the build on a regression; its GOLF line is
+`slots=1786 named=1783 sell=512 three_colour=66 parts=1113 no_category=10 CAPPED`, where `sell`
+saturates at the 512-row cap, so read it as "the screen is full", not as a count. Parts are
+detected by the shop's own test (strip `_MASK` or a trailing A/B/C and find the base in the same
+file); an earlier draft of this table said 1384 parts, from a check that compared 24-byte name
+fragments over a truncated list, and that number was wrong.
+
+The two figures the game logs for the same car, `vinyl layers opened designs 390 colours 60 hidden
+1393`, are not catalogue counts and must not be read as one. `career_vinyl_shop()` stops its loop
+once the snapshot is full (`o->ndesign < FEV_MAX`), so it never walks all 1783 slots and the pair
+describes a screen state rather than a car: the line fires on the paint screen's VINYL row, which
+sits one page above the design list, so `designs` is the layer page's list and `hidden` whatever
+the previous call happened to examine. They come from different snapshots, which is why they do not
+sum to the census. This task has not measured the walk slot-by-slot, so no split of the 1783 into
+"listed / rejected / never examined" is claimed here.
+
+What *is* measured is the whole catalogue, from `make vinyl-shopcensus`, which runs the identical
+filter chain without the cap: GOLF gives `parts=1113 no_category=10 narrowed_by_channels=560
+sell=512 capped=148`, and 1113 + 10 + 512 + 148 = 1783 accounts for every named slot. Note that the
+sellable set is cap-order-dependent - the loop fills in `n2_car_tex_keys()` order, so which 512
+designs a car lists is decided by slot order, not by any property of a design - and that
+`tools/vinyl_catalog_check` counts 660 designs by a set-based pass over the same file. The census
+table above is the account to reconcile against; the game's log answers "what did this visit show".
+
+`[data]` `n2_car_tex_name_by_key()` requires `cap >= 25` and writes its NUL at `out[24]`, so any
+caller whose buffer is exactly 24 bytes gets zero names and no error - the failure is silent and
+looks like an empty catalogue. The game's own table is 32 bytes per name
+(`g_vinyl_names[4096][32]`). Note also that the EA 24-character truncation lands on the `_MASK`
+suffix itself: `GOLF_CAPONE_MASK` arrives as `GOLF_CAPONE_MAS`, which is why the part test above
+matches a five-character tail rather than six.
 
 `[inferred]` Identity is the upper-cased hash of the token (`cd_hash` upper-cases), and no two
 cars' key sets overlap, which is why one hash table per car is enough and why the catalogue is

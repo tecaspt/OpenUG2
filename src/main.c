@@ -2321,8 +2321,12 @@ static char g_vinyl_car[32];
 /* The category tab the shopper last stopped on, kept between visits to the graphics shop the
  * way retail leaves it. Not saved: browsing position is not something a save file records. */
 static int g_vinyl_cat;
-/* Slots the shop looked at on its last snapshot, so the log can report how many it rejected.
- * Only ever written by career_vinyl_shop(), which fills the snapshot the screen shows. */
+/* Slots the shop walked on its last snapshot, so the log can report how many it rejected.
+ * Only ever written by career_vinyl_shop(), which fills the snapshot the screen shows.
+ * Bounded above by FEV_MAX, because that loop stops walking once the list is full: over GOLF's
+ * 1783 named slots it stops at 1429 examined / 390 offered, so neither figure describes the
+ * catalogue. `make vinyl-shopcensus` runs the same filter to completion and is the census to
+ * compare a count against; this answers "what did the shopper see", not "what is on disk". */
 static int g_vinyl_examined;
 
 static void clear_car_vinyl(void) {
@@ -2516,10 +2520,10 @@ static void career_vinyl_shop(FeVinylShop *o,int layer) {
         }
         if(part)continue;
         /* The colour page can only offer channels the design actually ships. A design has a
-         * region per suffix slot present, and the family decides: the 399 GOLF bases split 95
-         * three-colour (they have A/B/C slots) and 304 single (TOP/AEM/UNIQUE/HOOD art etc.
-         * carry none). cr_vinyl_design_colors gives the family default; here it is narrowed to
-         * what the car's own catalogue proves. */
+         * region per suffix slot present, and the family decides: of GOLF's 390 sellable bases,
+         * 73 have A/B/C slots and the rest carry none. cr_vinyl_design_colors gives the family
+         * default; here it is narrowed to what the car's own catalogue proves. Counts are
+         * re-measurable with `make vinyl-shopcensus` plus this loop's colors field. */
         if(colors>1) {
             int present=1;   /* channel 0 is the base design itself */
             char sub[24];
@@ -7977,8 +7981,9 @@ int main(int argc, char **argv) {
                 static FeVinylShop vinyl;
                 career_vinyl_shop(&vinyl, 0);
                 fem_open_vinyl_at(fem, &vinyl, g_vinyl_cat);
-                /* designs/hidden is the shop's list and the count it rejected, so a census that
-                   disagrees with the game is visible in the log instead of only in a diff. */
+                /* designs is what the screen offered, hidden what it rejected on the way there.
+                   Both are of the slice FEV_MAX allowed, so they answer a question about the shop
+                   and not about the data - the whole-catalogue figures are `make vinyl-shopcensus`. */
                 printf("career: vinyl layers opened designs %d colours %d hidden %d bank %lld\n",
                        vinyl.ndesign, vinyl.ncolor, g_vinyl_examined - vinyl.ndesign, (long long)vinyl.bank);
                 fflush(stdout);
