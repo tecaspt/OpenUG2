@@ -212,6 +212,15 @@ typedef struct {
     const char (*vinyl_names)[32];
     int vinyl_count, vinyl_current, vinyl_request;
     int vinyl_catalog_request, vinyl_catalog_ready;
+    /* --no-vinyl: paint the car without its decal. The A/B that proves a career vinyl is
+       actually on the car (and that a no-vinyl car stays on the old single-texture path). */
+    int vinyl_disabled;
+    /* Per frame while a car is drawn: how many of its body/misc meshes fell through to the
+       shared decal texture (they had no texture of their own), and how many were painted at
+       all. The bind site is a fallback, so vinyl_binds == 0 with vinyl_paints > 0 means this
+       car's panels all carry their own texture and the career decal cannot show on it --
+       which is a data fact to report, not a render bug to chase in the shader. */
+    unsigned long long vinyl_binds, vinyl_paints;
     char vinyl_status[128];
 
     /* Blue shop: decoded GLOBALB package levels for the active car. The power

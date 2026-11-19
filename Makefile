@@ -62,7 +62,7 @@ SFX_FE_TEST_SRC := src/sfx_fe.c src/sfx_play.c src/sfx_bank.c
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 HDRS += src/postrace_stats.h
 SRC += src/fe_sms.c
-SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c
+SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c src/fe_vinyl.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
 SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
@@ -74,7 +74,7 @@ SRC += src/rear_mirror.c
 HDRS += src/rear_mirror.h
 HDRS += src/hud_race.h src/dir_scan.h
 HDRS += src/game_catalog.h src/game_flow.h src/input_script.h src/touch_controls.h src/ui_flat.h src/fe_entries.h src/fe_screen.h src/fe_menu.h
-HDRS += src/fe_lot.h src/fe_perf.h src/fe_paint.h
+HDRS += src/fe_lot.h src/fe_perf.h src/fe_paint.h src/fe_vinyl.h
 HDRS += src/player_motion.h src/map_bake.h src/graphics_policy.h src/route_guide.h
 
 map-bake-test: tools/map_bake_test.c src/map_bake.h src/nfsu2.h
@@ -226,6 +226,25 @@ world-instance-test: tools/world_instance_test.c src/world_instance.c src/physic
 vinyl-census: tools/vinyl_census.c src/nfsu2.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Isrc tools/vinyl_census.c -o build/vinyl_census -lm
+
+# Serves the same cr_vinyl_category()/cr_vinyl_design_colors() the graphics shop calls, so the
+# census cannot drift from the shop it measures (see CAREER_CORE at career-test).
+vinyl-rows: tools/vinyl_rows.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_rows.c src/career.c src/career_data.c src/settings.c -o build/vinyl_rows $(SDL_LIBS) -lm
+
+# Same filters as vinyl-rows but at the array bounds the game uses (32-byte names, 4096 slots,
+# FEV_MAX), so a gap between the census and the shop's own count is attributable.
+vinyl-shopcensus: tools/vinyl_shopcensus.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_shopcensus.c src/career.c src/career_data.c src/settings.c -o build/vinyl_shopcensus $(SDL_LIBS) -lm
+
+# Checks the retail naming rules over EVERY installed car, not one. Skips when OPENUG2_DATA is
+# unset, like the other data checks.
+vinyl-catalog-check: tools/vinyl_catalog_check.c src/nfsu2.h src/career.c src/career.h src/career_data.c src/career_data.h src/garage.h
+	@mkdir -p build
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/vinyl_catalog_check.c src/career.c src/career_data.c src/settings.c -o build/vinyl_catalog_check -lz -lm $(SDL_LIBS)
+	@if [ -z "$$OPENUG2_DATA" ]; then echo "SKIP: OPENUG2_DATA not set"; exit 77; fi; ./build/vinyl_catalog_check "$$OPENUG2_DATA"
 
 texkey-probe: tools/texkey_probe.c src/nfsu2.h
 	@mkdir -p build
@@ -1008,7 +1027,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
-SCREENS_TEST_SRC = src/career.c src/fe_sms.c src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC = src/career.c src/fe_sms.c src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c src/fe_vinyl.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
 SCREENS_TEST_SRC += src/fe_worldmap.c src/career_data.c src/pause_menu.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
@@ -1237,9 +1256,12 @@ rear-mirror-gl-test: tools/rear_mirror_test.c src/rear_mirror.c src/rear_mirror.
 	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gles_test
 
 # Isolated career shop fixture for scripted host captures (data required at invocation).
+# CAREER_CORE holds platform-conditional helpers (settings.c's Windows-only delete callback)
+# that the single-TU game build already silences with -Wno-unused-function; without the same
+# flag here the shared sources leak warnings into every scripted-capture build.
 career-shop-fixture: tools/career_shop_fixture.c $(CAREER_CORE) src/career.h
 	@mkdir -p build
-	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_shop_fixture.c $(CAREER_CORE) -o build/career_shop_fixture -lm
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/career_shop_fixture.c $(CAREER_CORE) -o build/career_shop_fixture -lm
 .PHONY: career-shop-fixture
 career-shop-dialog-test: tools/career_shop_dialog_test.c src/gui_dialog.c src/gui_dialog.h
 	@mkdir -p build
@@ -1268,6 +1290,11 @@ fe-paint-test: tools/fe_paint_test.c $(SCREENS_TEST_SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_paint_test.c $(SCREENS_TEST_SRC) -o build/fe_paint_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
 	./build/fe_paint_test
+.PHONY: fe-vinyl-test
+fe-vinyl-test: tools/fe_vinyl_test.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_vinyl_test.c $(SCREENS_TEST_SRC) -o build/fe_vinyl_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/fe_vinyl_test
 
 # Retail post-race family render/flow check. Output is supplied by the caller.
 postrace-check: tools/postrace_check.c $(SCREENS_TEST_SRC) $(HDRS)

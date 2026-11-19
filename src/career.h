@@ -14,7 +14,15 @@
 #define CR_HIDE_WON     1             /* [inferred] won races disappear from the map */
 #define CR_MAX_OWNED    5
 #define CR_REGION_UNKNOWN 0xFFu       /* car-unlock column not chosen yet (schema 1 saves) */
+#define CR_VINYL_LAYERS 4             /* [data] language keys VINYL_LAYER_1..4 exist and nothing beyond 4 */
+#define CR_VINYL_COLORS 3             /* [data] every design ships colour layers A/B/C with it (VINYLS.BIN names) */
 enum { CR_REC_WON = 1, CR_REC_PAID = 2 };
+
+/* One graphics-shop vinyl layer of an owned car (docs/parity/VINYLS.md). */
+typedef struct CrVinyl {
+    uint32_t design;                  /* ug_hash(upper design token, e.g. "FLAME_128"), 0 = empty */
+    uint32_t colour[CR_VINYL_COLORS]; /* VINYL-group paint part keys, 0 = stock (uncoloured) */
+} CrVinyl;
 
 typedef struct CrRaceRec { uint32_t hash; uint8_t best_place, flags; uint16_t attempts; } CrRaceRec;
 typedef struct CareerState {
@@ -35,6 +43,9 @@ typedef struct CareerState {
     /* schema 4 (TLV 7): per owned car, installed performance components (bit i = CareerData.perf_comp[i]) and paint */
     uint32_t perf[CR_MAX_OWNED][3];
     uint32_t paint[CR_MAX_OWNED][CR_PAINT_SLOTS];
+    /* Task AP (TLV 10): per owned car, the four graphics-shop vinyl layers. design = ug_hash of the upper-cased
+     * design token (0 = empty layer); colour[] = part keys into cd->paint[] of the VINYL group (0 = stock). */
+    CrVinyl vinyl[CR_MAX_OWNED][CR_VINYL_LAYERS];
 } CareerState;
 
 typedef struct CrResult { uint32_t race_hash; int place, ncars, failed, aborted; double seconds; } CrResult;
@@ -131,6 +142,37 @@ int32_t cr_paint_price(const CareerData *cd, int paint);   /* 0x34A1C level `b` 
  * Returns CR_PERF_* codes (OWNED = that colour is already in the slot). */
 int  cr_paint_buy(CareerState *s, const CareerData *cd, int shop, int paint, int32_t *charged);
 uint32_t cr_paint_installed(const CareerState *s, int slot);   /* part key or 0 (stock) on the active car */
+
+/* ---- vinyl shop (graphics): docs/parity/VINYLS.md ----
+ * Designs have no global id table (the list lives per car, inside CARS/<CAR>/VINYLS.BIN, and the texture keys do
+ * not overlap between cars), so career state stores cd_hash of the upper-cased design token. The four layer slots
+ * are retail's VINYL_LAYER_1..4; colours are VINYL-group paint part keys of the design's A/B/C channels. */
+enum { CR_VINYL_CAT_FLAMES = 1, CR_VINYL_CAT_UNIQUE, CR_VINYL_CAT_TEAR, CR_VINYL_CAT_SPARK, CR_VINYL_CAT_EXOTIC,
+       CR_VINYL_CAT_SMEAR, CR_VINYL_CAT_ANIMAL, CR_VINYL_CAT_CIRCUIT, CR_VINYL_CAT_STRIPE, CR_VINYL_CAT_SPLASH,
+       CR_VINYL_CAT_MODERN, CR_VINYL_CAT_LIGHTNING, CR_VINYL_CAT_FLAG, CR_VINYL_CAT_TRIBAL, CR_VINYL_CAT_WILD,
+       CR_VINYL_CAT_MANUFACTURER, CR_VINYL_CAT_BODY, CR_VINYL_CAT_HOODS, CR_VINYL_CAT_TOP,
+       CR_VINYL_CAT_AFTERMARKET, CR_VINYL_CAT_CONTEST, CR_VINYL_CAT_ARTFACTORY, CR_VINYL_CAT_RACING };
+uint32_t cr_vinyl_hash(const char *token);                       /* cd_hash of the upper-cased token */
+const CrVinyl *cr_vinyl_layer(const CareerState *s, int layer);  /* active car's layer, or NULL */
+/* Colour channels a design offers: 1 for artFactory styles, 3 (A/B/C) otherwise; -1 = not a design token. */
+int  cr_vinyl_design_colors(const char *design);
+/* Vinyl colour slot of a design channel: artFactory shares channel 0; others A -> 0, B -> 1, C -> 2. -1 = none. */
+int  cr_vinyl_color_channel(const char *design, int ch);
+/* Retail category of a design token (CR_VINYL_CAT_*), or -1 when no retail category admits the name.
+ * `car` is the CARS/ folder the catalogue came from, used only to skip the leading "<CAR>_" segment
+ * that retail names carry (GOLF_TEAR_002); pass NULL or "" for a bare family token (FLAME_005). */
+int  cr_vinyl_category(const char *design, const char *car);
+/* Unlock [inferred, docs/parity/VINYLS.md]: id 80 admits the buyable categories (tier 1), id 83 the exclusive
+ * art (art factory, hoods/tops, unique, manufacturer; tier 2). */
+int  cr_vinyl_open(const CareerState *s, const CareerData *cd, const char *design, const char *car);
+/* Layer slots trade at a paint shop (the retail graphics shop sells paint and vinyls together). */
+int  cr_vinyl_shop_open(const CareerState *s, const CareerData *cd, int shop);
+/* Price of a design [inferred]: the `b` field of the gate that admits it (the paint price source). -1 = locked. */
+int32_t cr_vinyl_price(const CareerState *s, const CareerData *cd, const char *design, const char *car);
+/* Validates shop, design, colour channels (open VINYL-group colours), funds and a real change; installs the layer
+ * and debits the bank. design "" or NULL removes the layer (free). Returns CR_PERF_* (OWNED = no change). */
+int  cr_vinyl_buy(CareerState *s, const CareerData *cd, int shop, int layer, const char *car,
+                  const char *design, const uint32_t colour[CR_VINYL_COLORS], int32_t *charged);
 
 /* Ordered, unique receipts keyed by name hash, stable across table reorderings.
  * Receive returns 1 only for a new receipt. Read returns 1 only for a held message. */

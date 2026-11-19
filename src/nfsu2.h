@@ -3596,6 +3596,23 @@ static int n2_car_tex_name_by_key(const unsigned char *d, long len, uint32_t key
 }
 
 /* Decode ONE car texture through its offset-slot table and embedded header. */
+/* One slot of a car TPK, decoded far enough to name it and classify it, without
+   converting a single pixel. Vinyl designs are 8-bit index images whose meaning
+   lives in the index numbers themselves (a shape layer plus one layer per colour
+   region), so the vinyl compositor needs the raw indices; the existing
+   n2_load_car_tex_by_key cannot supply them -- it collapses indices to a grey
+   ramp the moment it decodes. Returns 0 when the slot is missing, is not
+   HUFF-wrapped, or fails record validation. */
+typedef struct { uint32_t key; char name[25]; int w, h; int kind; long bytes;
+                 unsigned char bg; } N2SlotHdr;
+static int n2_car_slot_header(const unsigned char *d, long len, uint32_t key, N2SlotHdr *o);
+
+/* The w*h raw indices of one design slot (caller frees). NULL when the slot is
+   not a plain 8-bit index image, so a caller never mistakes a compressed block
+   stream for indices. */
+static unsigned char *n2_car_slot_indices(const unsigned char *d, long len,
+                                          const N2SlotHdr *hdr);
+
 static int n2_load_car_tex_by_key(const unsigned char*d,long len,uint32_t key,N2Tex*t);
 
 /* Point <CAR>_SKIN1 at this car's colour atlas: of the 512x512 sheets, the one
@@ -3783,6 +3800,82 @@ static int n2_load_car_tex_from_slots(const unsigned char *d,long len,
 static int n2_load_car_tex_by_key(const unsigned char*d,long len,uint32_t key,N2Tex*t) {
     uint32_t size=0;const unsigned char*slots=n2_tpk_slots(d,len,&size);
     return n2_load_car_tex_from_slots(d,len,slots,size,key,t);
+}
+
+/* ---- vinyl design layers (raw 8-bit indices) ----
+ *
+ * The 144-byte record at the tail of a slot's HUFF payload describes a w x h
+ * 8-bit index image (format code 0x29) whose base block is exactly w*h bytes;
+ * whatever follows it up to the record is the mip chain. Measured over all 1783
+ * SKYLINE slots: every slot decodes to 350748 bytes and every one of them is a
+ * 512x512 image, so the base block is 262144 and the stored chain is the fixed
+ * 88460 bytes between it and the record -- NOT a full 8-bit pyramid (that would
+ * need 349525, and no square size satisfies the identity). The chain size is
+ * therefore a constant of the format and is only bounds-checked here; the base
+ * level is all this decoder reads. `kind` classifies the block without
+ * converting a pixel:
+ *   N2_SLOT_PAL    a real design layer
+ *   N2_SLOT_BLANK  every byte is the same index -- a placeholder, not an image
+ * `bg` is the most frequent index, which is the cut-away background of a design
+ * layer and the untouched value of an alpha plane. */
+enum { N2_SLOT_PAL = 0, N2_SLOT_BLANK = 1 };
+static int n2_car_slot_header(const unsigned char *d, long len, uint32_t key, N2SlotHdr *o) {
+    uint32_t sz; const unsigned char *p = n2_tpk_slots(d, len, &sz);
+    memset(o, 0, sizeof *o);
+    if (!p) return 0;
+    int absoff = -1, enc = 0, dec = 0;
+    for (uint32_t i = 0; i + 0x18 <= sz; i += 0x18)
+        if (n2_u32(p + i) == key) {
+            absoff = (int)n2_u32(p + i + 4); enc = (int)n2_u32(p + i + 8);
+            dec = (int)n2_u32(p + i + 12); break;
+        }
+    if (absoff < 0 || dec <= 144 || enc < 20 || (long)absoff + enc > len) return 0;
+    if (memcmp(d + absoff, "HUFF", 4)) return 0;
+    unsigned char *raw = (unsigned char *)malloc((size_t)dec);
+    if (!raw) return 0;
+    if (n2_huff(d + absoff + 16, enc - 16, raw, dec) != dec) { free(raw); return 0; }
+    const unsigned char *rec = raw + dec - 144;
+    int w = rec[0x38] | rec[0x39] << 8, h = rec[0x3a] | rec[0x3b] << 8;
+    long n = (long)w * h;
+    int ok = n2_u32(rec + 0x18) == key && w >= 8 && h >= 8 && w <= 2048 && h <= 2048
+             && n + 144 <= dec && rec[0] >= 'A' && rec[0] <= 'Z';
+    if (ok) {
+        long hist[256] = {0};
+        for (long k = 0; k < n; k++) hist[raw[k]]++;
+        int bg = 0, nd = 0;
+        for (int c = 0; c < 256; c++) { if (hist[c]) nd++; if (hist[c] > hist[bg]) bg = c; }
+        o->kind = nd == 1 ? N2_SLOT_BLANK : N2_SLOT_PAL;
+        o->bg = (unsigned char)bg;
+        o->key = key; o->w = w; o->h = h; o->bytes = dec;
+        memcpy(o->name, rec, 24); o->name[24] = 0;
+        for (int c = 0; c < 24; c++)
+            if (o->name[c] && (o->name[c] < 32 || o->name[c] > 126)) { o->name[c] = 0; break; }
+        if (!o->name[0]) ok = 0;
+    }
+    free(raw);
+    return ok;
+}
+
+/* The base block of one slot, verbatim (no colour conversion). */
+static unsigned char *n2_car_slot_indices(const unsigned char *d, long len,
+                                          const N2SlotHdr *hdr) {
+    uint32_t sz; const unsigned char *p = n2_tpk_slots(d, len, &sz);
+    long n = (long)hdr->w * hdr->h;
+    if (!p || hdr->kind != N2_SLOT_PAL || n <= 0) return NULL;
+    for (uint32_t i = 0; i + 0x18 <= sz; i += 0x18)
+        if (n2_u32(p + i) == hdr->key) {
+            int absoff = (int)n2_u32(p + i + 4), enc = (int)n2_u32(p + i + 8),
+                dec = (int)n2_u32(p + i + 12);
+            if (absoff < 0 || enc < 20 || dec <= 144 || (long)absoff + enc > len) return NULL;
+            unsigned char *raw = (unsigned char *)malloc((size_t)dec);
+            if (!raw) return NULL;
+            if (n2_huff(d + absoff + 16, enc - 16, raw, dec) != dec) { free(raw); return NULL; }
+            unsigned char *out = (unsigned char *)malloc((size_t)n);
+            if (out) memcpy(out, raw, (size_t)n);
+            free(raw);
+            return out;
+        }
+    return NULL;
 }
 
 /* Find a named texture in the file's local TPK and decode it. Returns 1 on hit. */

@@ -1825,6 +1825,10 @@ static void career_open_shop(FeMenu *fem) {
     int type=g_career.cd.shop[sh].type;
     if(type==CD_SHOP_CAR_LOT){career_open_lot(fem,g_career.st.nowned==0);return;}
     if(type==CD_SHOP_PAINT) {
+        /* The retail graphics shop sells paint and vinyls in one visit, and the vinyl flow is
+         * the deeper screen of the pair (UI_ChooseVinylLayer.fng carries the layer list, the
+         * design carousel and the colour page), so the shop opens on the paint categories and
+         * the VINYL group row of that list walks into the layers. */
         static FePaintShop paint;career_paint_shop(&paint);fem_open_paint(fem,&paint);
         printf("career: opened shop %s type %d\n",g_career.cd.shop[sh].name,type);return;
     }
@@ -2330,10 +2334,34 @@ static unsigned char *g_vinyl_data;
 static long g_vinyl_len;
 static uint32_t g_vinyl_keys[4096];
 static char g_vinyl_names[4096][32];
+static uint32_t g_vinyl_hash[4096];   /* cr_vinyl_hash of the token, so the career layer lookup is O(1) */
+
+/* What the career wants painted on the active car: the design token and its colours.
+ * Empty token = stock. Declared before clear_car_vinyl(), which resets them along with the
+ * rest of the car's vinyl state; the decal texture is only rebuilt when they change. */
+static char g_vinyl_want_token[24];
+static uint32_t g_vinyl_want_colour[CR_VINYL_COLORS];
+/* The car g_vinyl_data belongs to. The enumeration is per car, so the career hook can ask
+ * for the active car's catalogue every frame and only pay for it on a car switch. */
+static char g_vinyl_car[32];
+/* The category tab the shopper last stopped on, kept between visits to the graphics shop the
+ * way retail leaves it. Not saved: browsing position is not something a save file records. */
+static int g_vinyl_cat;
+/* Slots the shop walked on its last snapshot, so the log can report how many it rejected.
+ * Only ever written by career_vinyl_shop(), which fills the snapshot the screen shows.
+ * Bounded above by FEV_MAX, because that loop stops walking once the list is full: over GOLF's
+ * 1783 named slots it stops at 1429 examined / 390 offered, so neither figure describes the
+ * catalogue. `make vinyl-shopcensus` runs the same filter to completion and is the census to
+ * compare a count against; this answers "what did the shopper see", not "what is on disk". */
+static int g_vinyl_examined;
 
 static void clear_car_vinyl(void) {
     rhi_texture_destroy(g_car_vinyl_tex);g_car_vinyl_tex=(RhiTexture){0};
     free(g_vinyl_data);g_vinyl_data=NULL;g_vinyl_len=0;
+    g_vinyl_want_token[0]=0;
+    memset(g_vinyl_want_colour,0,sizeof g_vinyl_want_colour);
+    memset(g_vinyl_car,0,sizeof g_vinyl_car);
+    memset(g_vinyl_hash,0,sizeof g_vinyl_hash);
     g_dbg.vinyl_names=g_vinyl_names;g_dbg.vinyl_count=0;g_dbg.vinyl_current=0;
     g_dbg.vinyl_request=-1;g_dbg.vinyl_catalog_request=0;g_dbg.vinyl_catalog_ready=0;
     g_dbg.vinyl_status[0]=0;
@@ -2341,21 +2369,33 @@ static void clear_car_vinyl(void) {
 
 /* Enumerate once per car on demand, using the same names as --vinyl list. */
 static void load_vinyl_catalog(const char *root,const char *car) {
-    if(g_dbg.vinyl_catalog_ready)return;
+    if(g_dbg.vinyl_catalog_ready && !strcmp(g_vinyl_car,car))return;
     char path[1024];snprintf(path,sizeof path,"%s/CARS/%s/VINYLS.BIN",root,car);
+    free(g_vinyl_data);g_vinyl_data=NULL;g_vinyl_len=0;
     g_vinyl_data=n2_read_file(path,&g_vinyl_len);
+    snprintf(g_vinyl_car,sizeof g_vinyl_car,"%s",car);
     int raw=g_vinyl_data?n2_car_tex_keys(g_vinyl_data,g_vinyl_len,g_vinyl_keys,4096):0;
     g_dbg.vinyl_names=g_vinyl_names;g_dbg.vinyl_count=0;
     for(int i=0;i<raw;i++) {
         int out=g_dbg.vinyl_count;
         if(n2_car_tex_name_by_key(g_vinyl_data,g_vinyl_len,g_vinyl_keys[i],
                                   g_vinyl_names[out],sizeof g_vinyl_names[out])) {
-            g_vinyl_keys[out]=g_vinyl_keys[i];g_dbg.vinyl_count++;
+            g_vinyl_keys[out]=g_vinyl_keys[i];
+            g_vinyl_hash[out]=cr_vinyl_hash(g_vinyl_names[out]);
+            g_dbg.vinyl_count++;
         }
     }
     g_dbg.vinyl_catalog_ready=1;g_dbg.vinyl_catalog_request=0;
     if(!g_dbg.vinyl_count)snprintf(g_dbg.vinyl_status,sizeof g_dbg.vinyl_status,
                                   "No vinyl designs are available for this car.");
+}
+
+/* Catalogue index (1-based, as g_dbg.vinyl_current counts) of a design token, 0 = none. */
+static int car_vinyl_index(const char *token) {
+    if(!token||!token[0])return 0;
+    uint32_t h=cr_vinyl_hash(token);
+    for(int i=0;i<g_dbg.vinyl_count;i++)if(g_vinyl_hash[i]==h)return i+1;
+    return 0;
 }
 
 /* Upload before replacing the current decal so failed choices keep it intact. */
@@ -2379,6 +2419,229 @@ static int select_car_vinyl(int choice) {
     rhi_texture_destroy(g_car_vinyl_tex);g_car_vinyl_tex=next;
     g_dbg.vinyl_current=choice;g_dbg.vinyl_status[0]=0;
     return 1;
+}
+
+/* ---- career vinyl layers over the body paint (docs/parity/VINYLS.md) ----
+ *
+ * A design is a stack of 8-bit index layers inside CARS/<CAR>/VINYLS.BIN: the token slot
+ * is the whole design, and NAME_A/B/C (measured: NAMEA/B/C) are its colour regions, which
+ * always lie inside the shape. The palette a design indexes is all-zero in retail data —
+ * the shop supplies the colour — so the layers are composited on the CPU into the single
+ * decal texture the shader already mixes over uColor. Pixels covered by no layer take the
+ * design's own indices, so an uncoloured vinyl still reads as cut vinyl. */
+
+/* The colour a design channel wears, as 0..255 rgb. 0 = no colour bought for it. */
+static int vinyl_colour_rgb(uint32_t key, unsigned char rgb[3]) {
+    if (!key) return 0;
+    for (int i = 0; i < g_career.cd.npaint; i++)
+        if (g_career.cd.paint[i].key == key) {
+            rgb[0] = g_career.cd.paint[i].rgb[0];
+            rgb[1] = g_career.cd.paint[i].rgb[1];
+            rgb[2] = g_career.cd.paint[i].rgb[2];
+            return 1;
+        }
+    return 0;
+}
+
+static void vinyl_paint_pixel(unsigned char *d, int ix, int tinted, const unsigned char rgb[3]) {
+    if (tinted) { d[0] = rgb[0]; d[1] = rgb[1]; d[2] = rgb[2]; }
+    else { unsigned char v = (unsigned char)(20 + (ix & 15) * 8); d[0] = d[1] = d[2] = v; }
+}
+
+/* Composite one design into one RGBA decal texture. The colour regions are painted first
+   and the base design second, skipping pixels a region already covered, so the result never
+   depends on the order the slots happen to appear in VINYLS.BIN. One slot walk per pass
+   keeps the decoding to the layers themselves. */
+static RhiTexture build_car_vinyl(const char *token, const uint32_t colour[CR_VINYL_COLORS]) {
+    if (!g_vinyl_data || !token || !token[0]) return (RhiTexture){0};
+    int self = car_vinyl_index(token);
+    if (!self) return (RhiTexture){0};
+    N2SlotHdr base;
+    if (!n2_car_slot_header(g_vinyl_data, g_vinyl_len, g_vinyl_keys[self - 1], &base) ||
+        base.kind != N2_SLOT_PAL) return (RhiTexture){0};
+    int colors = cr_vinyl_design_colors(token);
+    if (colors < 1) colors = 1;
+    uint32_t sub_key[CR_VINYL_COLORS] = {0};
+    char sub[32];
+    for (int ch = 0; ch < colors && ch < CR_VINYL_COLORS; ch++) {
+        snprintf(sub, sizeof sub, "%s%c", token, 'A' + ch);
+        int i = car_vinyl_index(sub);
+        if (i) sub_key[ch] = g_vinyl_keys[i - 1];
+    }
+    /* The design's NAME_MASK plane is deliberately NOT composited here. Measured on GOLF it
+     * is not one thing: GOLF_AEM_SCORPION_MASK is a second low-index shape (15 levels, 12901
+     * of its pixels inside the design) while GOLF_TEARS_804_MASK is a 256-level soft ramp and
+     * GOLF_AEM_AUDIOBAHN_MASK covers only 3606 of that design's 10812 pixels. Scaling alpha by
+     * it would nearly erase the two latter designs (their covered pixels are almost all <255),
+     * so retail must pick per design in a way the data here does not settle. The plane is
+     * documented as an open item in docs/parity/VINYLS.md rather than guessed at. */
+    long npix = (long)base.w * base.h;
+    N2Tex out; memset(&out, 0, sizeof out);
+    out.w = base.w; out.h = base.h;
+    out.rgb = (unsigned char *)malloc((size_t)npix * 3);
+    out.alpha = (unsigned char *)malloc((size_t)npix);
+    if (!out.rgb || !out.alpha) { free(out.rgb); free(out.alpha); return (RhiTexture){0}; }
+    memset(out.alpha, 0, (size_t)npix);
+    uint32_t keys[4096];
+    int n = n2_car_tex_keys(g_vinyl_data, g_vinyl_len, keys, 4096);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < n; i++) {
+            int ch = -1;
+            for (int k = 0; k < CR_VINYL_COLORS; k++) if (sub_key[k] == keys[i]) ch = k;
+            if (pass == 0 ? (ch < 0) : keys[i] != base.key) continue;
+            N2SlotHdr h;
+            if (!n2_car_slot_header(g_vinyl_data, g_vinyl_len, keys[i], &h) ||
+                h.kind != N2_SLOT_PAL || h.w != base.w || h.h != base.h) continue;
+            unsigned char *raw = n2_car_slot_indices(g_vinyl_data, g_vinyl_len, &h);
+            if (!raw) continue;
+            unsigned char rgb[3] = {0,0,0};
+            uint32_t want = ch >= 0 ? colour[ch] : (colors == 1 ? colour[0] : 0);
+            int tinted = vinyl_colour_rgb(want, rgb);
+            for (long p = 0; p < npix; p++) {
+                if (raw[p] == h.bg) continue;                    /* cut away: the body paint shows */
+                if (pass == 1 && out.alpha[p]) continue;         /* a colour region wins over the design */
+                vinyl_paint_pixel(out.rgb + p * 3, raw[p], tinted, rgb);
+                out.alpha[p] = 255;
+            }
+            free(raw);
+        }
+    int any = 0;
+    for (long p = 0; p < npix && !any; p++) any = out.alpha[p] != 0;
+    if (!any) { free(out.rgb); free(out.alpha); return (RhiTexture){0}; }
+    RhiTexture tex = upload_tex_keyed(base.key, "VINYLS", &out);
+    free(out.rgb); free(out.alpha);
+    if (!tex.id) return (RhiTexture){0};
+    render_texture_clamp(tex);
+    return tex;
+}
+
+/* The graphics shop's vinyl layers, as one copied snapshot (docs/parity/VINYLS.md). The
+   design list is the ACTIVE CAR's own VINYLS.BIN - designs have no global id table - so the
+   catalogue has to be loaded first, which the frame hook below does on car switches. */
+static void career_vinyl_shop(FeVinylShop *o,int layer) {
+    const CareerState *st=&g_career.st;const CareerData *cd=&g_career.cd;
+    int examined=0;
+    memset(o,0,sizeof *o);
+    o->bank=st->bank;o->layer=layer>=0&&layer<CR_VINYL_LAYERS?layer:0;
+    for(int i=0;i<g_dbg.vinyl_count && o->ndesign<FEV_MAX;i++) {
+        const char *tok=g_vinyl_names[i];
+        examined++;
+        int cat=cr_vinyl_category(tok,g_vinyl_car),colors=cr_vinyl_design_colors(tok);
+        if(cat<0||colors<0)continue;                    /* not a design the shop sells */
+        /* The catalogue is the raw VINYLS.BIN slot list, which also holds each design's
+         * compositing parts -- the `NAMEA`/`NAMEB`/`NAMEC` colour regions and the `NAME_MASK`
+         * soft-alpha plane. Those are not sellable; only the base design is (retail shows one
+         * row per design). A part is recognised by the base it names: GOLF_TEAR_002A strips to
+         * GOLF_TEAR_002 and _MASK to GOLF_TEAR_002, both of which exist in the same file, while
+         * a base design like GOLF_AEM_DONZ has no base-named slot of its own to collide with. */
+        size_t tn=strlen(tok);
+        char base[24];
+        int part=0;
+        if(tn>=5 && !strcmp(tok+tn-5,"_MASK")) {
+            size_t bl=tn-5; if(bl<sizeof base)bl=sizeof base-1;
+            memcpy(base,tok,bl);base[bl]=0; part=car_vinyl_index(base)!=0;
+        } else if(tn>1 && tok[tn-1]>='A' && tok[tn-1]<='C') {
+            size_t bl=tn-1; if(bl<sizeof base)bl=sizeof base-1;
+            memcpy(base,tok,bl);base[bl]=0; part=car_vinyl_index(base)!=0;
+        }
+        if(part)continue;
+        /* The colour page can only offer channels the design actually ships. A design has a
+         * region per suffix slot present, and the family decides: of GOLF's 390 sellable bases,
+         * 73 have A/B/C slots and the rest carry none. cr_vinyl_design_colors gives the family
+         * default; here it is narrowed to what the car's own catalogue proves. Counts are
+         * re-measurable with `make vinyl-shopcensus` plus this loop's colors field. */
+        if(colors>1) {
+            int present=1;   /* channel 0 is the base design itself */
+            char sub[24];
+            size_t bl=tn; if(bl+2>sizeof sub)bl=sizeof sub-2;
+            memcpy(sub,tok,bl);
+            for(int ch=1;ch<colors;ch++) {
+                sub[bl]='A'+ch; sub[bl+1]=0;
+                if(car_vinyl_index(sub))present=ch+1;
+            }
+            colors=present;
+        }
+        FeVinylDesign *d=&o->design[o->ndesign++];
+        /* The catalogue reader already caps a name at 24 characters, so a bounded copy of the
+         * field is both the exact fit and something the compiler can prove truncated-free. */
+        size_t tl=strnlen(tok,sizeof d->token-1);
+        memcpy(d->token,tok,tl);d->token[tl]=0;
+        d->category=cat;d->colors=colors;
+        d->open=cr_vinyl_open(st,cd,tok,g_vinyl_car)!=0;
+        d->price=cr_vinyl_price(st,cd,tok,g_vinyl_car);
+        if(d->price<0)d->price=0;
+        const CrVinyl *cur=cr_vinyl_layer(st,o->layer);
+        d->owned=cur && cur->design==g_vinyl_hash[i];
+    }
+    for(int i=0;i<cd->npaint && o->ncolor<CD_MAX_PAINT;i++) {
+        if(cd->paint[i].group!=CD_PAINT_VINYL)continue;
+        FeVinylColor *c=&o->color[o->ncolor++];
+        c->paint=cd->paint[i];c->index=i;
+        c->price=cr_paint_price(cd,i);c->open=cr_paint_open(st,cd,i);
+    }
+    g_vinyl_examined=examined;
+    const CrVinyl *cur=cr_vinyl_layer(st,o->layer);
+    if(cur && cur->design)
+        for(int i=0;i<g_dbg.vinyl_count;i++)
+            if(g_vinyl_hash[i]==cur->design) {
+                size_t cl=strnlen(g_vinyl_names[i],sizeof o->current-1);
+                memcpy(o->current,g_vinyl_names[i],cl);o->current[cl]=0;
+                for(int c=0;c<CR_VINYL_COLORS;c++)o->current_colour[c]=cur->colour[c];
+                break;
+            }
+}
+/* Layer 0 of the career's active car, or the graphics shop's live browsing choice for it
+ * (retail previews a vinyl on the car before anything is bought). Returns 1 when the
+ * wanted design or colours changed, -1 outside a career (the debug pane owns the slot). */
+static int career_car_vinyl_want(const char *root, const char *car, FeMenu *fem) {
+    char tok[24] = "";
+    uint32_t col[CR_VINYL_COLORS] = {0, 0, 0};
+    const char *pv = fem ? fem_vinyl_preview(fem) : NULL;
+    if (!g_career.active && !pv) return -1;
+    if (root && car) load_vinyl_catalog(root, car);   /* returns at once unless the car changed */
+    if (g_vinyl_data) {
+        const CareerState *st = &g_career.st;
+        if (st->nowned && st->active < st->nowned && !strcmp(st->owned[st->active], car)) {
+            const CrVinyl *v = cr_vinyl_layer(st, 0);
+            if (v && v->design)
+                for (int i = 0; i < g_dbg.vinyl_count; i++)
+                    if (g_vinyl_hash[i] == v->design) {
+                        snprintf(tok, sizeof tok, "%s", g_vinyl_names[i]);
+                        for (int c = 0; c < CR_VINYL_COLORS; c++) col[c] = v->colour[c];
+                        break;
+                    }
+        }
+    }
+    if (pv && fem_vinyl_preview_layer(fem) == 0 && car_vinyl_index(pv)) {
+        snprintf(tok, sizeof tok, "%s", pv);
+        fem_vinyl_preview_colours(fem, col);
+    }
+    if (!strcmp(tok, g_vinyl_want_token) &&
+        !memcmp(col, g_vinyl_want_colour, sizeof col)) return 0;
+    snprintf(g_vinyl_want_token, sizeof g_vinyl_want_token, "%s", tok);
+    for (int c = 0; c < CR_VINYL_COLORS; c++) g_vinyl_want_colour[c] = col[c];
+    return 1;
+}
+
+/* Composite the wanted design and swap it in (uploading first, so a failed build keeps
+ * whatever the car already wore). g_dbg.vinyl_current is the catalogue index the debug
+ * pane shows, and 0 means the car wears no decal. */
+static void apply_car_vinyl(void) {
+    RhiTexture next = (RhiTexture){0};
+    if (g_vinyl_want_token[0] && !g_dbg.vinyl_disabled)
+        next = build_car_vinyl(g_vinyl_want_token, g_vinyl_want_colour);
+    if (g_vinyl_want_token[0] && !g_dbg.vinyl_disabled && !next.id) {
+        snprintf(g_dbg.vinyl_status, sizeof g_dbg.vinyl_status,
+                 "Could not load this vinyl. The current design was kept.");
+        return;
+    }
+    rhi_texture_destroy(g_car_vinyl_tex);
+    g_car_vinyl_tex = next;
+    g_dbg.vinyl_current = next.id ? car_vinyl_index(g_vinyl_want_token) : 0;
+    g_dbg.vinyl_status[0] = 0;
+    /* Restart the count with this decal, so a reading is always "since this design was set"
+       rather than a sum over every design the session has shown. */
+    g_dbg.vinyl_binds = g_dbg.vinyl_paints = 0;
 }
 
 static Stage1Drive g_stage1;
@@ -2560,7 +2823,7 @@ static int direct_launch_requested(int argc, char **argv) {
         "--drivetrain", "--no-drivetrain", "--no-hud", "--hud", "--hud-skin", "--hud-mph", "--hud-inferred-redline",
         "--gps-marker", "--hud-nav-arrow-2d", "--hud-shift-indicator", "--hud-no-shift-indicator", "--hud-no-shift-flash", "--hud-nos-level",
         "--hud-nos-glow", "--hud-map-window", "--hud-fit", "--hud-glyph-half-texel-inset", "--hud-fitted", "--no-map-cache",
-        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--rear-mirror", "--perf-csv", "--career-dev", "--career-ask", "--career-place-raw", "--career-bank", "--world-map-dev", "--debug-sink",
+        "--lighting", "--map-detail", "--world2", "--resident-sync", "--resident-realtime", "--render-scale", "--rear-mirror", "--perf-csv", "--career-dev", "--career-ask", "--career-place-raw", "--career-bank", "--world-map-dev", "--debug-sink", "--no-vinyl",
     };
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--", 2)) continue;
@@ -2888,6 +3151,7 @@ int main(int argc, char **argv) {
             else {fprintf(stderr,"--vehicle-quality expects low, medium or high\n");return 2;}
         }
         else if (!strcmp(argv[i], "--no-paint-shine")) g_dbg.paint_shine=0;
+        else if (!strcmp(argv[i], "--no-vinyl")) g_dbg.vinyl_disabled=1;
         else if (!strcmp(argv[i], "--world-cull-off")) world_cull_off=1;
         else if (!strcmp(argv[i], "--road-reflections")) {g_dbg.road_reflections=1;road_reflections_explicit=1;}
         else if (!strcmp(argv[i], "--no-road-reflections")) {g_dbg.road_reflections=0;road_reflections_explicit=1;}
@@ -7743,6 +8007,21 @@ int main(int argc, char **argv) {
                 } else career_open_lot(fem, lot_must_buy);   /* refused: the menu unlocks on re-open */
             }
             /* Paint purchase uses the same save/rollback transaction as performance parts. */
+            else if (frq.kind == FEM_REQ_PAINT_BUY && fem_paint_wants_vinyl(fem)) {
+                /* The graphics shop's vinyl row is not a colour: it walks into the layer
+                 * screen, whose snapshot is the active car's own design catalogue. The layer
+                 * is the one the paint screen was standing on, so re-entering the list and
+                 * stepping in again lands on the same row the shopper chose. */
+                static FeVinylShop vinyl;
+                career_vinyl_shop(&vinyl, 0);
+                fem_open_vinyl_at(fem, &vinyl, g_vinyl_cat);
+                /* designs is what the screen offered, hidden what it rejected on the way there.
+                   Both are of the slice FEV_MAX allowed, so they answer a question about the shop
+                   and not about the data - the whole-catalogue figures are `make vinyl-shopcensus`. */
+                printf("career: vinyl layers opened designs %d colours %d hidden %d bank %lld\n",
+                       vinyl.ndesign, vinyl.ncolor, g_vinyl_examined - vinyl.ndesign, (long long)vinyl.bank);
+                fflush(stdout);
+            }
             else if (frq.kind == FEM_REQ_PAINT_BUY) {
                 CareerState before=g_career.st;
                 int32_t charged=0;
@@ -7763,6 +8042,32 @@ int main(int argc, char **argv) {
                 if (ch_sponsor_choose(&g_career,frq.sponsor_index)) fem_sponsor_signed(fem,g_career.st.bank);
                 else fem_open_sponsor(fem,&g_career.cd,&g_career.st);
             }
+            /* Vinyl layers use the same save/rollback transaction; a removal is free. */
+            else if (frq.kind == FEM_REQ_VINYL_BUY) {
+                CareerState before = g_career.st;
+                int32_t charged = 0;
+                const char *design = frq.vinyl.remove ? "" : frq.vinyl.token;
+                int rc = g_career.active && g_career.race < 0 ?
+                    cr_vinyl_buy(&g_career.st, &g_career.cd, g_career.at_shop, frq.vinyl.layer,
+                                 g_vinyl_car[0] ? g_vinyl_car : carname,
+                                 design, frq.vinyl.colour, &charged) : CR_PERF_E_ARG;
+                if (rc == CR_PERF_OK && cr_save_file(g_career.root, g_career.profile, &g_career.st) != ST_OK) {
+                    g_career.st = before; rc = 1;
+                }
+                if (rc == CR_PERF_OK)
+                    printf("career: vinyl %s layer %d %s $%d bank %lld\n",
+                           design[0] ? "bought" : "removed", frq.vinyl.layer,
+                           design[0] ? design : "-", (int)charged, (long long)g_career.st.bank);
+                else printf("career: vinyl refused layer %d %s (%s)\n", frq.vinyl.layer,
+                            design[0] ? design : "-", career_perf_error(rc));
+                fflush(stdout);
+                static FeVinylShop vinyl;
+                career_vinyl_shop(&vinyl, frq.vinyl.layer);
+                fem_vinyl_refresh(fem, &vinyl, rc == CR_PERF_E_FUNDS ? FVT_MSG_NO_FUNDS :
+                    rc == CR_PERF_E_LOCKED ? FVT_MSG_LOCKED :
+                    rc == CR_PERF_E_OWNED ? FVT_MSG_OWNED :
+                    rc == CR_PERF_OK ? (design[0] ? FVT_MSG_NONE : FVT_MSG_REMOVED) : FVT_MSG_SAVE);
+            }
             /* Performance upgrades require a same-car reload to refresh the drivetrain. */
             else if (frq.kind == FEM_REQ_PERF_BUY) {
                 CareerState before = g_career.st;
@@ -7782,6 +8087,10 @@ int main(int argc, char **argv) {
                                              rc == CR_PERF_E_OWNED ? FEP_MSG_OWNED : FEP_MSG_NONE);
             }
             else if (frq.kind == FEM_REQ_CAREER_ROAM) {
+                /* The vinyl shop's category carousel is remembered in g_vinyl_cat, which is
+                 * where the next visit reads it from; the save file stores what a car wears,
+                 * not where the shopper was browsing. */
+                g_vinyl_cat = fem_vinyl_cat(fem);
                 GfLaunch gl;
                 if (crib_garage && ch_crib_done(&g_career, &gl)) {   /* leaving the Garage at the crib */
                     crib_garage = 0;
@@ -8484,8 +8793,14 @@ int main(int argc, char **argv) {
         if(g_dbg.vinyl_catalog_request)load_vinyl_catalog(dataroot,carname);
         if(g_dbg.vinyl_request>=0) {
             int choice=g_dbg.vinyl_request;g_dbg.vinyl_request=-1;
-            select_car_vinyl(choice);
+            /* The switch has to cover the debug pane too, or --no-vinyl would only half
+               disable the decal and the A/B capture would compare two painted cars. */
+            select_car_vinyl(g_dbg.vinyl_disabled?0:choice);
         }
+        /* Career vinyl layers: the design the active car owns, or the graphics shop's live
+           browsing choice. Polled every frame so buying, browsing and Back all land here;
+           the debug pane (--vinyl, and its K cycle) keeps the decal while it holds one. */
+        else if(!g_dbg.vinyl_current && career_car_vinyl_want(dataroot,carname,fem)>0)apply_car_vinyl();
         GarageRequest garage_request={0};
         int garage_apply=fem?fem_garage_take(fem,&garage_request):0;
         if(garage_apply || g_dbg.body_kit_request>=0 || g_dbg.mod_request_slot>=0) {
@@ -11652,6 +11967,11 @@ int main(int argc, char **argv) {
                        no soft-top marker (M111), so they take the same paint and
                        their own texture like every other body mesh. */
                     ug2_vec3(rp.p->uColor, pnt[0], pnt[1], pnt[2]);
+                    /* The decal bind below is a fallback for panels with no texture of their
+                       own, so counting both figures turns "the screenshot looks the same" into
+                       a checkable fact about this car's material table. g_dbg exists in every
+                       build, so this costs two increments and needs no ifdef. */
+                    g_dbg.vinyl_paints++;
                     if (tex.id && (!hasalpha || material==N2_MAT_DECAL)) {
                         rp.p->uUseTex = 1.0f;
                         rhi_cmd_bind_texture(0, tex);
@@ -11665,6 +11985,7 @@ int main(int argc, char **argv) {
                                everywhere the design is cut away. */
                             rp.p->uUseTex = 1.0f; rp.p->uDecal = 1.0f;
                             rhi_cmd_bind_texture(0, g_car_vinyl_tex);
+                            g_dbg.vinyl_binds++;
                         } else rp.p->uUseTex = 0.0f;
                     }
                 } else if (tex.id) {
@@ -13852,10 +14173,16 @@ int main(int argc, char **argv) {
                                            [FEM_SCR_SMS]="SMS"};
                 int scr = fem && fem_is_open(fem) ? (int)fem_screen(fem) : 0;
                 if (scr < 0 || scr > FEM_SCR_SMS || !scr_names[scr]) scr = 0;
-                printf("SCRIPT f=%ld screen=%s rs=%d ract=%d ev=%d trk=%s car=%s spd=%.1f held=0x%x\n", sf,
+                /* vinyl=binds/paints: cumulative body+misc meshes that took the shared career
+                   decal over the meshes that were painted at all. The bind is a fallback for
+                   panels with no texture of their own, so these two numbers say whether a
+                   decal can physically appear on this car -- pixel diffs cannot. */
+                printf("SCRIPT f=%ld screen=%s rs=%d ract=%d ev=%d trk=%s car=%s spd=%.1f held=0x%x"
+                       " vinyl=%llu/%llu\n", sf,
                        pause_menu_is_open(pause_menu) ? "PAUSE" : scr_names[scr], race_state, world.city.race.active,
                        world.city.race.active && world.city.race.ev >= 0 ? world.city.ev[world.city.race.ev].id : 0,
-                       trackname, carname, PHYS_KMH(speed), (unsigned)tc_held(&g_touch));
+                       trackname, carname, PHYS_KMH(speed), (unsigned)tc_held(&g_touch),
+                       g_dbg.vinyl_binds, g_dbg.vinyl_paints);
             }
         }
         pf_mark(PF_POST_DRAW); pf_gpu(pf_frame,-1);
