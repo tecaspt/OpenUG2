@@ -63,9 +63,10 @@ does load is `FrontB.lzc`, not `FRONTA.BUN`.
 
 In the four in-scope classes (frontend-screen, dialog, ingame-hud, ingame-menu) that is **120
 packages, 33 referenced, 87 in the gap** - unchanged by the `Loading` correction below, because
-`Loading.fng` was never one of them. Out-of-scope classes are counted but not tabled: online/LAN
-(46), 2-player split screen (9), console memory card and console-only age gate (7), plus the 22
-boot/attract reels and 2 non-screens.
+`Loading.fng` was never one of them. Classes counted but not tabled here: online/LAN
+(46, roadmap M12/M13) and 2-player split screen (9, M11) - both in parity scope, tracked as their own
+milestones; console memory card and console-only age gate (7, PS2 leftovers in the PC data, out of
+scope); plus the 22 boot/attract reels (M3) and 2 non-screens.
 
 **The headline is the shape, not the count.** All 46 online/LAN packages and all 9 2-player packages
 have no reference anywhere in `src/` - the entire feature area is absent, not partially done. So is
