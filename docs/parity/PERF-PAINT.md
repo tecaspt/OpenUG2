@@ -38,63 +38,66 @@ RIM, CALIPER, MUFFLER, HOSE, VINYL colours: 10 / 20 / 30 at L1 / L2 / L3. Each h
   about 0.33 / 0.66 / 1.00 per category]. Level of a fraction: 3 / 2 / 1 at 0.995 / 0.655 / 0.325 [inferred].
 - Save schema 4, TLV 7 per owned car: 68-bit component mask + 9 paint slot keys. Older saves load stock.
 
-## Effects on the car (src/drive_stage1.c stage1_car_read_upgraded, per-car record [data])
+## Effects on the car (src/drive_stage1.c, src/drive_contact.c, src/drivetrain.c; per-car record [data])
 
-The car table is one 0x890-byte record per vehicle (46 = 31 player cars + 15 traffic, whose fields are
-shared template constants). NULL or an all-zero DrvUpgrade reproduces the stock reader byte for byte.
+The car table is one 0x890-byte record per vehicle (46 = 31 player cars + 15 traffic, whose fields are shared
+template constants). NULL or an all-zero DrvUpgrade reproduces every stock reader (Stage 1..5 and body) byte
+for byte (memcmp-tested on GOLF, 240SX, SUPRA, 350Z, TAXI). Task AK found no proof from data alone for six
+categories; task AR lifted that restriction and takes the facts below from external sources, tagged:
+[recomp-GC] github.com/Octoblimp/NFSU2-3DS (GPL-3.0; docs/retail_car_physics.md, ridephys.c package builders,
+perfdb.c level function, carsim.c nitrous; facts only, no code copied), [GlobalLib] github.com/NFSTools/GlobalLib
+(CarTypeInfo field names), [upstream] docs/cleanroom-driving-physics/SPEC.md. Offsets are record offsets.
+
+Fraction per category = sum of installed parts' axis share (components: transmission and suspension 3, others 1).
+Level = (int)(clamp(u,0,1)*3+0.5) [recomp-GC] (not cr_perf_level_of). Build order: weight, transmission, nitrous,
+engine, turbo, suspension, brakes, ECU, tires. lerp(v,t,x)=(t-v)*x+v, so x=0 gives exactly v.
 
 | Category | Effect | Evidence |
 |---|---|---|
-| Engine 3/0 | primary torque += u x master add-curve 0x530 (9 samples); shift/max rpm += level block header (0x560/0x5A0/0x5E0 +4/+8) | L1..L3 blocks are 0.34/0.68/1.00 x master; headers are floats (GOLF +500/+1000/+1500, 240SX +500/+1000/+2000 rpm) |
-| Transmission 1/2 | gearbox block of the level (0x460/0x4A0/0x4E0, same layout as stock 0x2C0); level from axis 2 | L3 adds a 6th gear on 5-speed cars; ratios only differ from stock at the last gear |
-| Tires 8/0 | axle grip lerps stock 0x1E0/0x200 -> max 0x650/0x670 by u | max >= stock on all 31 player cars; refused where it is not (all 15 traffic rear blocks: 1.60 -> 1.50) |
-| Suspension 5/0 | carried, applied to nothing (data-only) | the 0x6A0-0x6CC block is not a stock/max pair, see ruled-out list |
-| Weight 0/0, Nitrous 2/0, Turbo 4/0, Brakes 6/0, ECU 7/0 | NOT IMPLEMENTED (no justified per-car target) | see ruled-out list |
+| Weight 0/0 | mass x ((0x450-1)u+1); centre.x += 0x454 u; yaw scale lerp 0x270 -> 0x458; inertia rebuilt from the new mass | [recomp-GC] builder; 0x450 = .90/.90/.90/.91 (GOLF/240SX/SUPRA/350Z), 0x454 = +.02 on SUPRA, 0x458 = 2.15/2.10/2.00/2.00 [data]. 0x778/0x7D8 are hood camera heights, not weight. No effect on records without a kit (TAXI: 0x450 = 1) |
+| Transmission 1/2 | gearbox block of the level (0x460/0x4A0/0x4E0), level from the retail rounding of axis 2 | [data] same layout as stock 0x2C0; L3 adds a 6th gear on 5-speed cars |
+| Nitrous 2/0 | bottle seconds = lerp(0x3B0 = 0, 0x690 = 6.0, u) (2/4/6 s at .333/.667/1.0); NOS torque = 0x69C = 0.5 (set) | [recomp-GC] carsim; [data] values. Only a bought kit gives a bottle in career |
+| Engine 3/0 | primary torque += u x 0x530 (9 samples); engine brake += u x 0x554; NO rpm change | [data] + [recomp-GC]; the rpm header belongs to the ECU (correction of task AK) |
+| Turbo 4/0 | secondary torque lerp to the 0x620 top curve by u, always applied | [recomp-GC]; 0x620 >= stock secondary on all player cars |
+| Suspension 5/0 | c0 (springs/shocks, coilover): axle progression, stiffness, both dampers, travel limits, reference lerp to the 0x6D0/0x6F0 blocks; wheel z += 0x714 (front) / 0x718 (rear); centre z -= 0x710. c1 (tower bar, sways): axle anti-roll lerp. c2 (camber plates, coilover): steering gain lerp 0x380 -> 0x6CC | [recomp-GC] builder; 0x6D0/0x6F0 have the stock 0x280/0x2A0 layout [data]. 0x6A0..0x6BC are aero-kit add triples of the hidden category 9 |
+| Brakes 6/0 | service, handbrake, bias each lerp to 0x6C0 / 0x6C4 / 0x6C8 | [recomp-GC]; [data] |
+| ECU 7/0 | rpm block by level (0x560/0x5A0/0x5E0): idle, shift, max rpm adds; primary torque += u x 0x5F0; engine brake += u x 0x614; owning part 45, 46 or 51 sets the speed governor 0x3A0 to 0 | [recomp-GC]; [data] (0x5F0 == 0x530, 0x614 == 0x554) |
+| Tires 8/0 | axle grip lerps stock 0x1E0/0x200 -> max 0x650/0x670 by u | max >= stock on all 31 player cars; refused where it is not (traffic rear blocks) |
 
-Fully upgraded (engine 3/3, gearbox L3, tires 1.0) vs stock, printed by `make drive-stage1-test` on the
-retail records - torque is the sum of the nine primary samples, mu the front peak/slide pair:
+Nitrous at run time (src/drivetrain.c, src/drive_stage1.c) [recomp-GC]: while the burn level lambda (1..3) is
+on, Ton += kappa x nos_torque x shape(rpm) x throttle, kappa = 1/1.4/1.7, shape = nine samples
+{.3,.4,.45,.5,.55,.6,.7,1.0,.7} over [idle, shift rpm], zero on the limiter, added before the negative-torque
+scaling and not multiplied by G or the 1.05 bonus; every wheel grip multiplier is also scaled by kappa. The
+bottle is in seconds, filled when the car is built and when a race starts (respawn keeps it); a press starts a
+burn when shut and fuel is left, it burns 1 s/s while held and stops on release or empty. Levels 2 and 3 need
+overfill from style points, which OpenUG2 lacks, so the level is 1. Input: CB_ACT_NITROUS / touch TC_NOS; the
+legacy (non-Stage-1) top-speed boost is unchanged. Race kinds without NOS (Street X, drift) still block it.
+HUD: have_nos = bottle > 0 and allowed, nitro tank gauge = remaining fraction, have_turbo only with a bought turbo kit.
 
-| Car | gears | shift / max rpm | torque curve | front mu | mass |
-|---|---|---|---|---|---|
-| GOLF | 5 -> 6 | 6500/7000 -> 8000/8500 | 1.464 -> 2.270 (+55%) | 1.62/1.30 -> 1.95/1.75 | 1.330 (unchanged) |
-| 240SX | 5 -> 6 | 6500/7000 -> 8500/9000 | 1.569 -> 1.961 (+25%) | 1.70/1.40 -> 1.88/1.65 | 1.220 |
-| SUPRA | 6 -> 6 | 7000/7500 -> 8000/8500 | 2.248 -> 2.810 (+25%) | 1.60/1.35 -> 1.95/1.65 | 1.550 |
-| 350Z | 6 -> 6 | 7000/7500 -> 8000/8500 | 2.756 -> 3.032 (+10%) | 1.68/1.58 -> 1.85/1.58 | 1.450 |
-| TAXI (traffic) | 5 -> 5 | 6000/7000 (unchanged) | 1.380 (unchanged) | 2.00/1.60 (unchanged) | 1.800 |
+Stock vs fully upgraded (every category 1.0 / L3, governor off), from `make drive-stage1-test`: a 90 s full
+throttle straight-line run on the Stage 1 drive adapter (flat road, no contact chassis, drag from the record),
+so times are comparable between rows, not retail measurements. NOS = the same run holding nitrous.
 
-Traffic is the interesting control: their engine add-curve and rpm headers are all zero and their tyre max
-block is below stock, so an engine/tyre purchase changes nothing - while their gearbox template (final drive
-3.00 against stock 3.55) *does* replace the stock block. This cannot reach a player: career_drv_upgrade
-returns stock for any car the active career does not own, and the traffic models are not ownable.
+| Car | mass | 0-100 km/h | 0-100 with NOS | top speed | brake service | steering gain | NOS bottle |
+|---|---|---|---|---|---|---|---|
+| GOLF | 1.330 -> 1.197 | 7.48 s -> 3.52 s | 3.52 s | 214 -> 326 km/h | 0.450 -> 0.675 | 1.120 -> 1.150 | 6.0 s |
+| 240SX | 1.220 -> 1.098 | 8.77 s -> 4.30 s | 4.03 s | 212 -> 349 km/h | 0.485 -> 0.616 | 1.100 -> 1.100 | 6.0 s |
+| SUPRA | 1.550 -> 1.395 | 6.95 s -> 4.12 s | 3.83 s | 245 -> 341 km/h | 0.560 -> 0.670 | 1.050 -> 1.120 | 6.0 s |
+| 350Z | 1.450 -> 1.320 | 5.78 s -> 4.17 s | 3.93 s | 253 -> 351 km/h | 0.495 -> 0.600 | 1.010 -> 1.075 | 6.0 s |
 
-Ruled out as effect targets (census over all 46 records; the scan is in handoffs/TASK-AK-LOG.md):
-- Suspension 5/0 - 0x6A0..0x6CC reads as four 16-byte groups, and the second group repeats the first's
-  spring and damper (0x6B4 == 0x6A4, 0x6B8 == 0x6A8 on 46/46), so it is a per-axle or retune layout, not
-  a stock/max pair. Body stiffness even *falls* (0x6C0 -> 0x6C4 on 30 of 31 player cars), and 0x6AC is 0.0
-  everywhere. Traffic zeroes the spring/damper slots and shares one stiffness constant set. Nothing in
-  Stage1-5 reads 0x6A4..0x6CC: the readers consume mass, gearbox, grip and rpm only [data: stage*_car_read].
-- Weight 0/0 - mass 0x220 has no copy and no partner anywhere in the record (searched all 0x890 bytes for
-  16-byte exact repeats and for value duplicates). The nearest candidate, 0x778 -> 0x7D8, has the shape of
-  a reduction (per-car 2.9% NAVIGATOR to 29.1% PEUGOT106, i.e. inverse to mass, and identical 1.50 on all
-  15 traffic cars) but unknown units: it equals mass on GOLF alone and sits below mass on the rest
-  (SUPRA 1.267 vs 1.550), and 0x7D4 next to it is a different quantity again (-0.16 MIATA .. 0.75 PEUGOT).
-  Applying an unknown-unit value to mass would break the physics parity this branch protects, so it stays
-  unapplied [inferred, low confidence].
-- Brakes 6/0 - the 0x384 trio (service/handbrake/rear_share, read by stage3_car_read) has no max block and
-  no level triplet. 0x370..0x3A0 is the resistance/stage-limit block.
-- Turbo 4/0 / ECU 7/0 - 0x454 and 0x450 sit inside the engine domain, 0x604..0x640 pairs are inside the
-  torque-curve domain, and 0x620 is not a torque curve (it does not scale with the master add-curve). ECU
-  would double-count the engine/gearbox blocks, which are the only level triplets in the record besides the
-  gearbox. No third block family exists to hold them.
-- Nitrous 2/0 - no per-car field, and no drive-path input: drivetrain.c defers nitrous entirely, so there
-  is nothing to feed even if a field were found. The 1.000 fits on axis 1 come from the share-fitting in
-  cr_perf_fraction, not from the car record.
+Stock top speed is the record's governor (130-155 mph); the upgraded runs have it removed, so they are drag limited.
+
+TAXI (traffic) control: weight, turbo and ECU change nothing (no kit data); engine, tires keep stock where the
+max is zero or below stock.
+
+Ruled out: 0x778/0x7D8 as weight (hood camera heights); 0x6A0..0x6BC as suspension (aero-kit adds, category 9);
+the AK reading of the 0x6A0-0x6CC block as an unexplained per-axle layout is superseded by the table above.
 
 ## Still unknown
-Effect targets for brakes, weight, nitrous, ECU, turbo axes, and the meaning of the 0x6A0-0x6CC suspension
-block (per-axle retune vs a stage the port has not modelled yet); units of the 0x778/0x7D8 pair; whether
-retail uses u or the package level; exact discount formula; unlock record `a`/`b` meaning; graphics ids
-37-68 and 80-84; vinyl colour channel count; unlock on discovery vs shop open.
+No PC-binary verification: the formulas are GC (recomp-GC) facts plus PC data plus the upstream SPEC. Free-roam
+nitrous refill and extra NOS start conditions, the 0x3B4/0x694 bottles field, the transmission follow-up (clutch
+lerp to 0x4F4/0x4FC by c0, engine inertia += 0x52C x c1) and tyre details are not applied. Retail unlock record
+`a`/`b` meaning, graphics ids 37-68 and 80-84, vinyl colour channel count, exact discount formula.
 
 ## Career paint screen and rendering
 

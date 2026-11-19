@@ -77,7 +77,7 @@ static void parser_test(void){
         /* engine: master add-curve 0x530 = 0.05 per sample, L2 header raise 500/700 rpm */
         float add=.05f,r1=500,r2=700;for(int k=0;k<9;k++)memcpy(row+0x530+4*k,&add,4);
         memcpy(row+0x5a0+4,&r1,4);memcpy(row+0x5a0+8,&r2,4);
-        DrvUpgrade e={0};e.engine=.5f;e.engine_level=2;
+        DrvUpgrade e={0};e.engine=.5f;e.ecu_level=2;
         assert(stage1_car_read_upgraded(bytes,sizeof bytes,"SYNTH",&e,&u));
         for(int k=0;k<9;k++)assert(fabsf(u.torque_primary[k]-(c.torque_primary[k]+.025f))<1e-5f);
         assert(fabsf(u.shift_rpm-(c.shift_rpm+500))<1e-3f && fabsf(u.max_rpm-(c.max_rpm+700))<1e-3f);
@@ -362,7 +362,7 @@ static void retail_car(long row,const char *name){
     assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
     for(int k=0;k<9;k++)assert(fabsf(up.torque_primary[k]-(stock.torque_primary[k]+rec_f(rec,0x530,4*k)))<1e-6f);
     assert(fabsf(up.shift_rpm-stock.shift_rpm)<1e-4f&&fabsf(up.max_rpm-stock.max_rpm)<1e-4f);
-    part=(DrvUpgrade){0};part.engine_level=3;
+    part=(DrvUpgrade){0};part.ecu_level=3;
     assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up));
     assert(fabsf(up.shift_rpm-(stock.shift_rpm+rec_f(rec,0x5e4,0)))<1e-3f);
     assert(fabsf(up.max_rpm-(stock.max_rpm+rec_f(rec,0x5e8,0)))<1e-3f);
@@ -371,7 +371,7 @@ static void retail_car(long row,const char *name){
     part=(DrvUpgrade){0};part.suspension=1.0f;
     assert(stage1_car_read_upgraded(g_data,g_len,name,&part,&up)&&same_car(&up,&stock));
     /* fully upgraded against stock, the table for docs/parity/PERF-PAINT.md */
-    full.engine=1.0f;full.engine_level=3;full.gear_level=3;full.tires=1.0f;full.suspension=1.0f;
+    full.engine=1.0f;full.ecu_level=3;full.gear_level=3;full.tires=1.0f;full.suspension=1.0f;
     assert(stage1_car_read_upgraded(g_data,g_len,name,&full,&up));
     float tp0=0,tp1=0,add0=0;
     for(int k=0;k<9;k++){tp0+=stock.torque_primary[k];tp1+=up.torque_primary[k];add0+=rec_f(rec,0x530,4*k);}
@@ -382,6 +382,129 @@ static void retail_car(long row,const char *name){
     assert(up.mass==stock.mass);   /* weight upgrade stays unapplied */
     assert(up.gear_count>=stock.gear_count);
     free(rec);
+}
+
+/* ---- weight, turbo, ECU, brakes, suspension and nitrous on the real records ----------------- */
+static int near_f(float a,float b){return fabsf(a-b)<=1e-5f*(1.0f+fabsf(b));}
+typedef struct { DrvCar d;ResCar r;BrkCar b;LatCar l;CtCar c;BodyCar y; } Set;
+static int read_set(const char *name,const DrvUpgrade *up,Set *o){
+    return stage1_car_read_upgraded(g_data,g_len,name,up,&o->d)&&stage2_car_read_upgraded(g_data,g_len,name,up,&o->r)&&
+        stage3_car_read_upgraded(g_data,g_len,name,up,&o->b)&&stage4_car_read_upgraded(g_data,g_len,name,up,&o->l)&&
+        stage5_car_read_upgraded(g_data,g_len,name,up,&o->c)&&stage5_body_car_read_upgraded(g_data,g_len,name,up,&o->y);
+}
+static int read_stock(const char *name,Set *o){
+    return stage1_car_read(g_data,g_len,name,&o->d)&&stage2_car_read(g_data,g_len,name,&o->r)&&
+        stage3_car_read(g_data,g_len,name,&o->b)&&stage4_car_read(g_data,g_len,name,&o->l)&&
+        stage5_car_read(g_data,g_len,name,&o->c)&&stage5_body_car_read(g_data,g_len,name,&o->y);
+}
+/* Straight-line run on the drive adapter: 0-100 km/h seconds and top speed over 90 s. nos > 0 holds the nitrous button. */
+static void straight_run(const Set *s,int nos,float *t100,float *top){
+    Trace t;memset(&t,0,sizeof t);
+    assert(configured_init(&t.drive,&s->d,&s->r,0)==0);
+    t.drive.resistance_input.scale=1;
+    assert(stage3_drive_brakes(&t.drive,&s->b,0,0)==0);
+    *t100=-1;*top=0;
+    for(int k=0;k<5400;k++){
+        if(nos)stage1_nos_update(&t.drive,1,1/PHYS_TICKRATE);
+        step(&t,1,0,15);
+        float kmh=PHYS_KMH(t.s);
+        if(*t100<0&&kmh>=100)*t100=(k+1)/PHYS_TICKRATE;
+        if(kmh>*top)*top=kmh;
+    }
+}
+static void retail_effects(long row,const char *name,const float rpm_add[3],int player){
+    const unsigned char *rec=g_data+row;
+    Set st,u,z;
+    assert(read_stock(name,&st));
+    /* NULL and all-zero upgrades: every reader memcmp-identical to the stock reader */
+    DrvUpgrade zero={0};
+    assert(stage1_car_read_upgraded(g_data,g_len,name,NULL,&u.d)&&!memcmp(&u.d,&st.d,sizeof st.d));
+    assert(read_set(name,NULL,&u)&&!memcmp(&u,&st,sizeof u));
+    memset(&u,0,sizeof u);memset(&z,0,sizeof z);
+    assert(read_set(name,&zero,&z)&&!memcmp(&z.d,&st.d,sizeof st.d)&&!memcmp(&z.r,&st.r,sizeof st.r)&&!memcmp(&z.b,&st.b,sizeof st.b)&&
+           !memcmp(&z.l,&st.l,sizeof st.l)&&!memcmp(&z.c,&st.c,sizeof st.c)&&!memcmp(&z.y,&st.y,sizeof st.y));
+    assert(st.d.nos_capacity==0&&st.d.nos_torque==0);
+    /* weight: mass x 0x450, SUPRA centre.x +0x454, yaw scale -> 0x458, inertia rebuilt from the new mass */
+    DrvUpgrade up={0};up.weight=1;
+    assert(read_set(name,&up,&u));
+    float r450=rec_f(rec,0,0x450),r454=rec_f(rec,0,0x454),r458=rec_f(rec,0,0x458);
+    assert(near_f(u.d.mass,st.d.mass*r450)&&near_f(u.c.mass,u.d.mass));
+    if(player)assert(near_f(u.c.centre[0],st.c.centre[0]+r454));
+    if(player)assert(near_f(u.c.yaw_scale,r458)&&near_f(u.y.yaw_scale,r458));
+    else assert(u.c.yaw_scale==st.c.yaw_scale&&u.c.centre[0]==st.c.centre[0]&&u.d.mass==st.d.mass);   /* TAXI: no kit */
+    for(int k=0;k<3;k++)assert(near_f(u.y.inertia[k],st.y.inertia[k]*r450));
+    assert(memcmp(&u.b,&st.b,sizeof st.b)==0&&memcmp(&u.l,&st.l,sizeof st.l)==0);
+    up.weight=.5f;assert(read_set(name,&up,&u));
+    assert(near_f(u.d.mass,st.d.mass*(.5f*(r450-1)+1)));
+    /* brakes: lerp to 0x6C0 / 0x6C4 / 0x6C8 */
+    up=(DrvUpgrade){0};up.brakes=1;assert(read_set(name,&up,&u));
+    assert(near_f(u.b.service,rec_f(rec,0,0x6c0))&&near_f(u.b.handbrake,rec_f(rec,0,0x6c4))&&near_f(u.b.rear_share,rec_f(rec,0,0x6c8)));
+    up.brakes=.5f;assert(read_set(name,&up,&u));
+    assert(near_f(u.b.service,.5f*(st.b.service+rec_f(rec,0,0x6c0)))&&near_f(u.b.handbrake,.5f*(st.b.handbrake+rec_f(rec,0,0x6c4))));
+    assert(near_f(u.b.rear_share,.5f*(st.b.rear_share+rec_f(rec,0,0x6c8)))&&memcmp(&u.d,&st.d,sizeof st.d)==0);
+    /* turbo: secondary torque lerps to 0x620 */
+    up=(DrvUpgrade){0};up.turbo=1;assert(read_set(name,&up,&u));
+    for(int k=0;k<9;k++){
+        float top=rec_f(rec,0,0x620+4*k);
+        if(top>=st.d.torque_secondary[k])assert(near_f(u.d.torque_secondary[k],top));
+        else assert(u.d.torque_secondary[k]==st.d.torque_secondary[k]);
+        assert(u.d.torque_primary[k]==st.d.torque_primary[k]);
+    }
+    up.turbo=.5f;assert(read_set(name,&up,&u));
+    for(int k=0;k<9;k++){float top=rec_f(rec,0,0x620+4*k);if(top>=st.d.torque_secondary[k])assert(near_f(u.d.torque_secondary[k],.5f*(st.d.torque_secondary[k]+top)));}
+    /* ECU: rpm block by level (+idle, shift, max), 0x5F0 torque, 0x614 engine brake, governor off */
+    up=(DrvUpgrade){0};up.ecu=1;up.ecu_level=3;up.governor_off=1;assert(read_set(name,&up,&u));
+    for(int k=0;k<9;k++)assert(near_f(u.d.torque_primary[k],st.d.torque_primary[k]+rec_f(rec,0,0x5f0+4*k)));
+    for(int k=0;k<3;k++)assert(near_f(u.d.engine_brake[k],st.d.engine_brake[k]+rec_f(rec,0,0x614+4*k)));
+    assert(near_f(u.d.shift_rpm,st.d.shift_rpm+rpm_add[0])&&near_f(u.d.max_rpm,st.d.max_rpm+rpm_add[0]));
+    assert(near_f(u.d.idle_rpm,st.d.idle_rpm+rec_f(rec,0,0x5e0)));
+    assert(u.r.limit_mph==0&&u.r.drag==st.r.drag&&u.r.front==st.r.front&&u.r.rear==st.r.rear);
+    if(player)assert(st.r.limit_mph>0);
+    for(int lv=1;lv<=2;lv++){
+        up=(DrvUpgrade){0};up.ecu_level=lv;assert(stage1_car_read_upgraded(g_data,g_len,name,&up,&u.d));
+        assert(near_f(u.d.shift_rpm,st.d.shift_rpm+rec_f(rec,0,0x560+0x40*(lv-1)+4)));
+    }
+    /* engine alone: no rpm change, engine brake += 0x554 */
+    up=(DrvUpgrade){0};up.engine=1;assert(read_set(name,&up,&u));
+    assert(u.d.shift_rpm==st.d.shift_rpm&&u.d.max_rpm==st.d.max_rpm&&u.d.idle_rpm==st.d.idle_rpm);
+    for(int k=0;k<3;k++)assert(near_f(u.d.engine_brake[k],st.d.engine_brake[k]+rec_f(rec,0,0x554+4*k)));
+    /* suspension: springs (c0), anti-roll (c1), steering gain (c2) each alone */
+    up=(DrvUpgrade){0};up.suspension=1;assert(read_set(name,&up,&u));
+    for(int a=0;a<2;a++){
+        int o=0x6d0+0x20*a;
+        assert(near_f(u.c.axle[a].stiffness,rec_f(rec,0,o+4))&&near_f(u.c.axle[a].progression,rec_f(rec,0,o)));
+        assert(near_f(u.c.axle[a].upper,rec_f(rec,0,o+20))&&near_f(u.c.axle[a].lower,rec_f(rec,0,o+24)));
+        assert(u.c.axle[a].antiroll==st.c.axle[a].antiroll);
+    }
+    assert(near_f(u.c.centre[2],st.c.centre[2]-rec_f(rec,0,0x710)));
+    for(int i=0;i<4;i++){assert(near_f(u.c.mount[i][2],st.c.mount[i][2]+rec_f(rec,0,0x714+4*(i/2)))&&near_f(u.l.mount[i][2],u.c.mount[i][2]));}
+    assert(u.l.gain==st.l.gain&&memcmp(&u.d,&st.d,sizeof st.d)==0);
+    up=(DrvUpgrade){0};up.sway=1;assert(read_set(name,&up,&u));
+    for(int a=0;a<2;a++){
+        assert(near_f(u.c.axle[a].antiroll,rec_f(rec,0,0x6d0+0x20*a+16)));
+        assert(u.c.axle[a].stiffness==st.c.axle[a].stiffness&&u.c.axle[a].upper==st.c.axle[a].upper);
+    }
+    assert(memcmp(u.c.mount,st.c.mount,sizeof st.c.mount)==0&&u.c.centre[2]==st.c.centre[2]&&u.l.gain==st.l.gain);
+    up=(DrvUpgrade){0};up.steer=1;assert(read_set(name,&up,&u));
+    assert(near_f(u.l.gain,rec_f(rec,0,0x6cc))&&memcmp(&u.c,&st.c,sizeof st.c)==0);
+    /* nitrous: bottle lerps 0x3B0 -> 0x690 (6 s), torque 0x69C set, not scaled */
+    up=(DrvUpgrade){0};up.nitrous=.333f;assert(read_set(name,&up,&u));
+    assert(fabsf(u.d.nos_capacity-1.998f)<1e-3f&&near_f(u.d.nos_torque,.5f));
+    up.nitrous=1.0f;assert(read_set(name,&up,&u));
+    assert(near_f(u.d.nos_capacity,6.0f)&&near_f(u.d.nos_torque,.5f));
+    assert(memcmp(u.d.torque_primary,st.d.torque_primary,sizeof st.d.torque_primary)==0);
+    /* retail level rounding */
+    assert(drv_upgrade_level(.2f)==1&&drv_upgrade_level(.5f)==2&&drv_upgrade_level(.84f)==3&&drv_upgrade_level(0)==0&&drv_upgrade_level(2)==3);
+}
+static void retail_table(const char *name){
+    Set st,fu;assert(read_stock(name,&st));
+    DrvUpgrade full={.engine=1,.ecu_level=3,.gear_level=3,.tires=1,.suspension=1,.weight=1,.turbo=1,.brakes=1,.ecu=1,.nitrous=1,.sway=1,.steer=1,.governor_off=1};
+    assert(read_set(name,&full,&fu));
+    float t0,v0,t1,v1,t2,v2;
+    straight_run(&st,0,&t0,&v0);straight_run(&fu,0,&t1,&v1);straight_run(&fu,1,&t2,&v2);
+    printf("  TABLE %-6s mass %.3f->%.3f  0-100 %.2f s->%.2f s (NOS %.2f s)  top %.0f->%.0f km/h  brake %.3f->%.3f  steer gain %.3f->%.3f  nos %.1f s\n",
+        name,st.d.mass,fu.d.mass,t0,t1,t2,v0,v1,st.b.service,fu.b.service,st.l.gain,fu.l.gain,fu.d.nos_capacity);
+    assert(t0>0&&t1>0&&t1<=t0+.01f&&v1>=v0);
 }
 static void retail_test(void){
     const char *root= getenv("OPENUG2_DATA");
@@ -403,12 +526,21 @@ static void retail_test(void){
         assert(row>=0);
         retail_car(row,cars[i]);
     }
+    {   /* ECU rpm block L3 (idle, shift, max): +1500 / +2000 / +1000 / +1000 on the four player cars */
+        static const float rpm_add[5][3]={{1500,0,0},{2000,0,0},{1000,0,0},{1000,0,0},{0,0,0}};
+        for(int i=0;i<5;i++){
+            long row=n2_global_car_record(b,size,cars[i]);
+            retail_effects(row,cars[i],rpm_add[i],i<4);
+        }
+        puts("stage1 retail: weight/turbo/ECU/brakes/suspension/nitrous effects passed");
+        for(int i=0;i<4;i++)retail_table(cars[i]);
+    }
     /* Traffic cars carry one gearbox template at every level (five ratios, final drive 3.00, against
      * their stock block) and a rear tyre whose max block sits *below* stock (slide 1.60 -> 1.50):
      * the replacement must still happen and the guard must refuse the below-stock value. Their engine
      * add-curve and rpm headers are all zero, so those two stay stock by themselves. Offsets are
      * printed rather than hard-coded here; the per-car numbers belong to the player cars above. */
-    DrvCar s,u;DrvUpgrade full={1.0f,3,3,1.0f,1.0f};
+    DrvCar s,u;DrvUpgrade full={.engine=1.0f,.ecu_level=3,.gear_level=3,.tires=1.0f,.suspension=1.0f};
     assert(stage1_car_read(b,size,"TAXI",&s));
     assert(stage1_car_read_upgraded(b,size,"TAXI",&full,&u));
     printf("  %-6s final %.4f->%.4f  ratio3 %.4f->%.4f  mu %.2f/%.2f->%.2f/%.2f\n","TAXI",

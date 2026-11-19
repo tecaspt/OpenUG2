@@ -23,18 +23,29 @@ static int valid_car(const DrvCar *c) {
     for(int k=0;k<9;k++)if(!isfinite(c->torque_primary[k]) || c->torque_primary[k]<0 ||
        !isfinite(c->torque_secondary[k]) || c->torque_secondary[k]<0)return 0;
     for(int k=0;k<3;k++)if(!isfinite(c->engine_brake[k]) || c->engine_brake[k]<0)return 0;
+    if(!isfinite(c->nos_capacity) || c->nos_capacity<0 || !isfinite(c->nos_torque) || c->nos_torque<0)return 0;
     return 1;
+}
+
+static float unit(float u){return u>0.0f?(u>1.0f?1.0f:u):0.0f;}
+static float lerpf(float v,float t,float x){return (t-v)*x+v;}
+int drv_upgrade_level(float u){return (int)(unit(u)*3.0f+0.5f);}
+float drv_upgrade_mass(float mass,float r450,float u){
+    u=unit(u);
+    if(u>0.0f && isfinite(r450) && r450>0.0f && r450<=2.0f)return mass*((r450-1.0f)*u+1.0f);
+    return mass;
 }
 
 int stage1_car_read(const unsigned char *data,long length,const char *name,DrvCar *out) {
     return stage1_car_read_upgraded(data,length,name,NULL,out);
 }
 
-/* Career performance parts (docs/parity/PERF-PAINT.md). All blocks are in the same 0x890 record [data]:
- * gearbox L1..L3 replace the stock 0x2C0..0x2FF block with 0x460/0x4A0/0x4E0 (same layout); the engine master
- * add-curve 0x530 (9 samples, primary-torque units; L1..L3 blocks are 0.34/0.68/1.0 of it) is added to the primary
- * torque scaled by the engine fraction, and the level block header (+4 shift, +8 max, floats) raises the rpm;
- * tyre grip lerps from the stock axle blocks 0x1E0/0x200 to the per-car maximum 0x650/0x670. */
+/* Career performance parts (docs/parity/PERF-PAINT.md), applied in retail order: weight, transmission, nitrous,
+ * engine, turbo, ECU, tires. All blocks are in the same 0x890 record [data]: gearbox L1..L3 replace the stock
+ * 0x2C0..0x2FF block with 0x460/0x4A0/0x4E0; the engine master add-curve 0x530 and engine brake 0x554 are added
+ * scaled by the engine fraction; the ECU adds its rpm block (0x560/0x5A0/0x5E0 by level: idle, shift, max), torque
+ * 0x5F0 and engine brake 0x614 scaled by its fraction; the turbo lerps the secondary torque to 0x620; nitrous sets
+ * the bottle from 0x690 and the NOS torque from 0x69C; tyre grip lerps to the maximum 0x650/0x670. */
 int stage1_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,DrvCar *out) {
     if(!data || !name || !out)return 0;
     long row=n2_global_car_record(data,length,name);
@@ -42,6 +53,7 @@ int stage1_car_read_upgraded(const unsigned char *data,long length,const char *n
     DrvCar c={0};
 #define READ(field,offset) memcpy(&(field),data+row+(offset),sizeof(field))
     READ(c.mass,0x220);
+    if(up && up->weight>0.0f){float r450;READ(r450,0x450);c.mass=drv_upgrade_mass(c.mass,r450,up->weight);}
     for(int i=0;i<4;i++){
         int w=0x120+0x30*i;
         if(n2_u32(data+row+w+0x18)!=(unsigned)i)return 0;
@@ -66,43 +78,89 @@ int stage1_car_read_upgraded(const unsigned char *data,long length,const char *n
     READ(c.ratio,gb+0x20);READ(c.idle_rpm,0x300);READ(c.shift_rpm,0x304);
     READ(c.max_rpm,0x308);READ(c.engine_inertia,0x30c);
     READ(c.torque_primary,0x310);READ(c.torque_secondary,0x334);READ(c.engine_brake,0x358);
+    if(up && up->nitrous>0.0f){
+        float cap,top,nt;READ(cap,0x3b0);READ(top,0x690);READ(nt,0x69c);
+        if(isfinite(cap) && isfinite(top) && isfinite(nt) && cap>=0.0f && top>=cap && top<=60.0f && nt>=0.0f && nt<5.0f){
+            c.nos_capacity=lerpf(cap,top,unit(up->nitrous));c.nos_torque=nt;
+        }
+    }
     if(up && up->engine>0.0f){
-        float e=up->engine>1.0f?1.0f:up->engine;
+        float e=unit(up->engine);
         for(int i=0;i<DRV_TORQUE_SAMPLES;i++){
             float add;READ(add,0x530+4*i);
             if(isfinite(add) && add>=0.0f && add<5.0f)c.torque_primary[i]+=e*add;
         }
+        for(int k=0;k<DRV_BRAKE_SAMPLES;k++){
+            float add;READ(add,0x554+4*k);
+            if(isfinite(add) && add>=0.0f && add<5.0f)c.engine_brake[k]+=e*add;
+        }
     }
-    if(up && up->engine_level>=1 && up->engine_level<=3){
-        float rs,rm;int hb=0x560+0x40*(up->engine_level-1);
-        READ(rs,hb+4);READ(rm,hb+8);
-        if(isfinite(rs) && isfinite(rm) && rs>=0.0f && rm>=0.0f && rs<=3000.0f && rm<=3000.0f){c.shift_rpm+=rs;c.max_rpm+=rm;}
+    if(up && up->turbo>0.0f){
+        float t=unit(up->turbo);
+        for(int i=0;i<DRV_TORQUE_SAMPLES;i++){
+            float top;READ(top,0x620+4*i);
+            if(isfinite(top) && top>=c.torque_secondary[i] && top<5.0f)c.torque_secondary[i]=lerpf(c.torque_secondary[i],top,t);
+        }
     }
-    /* Suspension (category 5) carries no field here on purpose: see the DrvUpgrade note in the header. */
+    if(up && up->ecu_level>=1 && up->ecu_level<=3){
+        float ri,rs,rm;int hb=0x560+0x40*(up->ecu_level-1);
+        READ(ri,hb);READ(rs,hb+4);READ(rm,hb+8);
+        if(isfinite(ri) && isfinite(rs) && isfinite(rm) && ri>=0.0f && rs>=0.0f && rm>=0.0f && ri<=3000.0f && rs<=3000.0f && rm<=3000.0f){
+            c.idle_rpm+=ri;c.shift_rpm+=rs;c.max_rpm+=rm;
+        }
+    }
+    if(up && up->ecu>0.0f){
+        float e=unit(up->ecu);
+        for(int i=0;i<DRV_TORQUE_SAMPLES;i++){
+            float add;READ(add,0x5f0+4*i);
+            if(isfinite(add) && add>=0.0f && add<5.0f)c.torque_primary[i]+=e*add;
+        }
+        for(int k=0;k<DRV_BRAKE_SAMPLES;k++){
+            float add;READ(add,0x614+4*k);
+            if(isfinite(add) && add>=0.0f && add<5.0f)c.engine_brake[k]+=e*add;
+        }
+    }
+    /* Suspension, brakes and weight-inertia act on the Stage 3/4/5 readers. */
 #undef READ
     if(!valid_car(&c) || drv_car_finalize(&c))return 0;
     *out=c;return 1;
 }
 
 int stage2_car_read(const unsigned char *data,long length,const char *name,ResCar *out) {
+    return stage2_car_read_upgraded(data,length,name,NULL,out);
+}
+/* Speed governor (0x3A0): owning a limiter-removal part (components 45/46/51) zeroes it, i.e. no limit. */
+int stage2_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,ResCar *out) {
     if(!data || !name || !out)return 0;
     long row=n2_global_car_record(data,length,name);
     if(row<0 || row>length-0x890)return 0;
     ResCar c;
     memcpy(&c.drag,data+row+0x370,4);memcpy(&c.front,data+row+0x374,4);
     memcpy(&c.rear,data+row+0x378,4);memcpy(&c.limit_mph,data+row+0x3a0,4);
+    if(up && up->governor_off)c.limit_mph=0;
     if(!isfinite(c.drag)||c.drag<0||!isfinite(c.front)||c.front<0||
        !isfinite(c.rear)||c.rear<0||!isfinite(c.limit_mph)||c.limit_mph<0)return 0;
     *out=c;return 1;
 }
 
 int stage3_car_read(const unsigned char *data,long length,const char *name,BrkCar *out) {
+    return stage3_car_read_upgraded(data,length,name,NULL,out);
+}
+/* Brakes (category 6): service, handbrake and bias each lerp from stock to the 0x6C0/0x6C4/0x6C8 top values. */
+int stage3_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,BrkCar *out) {
     if(!data || !name || !out)return 0;
     long row=n2_global_car_record(data,length,name);
     if(row<0 || row>length-0x890)return 0;
     BrkCar car;
     memcpy(&car.service,data+row+0x384,4);memcpy(&car.handbrake,data+row+0x388,4);
     memcpy(&car.rear_share,data+row+0x38c,4);
+    if(up && up->brakes>0.0f){
+        float top[3],u=unit(up->brakes);memcpy(top,data+row+0x6c0,sizeof top);
+        if(isfinite(top[0]) && isfinite(top[1]) && isfinite(top[2]) && top[0]>=0 && top[1]>=0 && top[2]>=0 && top[2]<=1){
+            car.service=lerpf(car.service,top[0],u);car.handbrake=lerpf(car.handbrake,top[1],u);
+            car.rear_share=lerpf(car.rear_share,top[2],u);
+        }
+    }
     if(!isfinite(car.service)||car.service<0||!isfinite(car.handbrake)||car.handbrake<0||
        !isfinite(car.rear_share)||car.rear_share<0||car.rear_share>1)return 0;
     *out=car;return 1;
@@ -117,6 +175,11 @@ static int valid_lateral(const LatCar *c) {
     return 1;
 }
 int stage4_car_read(const unsigned char *data,long length,const char *name,LatCar *out) {
+    return stage4_car_read_upgraded(data,length,name,NULL,out);
+}
+/* Suspension (category 5): steering gain lerps to 0x6CC by the camber/coilover fraction; the wheel-z raise
+ * (0x714 front, 0x718 rear) by the spring fraction keeps the mounts consistent with the Stage 5 reader. */
+int stage4_car_read_upgraded(const unsigned char *data,long length,const char *name,const DrvUpgrade *up,LatCar *out) {
     if(!data||!name||!out)return 0;
     long row=n2_global_car_record(data,length,name);if(row<0||row>length-0x890)return 0;
     LatCar c={0};
@@ -127,6 +190,11 @@ int stage4_car_read(const unsigned char *data,long length,const char *name,LatCa
         memcpy(&c.factor[a],data+row+0x1e8+0x20*a,4);
     }
     memcpy(c.dimensions,data+row+0x224,12);memcpy(&c.gain,data+row+0x380,4);
+    if(up){
+        float top,raise[2];memcpy(&top,data+row+0x6cc,4);memcpy(raise,data+row+0x714,8);
+        if(up->steer>0.0f && isfinite(top) && top>0.0f)c.gain=lerpf(c.gain,top,unit(up->steer));
+        if(up->suspension>0.0f)for(int i=0;i<4;i++)if(isfinite(raise[i/2]))c.mount[i][2]+=raise[i/2]*unit(up->suspension);
+    }
     if(!valid_lateral(&c))return 0;
     *out=c;return 1;
 }
@@ -155,6 +223,7 @@ int stage1_drive_init(Stage1Drive *s,const DrvCar *car,const ResCar *resistance,
     fresh.resistance_input=(ResInput){.scale=1,.reduction=reduction,.enable=1,.surface=1,.stabilize=1};
     for(int k=0;k<4;k++)fresh.body_surface[k]=fresh.rolling_surface[k]=1;
     fresh.body.mass=car->mass;res_post(&fresh.body,0);
+    fresh.nos_capacity=fresh.nos_remaining=car->nos_capacity;
     fresh.ready=1;*s=fresh;return 0;
 }
 void stage1_drive_reset(Stage1Drive *s,const float velocity[2],float heading) {
@@ -173,6 +242,8 @@ void stage1_drive_reset(Stage1Drive *s,const float velocity[2],float heading) {
         stage5_drive_body(s,&previous.body_car,previous.inertia_selector,previous.body_race,previous.impulses_suppressed);
         s->session=previous.session;s->body_gravity=previous.body_gravity;s->body_observe=previous.body_observe;s->body_observe_user=previous.body_observe_user;
     }
+    /* The bottle survives a respawn: no refill, no state change. */
+    s->nos_remaining=previous.nos_remaining;s->nos_on=previous.nos_on;s->drivetrain.nos_level=previous.drivetrain.nos_level;
     s->resistance_input=previous.resistance_input;
     memcpy(s->body_surface,previous.body_surface,sizeof s->body_surface);
     memcpy(s->rolling_surface,previous.rolling_surface,sizeof s->rolling_surface);
@@ -188,6 +259,29 @@ void stage1_drive_reset(Stage1Drive *s,const float velocity[2],float heading) {
     res_post(&s->body,0);
     s->exported_forward=v;
     if(s->contact_ready){s->contacts.exported_forward=v;s->contacts.exported_speed=fabsf(v);}
+}
+void stage1_nos_fill(Stage1Drive *s){
+    if(!s)return;
+    s->nos_remaining=s->nos_capacity;s->nos_on=0;s->drivetrain.nos_level=0;
+}
+float stage1_nos_fraction(const Stage1Drive *s){
+    if(!s || !(s->nos_capacity>0.0f))return 0;
+    float f=s->nos_remaining/s->nos_capacity;
+    return f>0.0f?f:0.0f;
+}
+int stage1_nos_update(Stage1Drive *s,int pressed,float dt){
+    if(!s || !s->ready)return 0;
+    if(!(s->nos_capacity>0.0f)){s->nos_on=0;s->drivetrain.nos_level=0;return 0;}
+    if(!pressed)s->nos_on=0;
+    else if(!s->nos_on && s->nos_remaining>0.0f)s->nos_on=1;
+    if(s->nos_on){
+        s->nos_remaining-=dt>0.0f?dt:0.0f;
+        if(s->nos_remaining<=0.0f){s->nos_remaining=0;s->nos_on=0;}
+    }
+    float f=stage1_nos_fraction(s);
+    /* Overfill above 1.4/1.7 of the bottle needs style points, which OpenUG2 lacks, so this is level 1 in practice. */
+    int level=!s->nos_on?0:f>1.7f?3:f>1.4f?2:f>0.0f?1:0;
+    s->drivetrain.nos_level=level;return level;
 }
 float stage1_drive_rpm(const Stage1Drive *s){return s->drivetrain.omega_e*DRV_KR;}
 int stage1_drive_gear(const Stage1Drive *s){return s->drivetrain.gear-1;}

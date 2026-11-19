@@ -222,6 +222,49 @@ static void test_engine_torque(void) {
     }
 }
 
+/* ---- nitrous term (docs/parity/PERF-PAINT.md): synthetic car, no vector file --------------- */
+static void test_nos(void) {
+    DrvCar car; memset(&car, 0, sizeof car);
+    car.mass = 1.2f; car.gear_count = 4; car.rear_share = .9f; car.final_front = car.final_rear = 4;
+    car.clutch_k = .05f; car.clutch_rate = 2.5f; car.ratio[0] = -3; car.ratio[2] = 3; car.ratio[3] = 2; car.ratio[4] = 1.4f; car.ratio[5] = 1;
+    car.idle_rpm = 1000; car.shift_rpm = 6000; car.max_rpm = 7000; car.engine_inertia = .0003f;
+    for (int k = 0; k < 4; k++) car.wheel_radius[k] = .32f;
+    for (int k = 0; k < 9; k++) car.torque_primary[k] = .3f;
+    for (int k = 0; k < 3; k++) car.engine_brake[k] = .03f;
+    CHECK(drv_car_finalize(&car) == 0, "nos car finalize");
+    DrvTune tune; drv_tune_default(&tune);
+    car.nos_torque = .5f;
+    /* knot 7 of the nine-sample shape over [idle, shift] has shape 1.0 */
+    double rpm7 = drv_curve_knot_rpm(car.idle_rpm, car.shift_rpm, 9, 7);
+    for (int lv = 0; lv <= 3; lv++) {
+        double base = drv_engine_torque_at(&car, &tune, 2, 0, rpm7, .8);
+        double with = drv_engine_torque_nos_at(&car, &tune, 2, 0, rpm7, .8, lv);
+        double want = base + (lv ? drv_nos_kappa(lv) * .5 * .8 : 0.0);
+        CHECK(near_(with, want, 1e-9), "nos level %d term %.9f want %.9f", lv, with, want);
+    }
+    CHECK(near_(drv_nos_kappa(1), 1.0, 0) && near_(drv_nos_kappa(2), 1.4, 0) && near_(drv_nos_kappa(3), 1.7, 0) && near_(drv_nos_kappa(0), 1.0, 0), "nos kappa");
+    /* level 0 and kit-less cars are identical to the stock function at every rpm and pedal */
+    DrvCar bare = car; bare.nos_torque = 0;
+    for (double rpm = 800; rpm < 7500; rpm += 137) for (double u = 0; u <= 1.0001; u += .25) {
+        double a = drv_engine_torque_at(&car, &tune, 2, 0, rpm, u);
+        CHECK(drv_engine_torque_nos_at(&car, &tune, 2, 0, rpm, u, 0) == a, "nos level 0 identical rpm %g", rpm);
+        CHECK(drv_engine_torque_nos_at(&bare, &tune, 2, 0, rpm, u, 3) == a, "nos no kit identical rpm %g", rpm);
+    }
+    /* the limiter zeroes the pedal side, nitrous included; G and the bonus do not scale the NOS term */
+    CHECK(drv_engine_torque_nos_at(&car, &tune, 2, 1, rpm7, 1.0, 2) == drv_engine_torque_at(&car, &tune, 2, 1, rpm7, 1.0), "nos limiter");
+    DrvTune big = tune; big.torque_scale = 2.0f; big.torque_bonus = 1;
+    double d = drv_engine_torque_nos_at(&car, &big, 2, 0, rpm7, 1.0, 1) - drv_engine_torque_at(&car, &big, 2, 0, rpm7, 1.0);
+    CHECK(near_(d, .5, 1e-9), "nos term unscaled by G and bonus: %.9f", d);
+    /* the level reaches the grip multiplier: wheel force at the slip cap scales by kappa */
+    Drivetrain a, b; CHECK(drv_init(&a, &car, &tune) == 0 && drv_init(&b, &car, &tune) == 0, "nos drivetrain init");
+    DrvEnv env; drv_env_default(&env);
+    a.env = b.env = env; b.nos_level = 3;
+    for (int i = 0; i < 4; i++) { a.env.wheel[i].load = b.env.wheel[i].load = 3; a.env.wheel[i].vx = b.env.wheel[i].vx = 20; }
+    a.wheel[2].omega = b.wheel[2].omega = 20 / .32; a.wheel[2].tau = b.wheel[2].tau = 5;
+    drv_prepare_tyre(&a, 2); drv_prepare_tyre(&b, 2);
+    CHECK(fabsf(b.wheel[2].force) >= fabsf(a.wheel[2].force), "nos grip not below stock (%g vs %g)", b.wheel[2].force, a.wheel[2].force);
+}
+
 /* ---- s1_substeps.csv: S1-2.2 ------------------------------------------------- */
 static void test_substeps(void) {
     Csv csv; if (!csv_open(&csv, "s1_substeps.csv")) return;
@@ -929,6 +972,7 @@ int main(int argc, char **argv) {
     test_json_whitespace();
     test_params();         printf("params       : %d checks, %d failed so far\n", g_checks, g_fail);
     test_engine_torque();  printf("engine torque: %d checks, %d failed so far\n", g_checks, g_fail);
+    test_nos();            printf("nitrous      : %d checks, %d failed so far\n", g_checks, g_fail);
     test_substeps();       printf("substeps     : %d checks, %d failed so far\n", g_checks, g_fail);
     test_clutch_torque();  printf("clutch torque: %d checks, %d failed so far\n", g_checks, g_fail);
     test_axle_split();     printf("axle split   : %d checks, %d failed so far\n", g_checks, g_fail);
