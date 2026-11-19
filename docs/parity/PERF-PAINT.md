@@ -86,8 +86,6 @@ so times are comparable between rows, not retail measurements. NOS = the same ru
 | 350Z | 1.450 -> 1.320 | 5.78 s -> 4.17 s | 3.93 s | 253 -> 351 km/h | 0.495 -> 0.600 | 1.010 -> 1.075 | 6.0 s |
 
 Stock top speed is the record's governor (130-155 mph); the upgraded runs have it removed, so they are drag limited.
-The 350Z stock 0-100 is the quickest (5.78 s) because the stock record already has a tall power curve in this simple
-run; the full kit reduces mass, adds torque (engine + ECU + turbo) and a 6th-gear block, and widens the others more.
 
 TAXI (traffic) control: weight, turbo and ECU change nothing (no kit data); engine, tires keep stock where the
 max is zero or below stock.
