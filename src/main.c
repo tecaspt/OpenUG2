@@ -41,6 +41,7 @@
 #include "ai.h"
 #include "audio.h"
 #include "sfx_game.h"   /* M8 retail effects */
+#include "sfx_fe.h"     /* task AQ front-end menu sounds */
 #include "resource.h"
 #include "world.h"
 #include "world_resident.h"
@@ -210,6 +211,9 @@ static float light_variant_gain(int value) {
 }
 
 /* Source fit changes mesh columns only; mounts, springs and physics stay intact. */
+/* Task AQ: gui_view navigation events -> front-end menu sounds. */
+static void fe_nav_sound_sink(void *u, int ev) { sfx_fe_event((SfxFe *)u, ev); }
+
 static void wheel_visual_fit(const VehicleWheelConfig *wheel,int k,float m[16]) {
     float r=wheel->visual_radius_scale[k],w=wheel->visual_width_scale[k];
     if(!isfinite(r)||r<=0){ r=1; }if(!isfinite(w)||w<=0)w=1;
@@ -6873,6 +6877,13 @@ int main(int argc, char **argv) {
         allow_quit = 0;
 #endif
         fem = fem_create(dataroot, &g_catalog, allow_quit);
+        if (fem && adev) {   /* task AQ: menu sounds; NULL-safe, the FE stays silent without them */
+            SfxFe *sfe = sfx_fe_create(dataroot, 44100);
+            if (sfe) {
+                SDL_LockAudioDevice(adev); g_sfx_fe = sfe; SDL_UnlockAudioDevice(adev);
+                gv_set_nav_hook(fe_nav_sound_sink, sfe);
+            }
+        }
         if (fem) {
             fem_set_current(fem, carname, trackname);
             {GarageConfig garage_current={.car=carcfg};
@@ -7225,7 +7236,12 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (pr_is_open(post)) { pr_event(post, &e, win); continue; }
-            if (fem && fem_is_open(fem)) { fem_event(fem, &e, win); continue; }
+            if (fem && fem_is_open(fem)) {
+                if ((e.type == SDL_KEYDOWN && !e.key.repeat && e.key.keysym.sym == SDLK_ESCAPE) ||
+                    (e.type == SDL_CONTROLLERBUTTONDOWN && e.cbutton.button == SDL_CONTROLLER_BUTTON_B))
+                    gv_nav_notify(GV_NAV_BACK);   /* task AQ: back sound (debounced) */
+                fem_event(fem, &e, win); continue;
+            }
             if (pause_frame) continue;
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_1 &&
                 !e.key.repeat && !cx_key_bound(&g_cx, (int)e.key.keysym.scancode)) {   /* a binding wins over the overlay key */
@@ -7621,6 +7637,7 @@ int main(int argc, char **argv) {
                 const StProfile *fp = fem_current_profile(fem);
                 if (fp) {
                     fe_master_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.master));
+                    if (g_sfx_fe) sfx_fe_set_volume(g_sfx_fe, fe_master_gain * fminf(1.0f, fmaxf(0.0f, fp->audio.sfx)));
                     fe_engine_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.engine));
                     fe_tire_gain = fminf(1.0f, fmaxf(0.0f, fp->audio.tire));
                 }
@@ -13898,6 +13915,7 @@ int main(int argc, char **argv) {
     rhi_shader_destroy(dbgshader);
     if (adev) SDL_CloseAudioDevice(adev);
     { SfxGame *sg = g_sfx_game; g_sfx_game = NULL; sfg_destroy(sg); }
+    { gv_set_nav_hook(NULL, NULL); SfxFe *f = g_sfx_fe; g_sfx_fe = NULL; sfx_fe_destroy(f); }
     cx_shutdown(&g_cx);
     if (controller) SDL_GameControllerClose(controller);
     world_texture_cache_clear();
