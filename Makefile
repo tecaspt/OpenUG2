@@ -62,7 +62,7 @@ SFX_FE_TEST_SRC := src/sfx_fe.c src/sfx_play.c src/sfx_bank.c
 SRC += src/game_catalog.c src/game_flow.c src/input_script.c src/touch_controls.c src/ui_flat.c src/fe_entries.c src/fe_screen.c src/fe_menu.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c
 HDRS += src/postrace_stats.h
 SRC += src/fe_sms.c
-SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c
+SRC += src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c
 SRC += src/career_data.c src/career.c src/career_host.c   # M6 career
 SRC += src/race_rules.c   # M7 race rules (task F)
 SRC += src/garage.c src/fe_garage.c   # Garage: Customize hub, kits, rims, saves (task J)
@@ -1008,7 +1008,7 @@ fe-screen-test: tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_
 	$(CC) $(CFLAGS) -Isrc tools/fe_screen_test.c src/fe_entries.c src/fe_screen.c src/gui_carousel.c src/ugui/ugui_util.c -o build/fe_screen_test -lm
 	./build/fe_screen_test
 # M1 task B screens (docs/parity/M1-SCREENS-INTEGRATION.md)
-SCREENS_TEST_SRC = src/fe_sms.c src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/fe_perf.c src/fe_paint.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
+SCREENS_TEST_SRC = src/career.c src/fe_sms.c src/garage.c src/fe_garage.c src/fe_menu.c src/fe_lot.c src/fe_perf.c src/fe_paint.c src/fe_sponsor.c src/race_rules.c src/fe_track.c src/fe_car.c src/postrace.c src/fe_profile.c src/fe_entries.c src/fe_screen.c src/gui_view.c $(GUI_ART_SRC) src/options_menu.c src/settings.c src/controls_store.c src/controls_sdl.c $(UGUI_SRC) src/ugui/ugui_gl.c src/rhi_gl.c src/rhi_gl_state.c
 SCREENS_TEST_SRC += src/fe_worldmap.c src/career_data.c src/pause_menu.c
 fe-track-test: tools/fe_track_test.c src/fe_track.c src/fe_car.c $(HDRS)
 	@mkdir -p build
@@ -1284,3 +1284,21 @@ postrace-lap-test: tools/postrace_lap_test.c src/postrace_stats.h $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -ffunction-sections -fdata-sections -Isrc tools/postrace_lap_test.c src/world.c -Wl,--gc-sections -o build/postrace_lap_test -lm
 	./build/postrace_lap_test
+
+.PHONY: fe-sponsor-test
+fe-sponsor-test: tools/fe_sponsor_test.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/fe_sponsor_test.c $(SCREENS_TEST_SRC) -o build/fe_sponsor_test $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	./build/fe_sponsor_test
+
+.PHONY: sponsor-check
+sponsor-check: tools/sponsor_check.c src/career_host.c $(CAREER_CORE) $(HDRS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/sponsor_check.c src/career_host.c $(CAREER_CORE) -o build/sponsor_check -lm
+	./build/sponsor_check "$(OPENUG2_DATA)"
+
+.PHONY: sponsor-render-check
+sponsor-render-check: tools/sponsor_render_check.c $(SCREENS_TEST_SRC) $(HDRS)
+	@mkdir -p build "$(or $(SPONSOR_SHOTS),build/sponsors)"
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc tools/sponsor_render_check.c $(SCREENS_TEST_SRC) -o build/sponsor_render_check $(SDL_LIBS) $(GL_LIBS) $(UGUI_IMAGE_LIBS) $(SETTINGS_LIBS) -lm
+	SDL_VIDEODRIVER=offscreen ./build/sponsor_render_check "$(OPENUG2_DATA)" "$(or $(SPONSOR_SHOTS),build/sponsors)"

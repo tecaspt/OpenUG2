@@ -7758,6 +7758,11 @@ int main(int argc, char **argv) {
                 fem_paint_refresh(fem,&shop,rc==CR_PERF_E_FUNDS?FPT_MSG_NO_FUNDS:rc==CR_PERF_E_LOCKED?FPT_MSG_LOCKED:
                     rc==CR_PERF_E_OWNED?FPT_MSG_OWNED:rc==CR_PERF_OK?FPT_MSG_NONE:FPT_MSG_SAVE);
             }
+            /* Save the sponsor contract and signing credit before showing its reward. */
+            else if (frq.kind == FEM_REQ_SPONSOR_SIGN) {
+                if (ch_sponsor_choose(&g_career,frq.sponsor_index)) fem_sponsor_signed(fem,g_career.st.bank);
+                else fem_open_sponsor(fem,&g_career.cd,&g_career.st);
+            }
             /* Performance upgrades require a same-car reload to refresh the drivetrain. */
             else if (frq.kind == FEM_REQ_PERF_BUY) {
                 CareerState before = g_career.st;
@@ -7804,6 +7809,16 @@ int main(int argc, char **argv) {
                 lot_pending = 0; lot_dev_frames = 0;
                 career_open_lot(fem, lot_must_buy);
                 if (adev) SDL_PauseAudioDevice(adev, 1);
+            }
+            /* Offer the current stage's unsigned contracts on entering free roam. */
+            static int sponsor_offer_stage=-1;
+            if (!g_career.active) sponsor_offer_stage=-1;
+            if (g_career.active && g_career.race<0 && gflow.state==GF_RUNNING && gflow.launch.free_run &&
+                !fem_is_open(fem) && cr_sponsor_pending(&g_career.st,&g_career.cd) && sponsor_offer_stage!=g_career.st.stage) {
+                sponsor_offer_stage=g_career.st.stage;
+                fem_open_sponsor(fem,&g_career.cd,&g_career.st);
+                printf("career: sponsor offer stage %d bank %lld\n",g_career.st.stage,(long long)g_career.st.bank);
+                if(adev)SDL_PauseAudioDevice(adev,1);
             }
             /* --career-dev: buy the first listed car on a must-buy lot with the player's keys (Return twice: choose, confirm). */
             if (career_dev > 0 && lot_must_buy && fem_is_open(fem) && fem_screen(fem) == FEM_SCR_CAREER_LOT) {
@@ -8162,6 +8177,7 @@ int main(int argc, char **argv) {
                     }
                     if (fem) fem_close(fem);
                     pr_open(post, &info);
+                    pr_sponsor_reward(post,g_career.active && g_career.resolved?g_career.outcome.sponsor_bonus:0);
                     printf("results stats: samples %llu elapsed %.6f top %.6f average %.6f laps %llu best %.6f available %d/%d/%d\n",
                         (unsigned long long)race_stats.samples,race_stats.elapsed,info.top_speed_kmh,info.average_speed_kmh,
                         (unsigned long long)race_stats.laps,info.best_lap,info.have_top_speed,info.have_average_speed,info.have_best_lap);

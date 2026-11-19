@@ -73,6 +73,7 @@ struct FeMenu {
     int (*sms_read)(void *,uint32_t); void *sms_user;
     char sms_body[2048], sms_subject[192], sms_sender[128];
     FeLot lot;                   /* M6 Car Lot state (fe_lot.h) */
+    FeSponsor sponsor;
     FePaint paint;
     FePerf perf;                 /* career Performance Shop state (fe_perf.h) */
     int pending_input, pressed;
@@ -96,6 +97,7 @@ struct FeMenu {
 
 static const char *screen_name(FemScreen s) {
     switch (s) {
+    case FEM_SCR_SPONSOR: return "SPONSOR";
     case FEM_SCR_SMS: return "SMS";
     case FEM_SCR_WORLD_MAP: return "WORLD_MAP";
     case FEM_SCR_MAIN: return "MAIN";
@@ -116,6 +118,7 @@ static const char *screen_name(FemScreen s) {
 }
 static const char *package_of(FemScreen s) {
     switch (s) {
+    case FEM_SCR_SPONSOR:return "UI_SponsorPopup.fng";
     case FEM_SCR_SMS:return "UI_SMS_Mailbox.fng";
     case FEM_SCR_WORLD_MAP:return "UI_CareerWorldMap.fng";
     case FEM_SCR_GARAGE:return "UI_ChooseCustomizeCategory.fng";
@@ -183,7 +186,7 @@ static void build_screen(FeMenu *m) {
         snprintf(m->status, sizeof m->status, "%s: front-end resources unavailable (%.180s)", screen_name(m->screen), m->res_status);
         return;
     }
-    if(m->screen==FEM_SCR_SMS) {
+    if(m->screen==FEM_SCR_SMS || m->screen==FEM_SCR_SPONSOR) {
         if(!m->sms_assets_open) {
             m->sms_assets_open=ug_assets_open_ingame(&m->sms_assets,m->dataroot,NULL,m->status,sizeof m->status);
             if(m->sms_assets_open) {
@@ -193,6 +196,11 @@ static void build_screen(FeMenu *m) {
             }
         }
         if(!m->sms_assets_open || !m->sms_gl) {snprintf(m->status,sizeof m->status,"SMS assets unavailable");return;}
+        if(m->screen==FEM_SCR_SPONSOR) {
+            m->visual=fsp_bind(&m->sponsor,&m->scr,m->sponsor.page==2?&m->assets:&m->sms_assets);
+            if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
+            return;
+        }
         m->visual=fe_sms_showing(&m->sms)?gv_screen_load(&m->scr,&m->sms_assets,"UI_EngageMessageDialog.fng"):
                   fe_sms_bind(&m->sms,&m->scr,&m->sms_assets);
         if(!m->visual)snprintf(m->status,sizeof m->status,"%s",m->scr.status);
@@ -296,7 +304,7 @@ static void ensure_logic(FeMenu *m) {
 static int is_logic_screen(const FeMenu *m) { return m->screen==FEM_SCR_MAIN || m->screen==FEM_SCR_QR_MODE || m->screen==FEM_SCR_CAREER || (m->screen==FEM_SCR_PROFILE && !m->editing); }
 static void menu_input(FeMenu *m,int in) {
     if(is_logic_screen(m))fes_input(&m->fes,in);
-    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP || m->screen==FEM_SCR_SMS)m->pending_input=in;
+    else if(m->screen==FEM_SCR_GARAGE || m->screen==FEM_SCR_CAREER_LOT || m->screen==FEM_SCR_CAREER_PAINT || m->screen==FEM_SCR_CAREER_PERF || m->screen==FEM_SCR_WORLD_MAP || m->screen==FEM_SCR_SMS || m->screen==FEM_SCR_SPONSOR)m->pending_input=in;
     else if(m->screen>=FEM_SCR_QR_TRACK && m->screen<=FEM_SCR_QR_CAR)m->pending_input=in;
 }
 
@@ -337,6 +345,7 @@ static void views_update(FeMenu *m, float ms) {
     if(m->screen==FEM_SCR_GARAGE && !feg_sync(m->garage,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",feg_status(m->garage));return;}
     if(m->screen==FEM_SCR_QR_CAR)fec_sync(&m->choice,&m->scr,ms/1000);
     else if(m->screen==FEM_SCR_CAREER_LOT)fel_sync(&m->lot,&m->scr);
+    else if(m->screen==FEM_SCR_SPONSOR && !fsp_sync(&m->sponsor,&m->scr)){m->visual=0;return;}
     else if(m->screen==FEM_SCR_CAREER_PAINT && !fpt_sync(&m->paint,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->paint.status);return;}
     else if(m->screen==FEM_SCR_CAREER_PERF && !fpr_sync(&m->perf,&m->scr,ms)){m->visual=0;snprintf(m->status,sizeof m->status,"%s",m->perf.status);return;}
     else if(m->screen==FEM_SCR_QR_TRACK || m->screen==FEM_SCR_QR_OPTIONS)
@@ -541,6 +550,11 @@ const char *fem_status(const FeMenu *m) {
  * Use the same retail pill kit as pause, kept below the screen content. */
 static int back_hit(float x, float y) { return x >= 24 && x <= 170 && y >= 440 && y <= 472; }
 static int choice_hit(FeMenu *m,float x,float y,int select_row) {
+    if(m->screen==FEM_SCR_SPONSOR && m->sponsor.page!=1) {
+        /* The popup's authored Select lies to the right of the choice-page browse zone. */
+        if(m->sponsor.page==0 && x>=380 && x<=465 && y>=285 && y<=320)return FES_IN_BACK;
+        return FES_IN_ACCEPT;
+    }
     if(m->screen==FEM_SCR_SMS) {
         if(fe_sms_showing(&m->sms))return x<320?FES_IN_BACK:FES_IN_ACCEPT;
         for(int i=0;i<m->scr.scene.n;i++) {
@@ -839,6 +853,12 @@ FemRequest fem_update(FeMenu *m, float seconds) {
         else if(ev==FPT_EV_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
         else if(ev==FPT_EV_PAGE){fprintf(stderr,"fem: paint shop page %s\n",fpt_package(&m->paint));build_screen(m);}
     }
+    if(m->screen==FEM_SCR_SPONSOR) {
+        int ev=in && !m->locked?fsp_input(&m->sponsor,in):FSP_NONE;
+        if(ev==FSP_PAGE)build_screen(m);
+        else if(ev==FSP_SIGN){req.kind=FEM_REQ_SPONSOR_SIGN;req.sponsor_index=m->sponsor.index[m->sponsor.sel];m->locked=1;}
+        else if(ev==FSP_LEAVE){req.kind=FEM_REQ_CAREER_ROAM;m->locked=1;}
+    }
     if(m->screen==FEM_SCR_CAREER_PERF) {
         FepEvent ev=in && !m->locked?fpr_input(&m->perf,in):FEP_EV_NONE;
         if(ev==FEP_EV_BUY){req.kind=FEM_REQ_PERF_BUY;req.perf_cat=m->perf.buy_cat;req.perf_lvl=m->perf.buy_lvl;req.perf_comp=m->perf.buy_comp;m->locked=1;}
@@ -908,9 +928,9 @@ void fem_draw(FeMenu *m, int w, int h) {
     const UgSkin *old = ug_kit_skin();
     UgSkin saved;
     if (old) saved = *old;
-    const UgAssets *draw_assets=m->screen==FEM_SCR_SMS?&m->sms_assets:&m->assets;
+    const UgAssets *draw_assets=(m->screen==FEM_SCR_SMS || (m->screen==FEM_SCR_SPONSOR && m->sponsor.page!=2))?&m->sms_assets:&m->assets;
     ug_text_set_face(ug_assets_main_face(draw_assets));
-    ug_kit_set_skin(m->screen==FEM_SCR_SMS?&m->sms_skin:&m->skin);
+    ug_kit_set_skin((m->screen==FEM_SCR_SMS || (m->screen==FEM_SCR_SPONSOR && m->sponsor.page!=2))?&m->sms_skin:&m->skin);
     UgCanvas *cv = &m->canvas;
     ug_cv_clear(cv);
     if (m->visual && !gv_screen_draw(&m->scr, &m->ui, cv)) {
@@ -920,6 +940,7 @@ void fem_draw(FeMenu *m, int w, int h) {
         ug_cv_clear(cv);
         cv->visual_status = UG_VIS_UNAVAILABLE;
     }
+    if(m->screen==FEM_SCR_SPONSOR && m->visual)fsp_draw(&m->sponsor,&m->scr,cv);
     if(m->screen==FEM_SCR_SMS && m->visual && fe_sms_showing(&m->sms)) {
         /* Host text uses the retail dialog's body area and retail font. */
         float width=0,height=0,scale=.7f;
@@ -935,7 +956,7 @@ void fem_draw(FeMenu *m, int w, int h) {
     if(m->screen==FEM_SCR_OPTIONS && m->opt_dialog.open)gv_screen_draw(&m->opt_dialog.scr,&m->ui,cv);
     if(m->screen!=FEM_SCR_LOADING)gv_touch_back(cv,draw_assets);
     ug_text_set_face(ug_assets_main_face(draw_assets));
-    if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay(m->screen==FEM_SCR_SMS?m->sms_gl:m->gl, cv, w, h);
+    if (ug_cv_visual_status(cv) == UG_VIS_OK) ug_gl_render_overlay((m->screen==FEM_SCR_SMS || (m->screen==FEM_SCR_SPONSOR && m->sponsor.page!=2))?m->sms_gl:m->gl, cv, w, h);
     ug_text_set_face(face);
     ug_kit_set_skin(old ? &saved : NULL);
 }
@@ -1052,4 +1073,13 @@ void fem_open_sms(FeMenu *m,const CareerData *cd,const CareerState *st,int (*rea
     m->sms_cd=cd;m->sms_read=read;m->sms_user=user;
     fem_open(m,FEM_SCR_SMS);
     printf("career: sms mailbox opened received %d unread %d\n",n,fe_sms_unread(&m->sms));
+}
+
+void fem_open_sponsor(FeMenu *m,const CareerData *cd,const CareerState *s) {
+    if(!m || !cd || !s)return;
+    fsp_open(&m->sponsor,cd,s);fem_open(m,FEM_SCR_SPONSOR);
+}
+void fem_sponsor_signed(FeMenu *m,long long bank) {
+    if(!m || m->screen!=FEM_SCR_SPONSOR)return;
+    m->sponsor.page=2;m->sponsor.bank=bank;m->locked=0;build_screen(m);views_update(m,0);
 }

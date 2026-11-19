@@ -1,0 +1,12 @@
+# --career-dev 1 in an empty isolated profile: lot, crib, five real race result loops, sponsor.
+10:key=Left
+20:key=Return
+40:key=Return
+5000:shot=sponsor-story-popup.png
+5020:key=Return
+5100:shot=sponsor-story-choice.png
+5120:key=Return
+5200:shot=sponsor-story-signed.png
+5220:click=0.5:0.5
+5250:shot=sponsor-story-bank.png
+5251:quit

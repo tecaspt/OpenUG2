@@ -232,10 +232,10 @@ it is a separate car-select shell, outside post-race ownership.
 | `UI_MagazineSelect.fng` | frontend-screen | 94 | 11 | 2 | L | FRONTEND/FrontB.lzc |
 | `UI_MagazineView.fng` | frontend-screen | 9 | 2 | 1 | S | FRONTEND/FrontB.lzc |
 | `UI_Menu_Asset_Reputation.fng` | frontend-screen | 28 | 3 | 1 | M | FRONTEND/FrontB.lzc |
-| `UI_RewardsSponsor.fng` | frontend-screen | 138 | 27 | 8 | L | FRONTEND/FrontB.lzc |
+| `UI_RewardsSponsor.fng` (done: bound) | frontend-screen | 138 | 27 | 8 | L | FRONTEND/FrontB.lzc | <!-- Sponsor bindings: fe_sponsor.c; SPONSORS.md -->
 | `UI_SMS_Mailbox.fng` | frontend-screen | 142 | 19 | 4 | L | GLOBAL/InGameCommon.lzc |
-| `UI_SponsorPopup.fng` | dialog | 58 | 6 | 3 | L | GLOBAL/InGameRace.bun |
-| `UI_Sponsorship_new.fng` | frontend-screen | 161 | 27 | 9 | L | GLOBAL/InGameRace.bun |
+| `UI_SponsorPopup.fng` (done: bound) | dialog | 58 | 6 | 3 | L | GLOBAL/InGameRace.bun | <!-- Sponsor bindings: fe_sponsor.c; SPONSORS.md -->
+| `UI_Sponsorship_new.fng` (done: bound) | frontend-screen | 161 | 27 | 9 | L | GLOBAL/InGameRace.bun | <!-- Sponsor bindings: fe_sponsor.c; SPONSORS.md -->
 | `UI_Status_Career.fng` | frontend-screen | 146 | 15 | 1 | L | GLOBAL/GlobalB.lzc |
 | `UI_Status_DVD.fng` | frontend-screen | 81 | 9 | 3 | L | GLOBAL/GlobalB.lzc |
 | `UI_Status_Master.fng` | frontend-screen | 50 | 5 | 2 | L | GLOBAL/GlobalB.lzc |

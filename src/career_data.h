@@ -54,6 +54,14 @@ typedef struct CdRace {
     int      kind;                       /* N2_RACE_* from race.h, mapped from `type` */
     uint8_t  raw[CD_RACE_BYTES];
 } CdRace;
+#define CD_MAX_SPONSORS 20
+#define CD_SPONSOR_BYTES 16
+typedef struct CdSponsor {
+    char name[32];
+    uint32_t hash;
+    uint16_t url_bonus, signing, reputation;
+    uint8_t race[3], raw[CD_SPONSOR_BYTES];
+} CdSponsor;
 typedef struct CdStage {
     uint8_t  index, nsponsors, req_total, req_sponsor, req_url, req_dvd;     /* +0 +1 +0x42 ? +0x2E +0x2F */
     uint32_t sponsor[5];                                                       /* +0x08 hashes */
@@ -121,6 +129,7 @@ typedef struct CdPaint { uint32_t key; uint8_t group, level, rgb[3], gloss; char
 typedef struct CdZone   { uint32_t hash; float cx, cy, poly[4][2]; } CdZone;           /* hash = locator hash */
 typedef struct CdMarker { uint32_t hash; float x, y, z, heading; } CdMarker;
 typedef struct CareerData {
+    CdSponsor sponsor[CD_MAX_SPONSORS]; int nsponsor;
     CdRace   race[CD_MAX_RACES];   int nrace;
     CdStage  stage[CD_MAX_STAGES]; int nstage;
     CdZone   zone[CD_MAX_ZONES];   int nzone;

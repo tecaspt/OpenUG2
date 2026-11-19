@@ -7,7 +7,7 @@
 #include "career_data.h"
 #include "garage.h"
 
-#define CR_SCHEMA       5u            /* 5: + TLV 8 ordered SMS receipts and read state */
+#define CR_SCHEMA       6u            /* 6: + TLV 9 per-stage sponsor contracts */
 #define CR_PAINT_SLOTS  9             /* 0 body, 1 rims, 2 calipers, 3 muffler, 4..8 reserved; value = part key, 0 = stock */
 #define CR_MAGIC        0x5243554Fu   /* 'OUCR' little-endian */
 #define CR_FILE_NAME    "openug2_career.bin"
@@ -25,6 +25,7 @@ typedef struct CareerState {
     char     car[32];
     float    pose[4];                    /* x, y, z, heading of the last free-roam position */
     uint8_t  extra[4096]; uint32_t nextra;   /* unknown TLVs from a newer writer, written back verbatim */
+    uint32_t sponsor[CD_MAX_STAGES]; /* TLV 9; zero = unsigned, signing credit and selection saved together */
     /* schema 2 */
     uint8_t  nowned, active, region;     /* owned cars, index of the driven one, unlock column 0 = A, 1 = B */
     GarageConfig config[CR_MAX_OWNED]; /* schema 3: career-only installed configurations */
@@ -43,7 +44,7 @@ typedef CrReward (*CrRewardFn)(void *user, const CdRace *race, const CrResult *r
 /* [inferred] place 1, not failed, not aborted, first win -> {purse, rep_base}; otherwise {0, 0}. */
 CrReward cr_reward_placeholder(void *user, const CdRace *race, const CrResult *res, int first_win);
 
-typedef struct CrOutcome { CrReward reward; int first_win, stage_before, stage_after; } CrOutcome;
+typedef struct CrOutcome { CrReward reward; int32_t sponsor_bonus; int first_win, stage_before, stage_after; } CrOutcome;
 
 /* started=1, stage=1, intro_done=1 (Stage 0 skipped); owned = {car}, region unknown. */
 void cr_new(CareerState *s, const CareerData *cd, const char *car);
@@ -55,7 +56,7 @@ void cr_new_stage0(CareerState *s, const CareerData *cd, int region);
 int  cr_region_pick(const CareerData *cd, const char *const *inst, int n);
 /* [inferred] available = race.stage == s->stage && !(won && CR_HIDE_WON) && !suv && !hidden && type != SCRIPTED &&
  *   (mode STAGE || mode SCRIPTED || (mode URL && stage_wins >= ((arg >> 16) & 0xFF))
- *    || (mode URL_FINAL && url_wins >= ((arg >> 24) & 0xFF))). SPONSOR races are not available in S1.
+ *    || (mode URL_FINAL && url_wins >= ((arg >> 24) & 0xFF))). Sponsor events require a signed contract.
  * Scripted story events (type CD_TYPE_SCRIPTED, DDAY_EVENT_A/B) are objectives (cr_objective), never map races. */
 int  cr_available(const CareerState *s, const CareerData *cd, int race);
 int  cr_list(const CareerState *s, const CareerData *cd, int *out, int cap);          /* available race indices */
@@ -70,6 +71,15 @@ int  cr_apply(CareerState *s, const CareerData *cd, const CrResult *r, CrRewardF
  * (nsponsors == 0 || sponsor wins >= req_sponsor). DVD covers are not tracked in S1 and count as met. */
 int  cr_stage_complete(const CareerState *s, const CareerData *cd);
 int  cr_stage_wins(const CareerState *s, const CareerData *cd, int stage);           /* first wins in that stage */
+
+/* Sponsors: index into cd->sponsor, -1 when unsigned. A stage offers only its own hashes.
+ * [inferred] reputation is the average earned points per entered race; no style field was found.
+ * Race selectors 1..5 map to circuit/drift/drag/sprint/Street X, selecting the first three matching
+ * sponsor events in table order. Signing and URL first-win bonuses are paid once. */
+int cr_sponsor_current(const CareerState *, const CareerData *);
+int cr_sponsor_eligible(const CareerState *, const CareerData *, int sponsor);
+int cr_sponsor_pending(const CareerState *, const CareerData *);
+int cr_sponsor_choose(CareerState *, const CareerData *, int sponsor);
 
 /* ---- story objectives and shops (M6 car lot) ---- */
 /* Current story objective: the first scripted event of the current stage that is not done and whose unlock_arg

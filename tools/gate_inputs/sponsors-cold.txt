@@ -1,0 +1,5 @@
+10:key=Left
+20:key=Return
+40:key=Return
+600:shot=sponsor-cold.png
+601:quit

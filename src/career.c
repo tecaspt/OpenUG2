@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define CR_BUF_MAX 16384u
-#define CR_B_MAX   (12u + 8u * CD_MAX_SMS + 8u + 48u * CR_MAX_OWNED + 8u + 88u * CR_MAX_OWNED + 8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
+#define CR_B_MAX   (8u + 4u * CD_MAX_STAGES + 12u + 8u * CD_MAX_SMS + 8u + 48u * CR_MAX_OWNED + 8u + 88u * CR_MAX_OWNED + 8u + 24u + 8u + 4u * CD_MAX_RACES * 2u + 8u + 32u + 8u + 16u + 8u + 4u + 32u * CR_MAX_OWNED + 4096u)
 
 /* ---- lookups (static; no dependency on career_data.c) ---- */
 static int find_race(const CareerData *cd, uint32_t hash)
@@ -149,6 +149,56 @@ int cr_region_pick(const CareerData *cd, const char *const *inst, int n)
     return (ok[1] && !ok[0]) ? 1 : 0;   /* tie -> A */
 }
 
+int cr_sponsor_current(const CareerState *s, const CareerData *cd)
+{
+    if (!s || !cd || s->stage >= CD_MAX_STAGES || !s->sponsor[s->stage]) return -1;
+    for (int i = 0; i < cd->nsponsor; i++) if (cd->sponsor[i].hash == s->sponsor[s->stage]) return i;
+    return -1;
+}
+int cr_sponsor_eligible(const CareerState *s, const CareerData *cd, int sponsor)
+{
+    if (!s || !cd || !s->started || s->stage >= CD_MAX_STAGES || sponsor < 0 || sponsor >= cd->nsponsor) return 0;
+    const CdStage *st = find_stage(cd, s->stage);
+    const CdSponsor *sp = &cd->sponsor[sponsor];
+    if (!st || !sp->hash || !sp->name[0]) return 0;
+    for (int i = 0; i < st->nsponsors && i < 5; i++) if (st->sponsor[i] == sp->hash)
+        return (s->entered ? s->rep / s->entered : 0) >= sp->reputation;
+    return 0;
+}
+int cr_sponsor_pending(const CareerState *s, const CareerData *cd)
+{
+    if (!s || s->stage >= CD_MAX_STAGES || s->sponsor[s->stage]) return 0;
+    for (int i = 0; i < cd->nsponsor; i++) if (cr_sponsor_eligible(s, cd, i)) return 1;
+    return 0;
+}
+int cr_sponsor_choose(CareerState *s, const CareerData *cd, int sponsor)
+{
+    if (!cr_sponsor_eligible(s, cd, sponsor) || s->sponsor[s->stage]) return 0;
+    s->sponsor[s->stage] = cd->sponsor[sponsor].hash;
+    s->bank += cd->sponsor[sponsor].signing;
+    return 1;
+}
+static int sponsor_race(const CareerState *s, const CareerData *cd, int race)
+{
+    int sp = cr_sponsor_current(s, cd), used[CD_MAX_RACES] = {0};
+    static const int types[] = {-1, 0, 5, 4, 1, 2};
+    if (sp < 0) return 0;
+    for (int k = 0; k < 3; k++) {
+        int selector = cd->sponsor[sp].race[k];
+        if (selector < 1 || selector > 5) continue;
+        for (int j = 0; j < cd->nrace; j++) {
+            const CdRace *r = &cd->race[j];
+            if (!used[j] && r->stage == s->stage && r->category == CD_CAT_SPONSOR &&
+                !r->suv && !r->hidden && r->type == types[selector]) {
+                used[j] = 1;
+                if (j == race) return 1;
+                break;
+            }
+        }
+    }
+    return 0;
+}
+
 int cr_available(const CareerState *s, const CareerData *cd, int race)
 {
     const CdRace *r;
@@ -156,9 +206,11 @@ int cr_available(const CareerState *s, const CareerData *cd, int race)
     if (race < 0 || race >= cd->nrace) return 0;
     r = &cd->race[race];
     if (r->stage != s->stage || r->suv || r->hidden || r->type == CD_TYPE_SCRIPTED) return 0;
+    if (r->category == CD_CAT_SPONSOR && !sponsor_race(s, cd, race)) return 0;
     ri = find_rec(s, r->name_hash);
     if (rule_hidden_by_win(ri >= 0 ? &s->rec[ri] : NULL)) return 0;
     switch (r->unlock_mode) {
+    case CD_UNLOCK_SPONSOR:   return sponsor_race(s, cd, race);
     case CD_UNLOCK_STAGE:     return 1;
     case CD_UNLOCK_SCRIPTED:  return 1;   /* [inferred] stage already matched above */
     case CD_UNLOCK_URL:       return count_wins(s, cd, s->stage, -1) >= (int)((r->unlock_arg >> 16) & 0xFF);
@@ -233,6 +285,11 @@ int cr_apply(CareerState *s, const CareerData *cd, const CrResult *r, CrRewardFn
     o.first_win = first;
     if (first && !(rec->flags & CR_REC_PAID)) {
         CrReward rw = (fn ? fn : cr_reward_placeholder)(user, &cd->race[ri], r, 1);
+        int sp = cr_sponsor_current(s, cd);
+        if (sp >= 0 && cd->race[ri].stage == s->stage && cd->race[ri].category == CD_CAT_URL) {
+            o.sponsor_bonus = cd->sponsor[sp].url_bonus;
+            rw.cash += o.sponsor_bonus;
+        }
         s->bank += rw.cash;
         if (rw.rep >= 0) s->rep += (uint32_t)rw.rep;
         else s->rep = ((uint32_t)-rw.rep > s->rep) ? 0u : s->rep - (uint32_t)-rw.rep;
@@ -671,6 +728,8 @@ size_t cr_serialize(const CareerState *s, uint8_t *out, size_t cap)
         for (int j = 0; j < i; j++) if (s->sms[j].hash == s->sms[i].hash) return 0;
         p32(p, s->sms[i].hash); p[4] = s->sms[i].read; memset(p + 5, 0, 3);
     }
+    p = tlv(p, 9, 4u * CD_MAX_STAGES);
+    for (i = 0; i < CD_MAX_STAGES; i++) { p32(p, s->sponsor[i]); p += 4; }
     memcpy(p, s->extra, s->nextra); p += s->nextra;
     n = st_container_build(out, cap, a, 8, b, (uint32_t)(p - b));
     return n;
@@ -682,7 +741,7 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
     CareerState t;
     uint32_t schema;
     size_t pos = 0;
-    int have_sms = 0, have_owned = 0, config_count = -1, perf_count = -1;
+    int have_sponsor = 0, have_sms = 0, have_owned = 0, config_count = -1, perf_count = -1;
     int rc = st_container_parse(buf, len, &v);
     if (rc != ST_OK) return ST_E_CORRUPT;
     if (v.size_a < 8 || g32(v.a) != CR_MAGIC) return ST_E_CORRUPT;
@@ -767,6 +826,11 @@ int cr_parse(CareerState *dst, const uint8_t *buf, size_t len)
                 const uint8_t *q = d + 4 + 8*i;
                 if (q[4] > 1 || q[5] || q[6] || q[7] || !cr_sms_receive(&t, g32(q), q[4])) return ST_E_CORRUPT;
             }
+            break;
+        case 9:
+            if (schema < 6) break;
+            if (have_sponsor++ || l != 4u * CD_MAX_STAGES) return ST_E_CORRUPT;
+            for (int i = 0; i < CD_MAX_STAGES; i++) t.sponsor[i] = g32(d + 4*i);
             break;
         default:
             if (8u + l > sizeof t.extra - t.nextra) return ST_E_CORRUPT;

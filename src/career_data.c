@@ -145,6 +145,22 @@ static void parse_sms(CareerData *cd, const uint8_t *buf, size_t co, size_t cs, 
 }
 
 
+/* 0x34A19: 20 x 16-byte sponsor contracts; see SPONSORS.md. */
+static void parse_sponsors(CareerData *cd, const uint8_t *buf, size_t co, size_t cs, size_t bo, size_t bs) {
+    size_t o, sz;
+    cd->nsponsor = 0;
+    if (!find_chunk(buf, co, co + cs, 0x34A19u, &o, &sz) || sz % CD_SPONSOR_BYTES ||
+        sz / CD_SPONSOR_BYTES > CD_MAX_SPONSORS) return;
+    for (size_t i = 0; i < sz / CD_SPONSOR_BYTES; i++) {
+        const uint8_t *r = buf + o + i * CD_SPONSOR_BYTES;
+        CdSponsor *d = &cd->sponsor[cd->nsponsor++];
+        memset(d, 0, sizeof *d); memcpy(d->raw, r, CD_SPONSOR_BYTES);
+        blob_str(buf + bo, bs, rd16(r), d->name, sizeof d->name);
+        d->url_bonus = rd16(r + 2); memcpy(d->race, r + 4, 3);
+        d->hash = rd32(r + 8); d->signing = rd16(r + 12); d->reputation = rd16(r + 14);
+    }
+}
+
 /* 0x34A15 performance packages, 0x34A14 brands, 0x34A1C unlock table. Missing or malformed -> counts 0. */
 static void parse_perf(CareerData *cd, const uint8_t *buf, size_t co, size_t cs) {
     size_t o, sz;
@@ -322,6 +338,7 @@ int cd_parse_globalb(CareerData *cd, const uint8_t *buf, size_t len) {
     parse_shops(cd, buf, co, cs);
     parse_unlocks(cd, buf, co, cs);
     parse_sms(cd, buf, co, cs, bo, bs);
+    parse_sponsors(cd, buf, co, cs, bo, bs);
     parse_perf(cd, buf, co, cs);
     parse_paint(cd, buf, len);
     return (int)nr;
