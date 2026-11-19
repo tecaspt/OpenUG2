@@ -1744,25 +1744,42 @@ static const CdPaint *career_car_paint(const char *car, int slot) {
     return NULL;
 }
 /* Career performance parts of the active owned car -> drivetrain upgrade (docs/parity/PERF-PAINT.md). Stock (0) for
- * any other car or outside a career. Categories: 3 engine (axis 0), 1 transmission (axis 2: the 6-speed axis reaches
- * 1.0 alone), 8 tires (axis 0). Suspension 5/0 is carried for the log only: the record's 0x6A0-0x6CC block is a
- * per-axle retune, not a stock->max pair, and nothing in Stage1-5 consumes it. Brakes, weight, nitrous, ECU and
- * turbo: no data-backed target (ruled-out census in the same document). */
+ * any other car or outside a career. Fractions from cr_perf_fraction: 0 weight, 1 transmission (axis 2: the 6-speed
+ * axis reaches 1.0 alone), 2 nitrous, 3 engine, 4 turbo, 5 suspension (c0 springs, c1 sway, c2 camber/steering),
+ * 6 brakes, 7 ECU, 8 tires. Levels use the retail rounding (int)(u*3+0.5). Speed governor off with parts 45, 46, 51. */
+static int g_career_turbo_kit;   /* the active car's drivetrain was built with a bought turbo kit */
 static int career_drv_upgrade(const char *car, DrvUpgrade *up) {
     memset(up,0,sizeof *up);
     if(!g_career.active||!car||!g_career.st.nowned||g_career.st.active>=g_career.st.nowned||
        strcmp(g_career.st.owned[g_career.st.active],car))return 0;
     float u[CD_PERF_CATS][4];
     cr_perf_fraction(&g_career.st,&g_career.cd,u);
-    up->engine=u[3][0];up->engine_level=cr_perf_level_of(u[3][0]);
-    up->gear_level=cr_perf_level_of(u[1][2]);up->tires=u[8][0];up->suspension=u[5][0];
-    return up->engine>0||up->gear_level>0||up->tires>0;
+    up->engine=u[3][0];up->ecu=u[7][0];up->ecu_level=drv_upgrade_level(u[7][0]);
+    up->gear_level=drv_upgrade_level(u[1][2]);up->tires=u[8][0];
+    up->suspension=u[5][0];up->sway=u[5][1];up->steer=u[5][2];
+    up->weight=u[0][0];up->turbo=u[4][0];up->brakes=u[6][0];up->nitrous=u[2][0];
+    up->governor_off=cr_perf_owned(&g_career.st,45)||cr_perf_owned(&g_career.st,46)||cr_perf_owned(&g_career.st,51);
+    return up->engine>0||up->gear_level>0||up->tires>0||up->suspension>0||up->sway>0||up->steer>0||up->weight>0||
+           up->turbo>0||up->brakes>0||up->ecu>0||up->nitrous>0||up->governor_off;
 }
-static int career_stage1_read(const unsigned char *data,long len,const char *car,DrvCar *out) {
+static void career_upgrade_log(const char *car,const DrvUpgrade *up) {
+    printf("career: upgrades %s engine %.2f ecu %.2f L%d gearbox L%d tires %.2f suspension %.2f sway %.2f steer %.2f "
+           "weight %.2f turbo %.2f brakes %.2f nitrous %.2f governor %s\n",car,up->engine,up->ecu,up->ecu_level,
+           up->gear_level,up->tires,up->suspension,up->sway,up->steer,up->weight,up->turbo,up->brakes,up->nitrous,
+           up->governor_off?"off":"stock");
+}
+/* One set of readers for the active car: stock readers outside a career or with nothing installed. */
+static int career_stage_set(const unsigned char *data,long len,const char *car,DrvCar *d,ResCar *r,BrkCar *b,LatCar *l,CtCar *c,BodyCar *y) {
     DrvUpgrade up;
-    if(!career_drv_upgrade(car,&up))return stage1_car_read(data,len,car,out);
-    printf("career: upgrades %s engine %.2f L%d gearbox L%d tires %.2f suspension %.2f\n",car,up.engine,up.engine_level,up.gear_level,up.tires,up.suspension);
-    return stage1_car_read_upgraded(data,len,car,&up,out);
+    int upgraded=career_drv_upgrade(car,&up);
+    g_career_turbo_kit=upgraded&&up.turbo>0.0f&&drv_upgrade_level(up.turbo)>0;
+    if(!upgraded)
+        return stage1_car_read(data,len,car,d)&&stage2_car_read(data,len,car,r)&&stage3_car_read(data,len,car,b)&&
+               stage4_car_read(data,len,car,l)&&stage5_car_read(data,len,car,c)&&stage5_body_car_read(data,len,car,y);
+    career_upgrade_log(car,&up);
+    return stage1_car_read_upgraded(data,len,car,&up,d)&&stage2_car_read_upgraded(data,len,car,&up,r)&&
+           stage3_car_read_upgraded(data,len,car,&up,b)&&stage4_car_read_upgraded(data,len,car,&up,l)&&
+           stage5_car_read_upgraded(data,len,car,&up,c)&&stage5_body_car_read_upgraded(data,len,car,&up,y);
 }
 /* Performance shop: the career's packages / components for the active car into the FE snapshot (fe_perf.h). */
 static void career_perf_shop(FePerfShop *o) {
@@ -5319,12 +5336,7 @@ int main(int argc, char **argv) {
             int physics_from_global=n2_global_physics_attr(globdata,globlen,carname,&pa);
             if(g_stage1_requested) {
                 DrvCar stock;ResCar resistance;BrkCar brakes;LatCar lateral;CtCar contacts;BodyCar body;
-                if(!stage1_car_read(globdata,globlen,carname,&stock) ||
-                   !stage2_car_read(globdata,globlen,carname,&resistance) ||
-                   !stage3_car_read(globdata,globlen,carname,&brakes) ||
-                   !stage4_car_read(globdata,globlen,carname,&lateral) ||
-                   !stage5_car_read(globdata,globlen,carname,&contacts) ||
-                   !stage5_body_car_read(globdata,globlen,carname,&body) || stage1_drive_init(&g_stage1,&stock,&resistance,0) ||
+                if(!career_stage_set(globdata,globlen,carname,&stock,&resistance,&brakes,&lateral,&contacts,&body) || stage1_drive_init(&g_stage1,&stock,&resistance,0) ||
                    stage3_drive_brakes(&g_stage1,&brakes,0,0) ||
                    stage4_drive_lateral(&g_stage1,&lateral,1/lat_inertia(stock.mass,lateral.dimensions),0) ||
                    stage5_drive_contacts(&g_stage1,&contacts,stage5_world_query,&g_stage5_world) ||
@@ -8198,12 +8210,7 @@ int main(int argc, char **argv) {
                     }
                     DrvCar next_stage1;ResCar next_resistance;BrkCar next_brakes;LatCar next_lateral;CtCar next_contacts;BodyCar next_body;
                     if (!saved_ready ||
-                        (g_stage1_requested && (!career_stage1_read(candidate.globaldata,candidate.globallen,next_car,&next_stage1) ||
-                         !stage2_car_read(candidate.globaldata,candidate.globallen,next_car,&next_resistance) ||
-                         !stage3_car_read(candidate.globaldata,candidate.globallen,next_car,&next_brakes) ||
-                         !stage4_car_read(candidate.globaldata,candidate.globallen,next_car,&next_lateral) ||
-                         !stage5_car_read(candidate.globaldata,candidate.globallen,next_car,&next_contacts) ||
-                         !stage5_body_car_read(candidate.globaldata,candidate.globallen,next_car,&next_body)))) {
+                        (g_stage1_requested && !career_stage_set(candidate.globaldata,candidate.globallen,next_car,&next_stage1,&next_resistance,&next_brakes,&next_lateral,&next_contacts,&next_body))) {
                         car_switch_release(&candidate);
                         garage_reload_pending=0; garage_load_failed=1;
                         gf_init(&gflow,gflow.enabled);
@@ -9301,6 +9308,15 @@ int main(int argc, char **argv) {
            trigger used by the visual pass below. */
         nitro_active = !stage1_active && race_nos_allowed && race_state == 1 &&
                            cx_action_down(&g_cx, ks, CB_ACT_NITROUS) && throttle > 0.1f && speed > 0.02f;
+        if (stage1_active) {
+            /* Stage 1 nitrous: only a car with a bought kit has a bottle (seconds), filled when the race starts;
+               the burn level (1 in practice) scales torque and grip inside the drivetrain. */
+            static int nos_prev_race_state = -1;
+            if (race_state == 1 && nos_prev_race_state != 1) stage1_nos_fill(&g_stage1);
+            nos_prev_race_state = race_state;
+            nitro_active = stage1_nos_update(&g_stage1, race_nos_allowed && race_state == 1 &&
+                               cx_action_down(&g_cx, ks, CB_ACT_NITROUS), sim_steps / PHYS_TICKRATE) > 0;
+        }
         float nitro_target = nitro_active ? 1.0f : 0.0f;
         nitro_fx += (nitro_target - nitro_fx) * 0.18f;
         /* Surface-aware handling (M114): query the selected centre contact layer,
@@ -9384,7 +9400,7 @@ int main(int argc, char **argv) {
             /* A short top-speed headroom gives the visual trigger a real
                response while preserving the existing tune after the step. */
             float saved_top = g_phys_tune.top_kmh;
-            if (nitro_active) g_phys_tune.top_kmh = saved_top * 1.18f;
+            if (nitro_active && !stage1_active) g_phys_tune.top_kmh = saved_top * 1.18f;
             if(stage1_active) {
                 /* OM-2a independent host policy, refreshed on every advancing
                  * tick. Reset/car changes initialize before the adapter resolves
@@ -12690,11 +12706,18 @@ int main(int argc, char **argv) {
                    all. The dial is removed, not greyed out. */
             hs.have_nos = !stage1_active && race_nos_allowed;
             hs.have_turbo = 0;
+            hs.have_nitro_tank = 0;
+            if (stage1_active) {   /* bought nitrous kit: real bottle; turbo kit: any secondary torque */
+                hs.have_nos = (unsigned char)(g_stage1.nos_capacity > 0.0f && race_nos_allowed);
+                hs.have_nitro_tank = g_stage1.nos_capacity > 0.0f;
+                hs.nitro_tank = fminf(1.0f, stage1_nos_fraction(&g_stage1));
+                hs.have_turbo = g_career_turbo_kit;
+            }
             if (hud_fitted_set) {     /* developer override, display only */
                 hs.have_nos = (unsigned char)(hud_fitted_nos && race_nos_allowed);
                 hs.have_turbo = (unsigned char)hud_fitted_turbo;
             }
-            hs.have_nitro_tank = 0;   /* no capacity/depletion system exists */
+            if (!stage1_active) hs.have_nitro_tank = 0;   /* no capacity/depletion system on the legacy path */
             hs.have_boost = 0;        /* no turbo pressure anywhere in src/ */
             hs.have_money = 0;        /* no career economy exists */
 
