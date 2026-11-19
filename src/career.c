@@ -869,6 +869,12 @@ size_t cr_serialize(const CareerState *s, uint8_t *out, size_t cap)
                 }
         }
     }
+    /* The unknown-TLV buffer is the only path whose length is not derived from a count that is
+     * itself bounded above (nrec, nowned, nsms all are). nextra can only be non-zero in a state
+     * that was cr_parse()d from a file a newer writer produced, but the bound is still checked
+     * here, because exceeding it would walk `p` past b[] and st_container_build would be handed
+     * a size computed from a pointer outside the buffer. */
+    if (s->nextra > (uint32_t)(sizeof b - (p - b))) return 0;
     memcpy(p, s->extra, s->nextra); p += s->nextra;
     n = st_container_build(out, cap, a, 8, b, (uint32_t)(p - b));
     return n;

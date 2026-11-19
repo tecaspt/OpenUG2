@@ -1210,9 +1210,12 @@ rear-mirror-gl-test: tools/rear_mirror_test.c src/rear_mirror.c src/rear_mirror.
 	SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy ./build/rear_mirror_gles_test
 
 # Isolated career shop fixture for scripted host captures (data required at invocation).
+# CAREER_CORE holds platform-conditional helpers (settings.c's Windows-only delete callback)
+# that the single-TU game build already silences with -Wno-unused-function; without the same
+# flag here the shared sources leak warnings into every scripted-capture build.
 career-shop-fixture: tools/career_shop_fixture.c $(CAREER_CORE) src/career.h
 	@mkdir -p build
-	$(CC) -O2 -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Isrc tools/career_shop_fixture.c $(CAREER_CORE) -o build/career_shop_fixture -lm
+	$(CC) -O2 -std=c99 -Wall -Wextra -Wno-unused-function -D_DEFAULT_SOURCE -Isrc tools/career_shop_fixture.c $(CAREER_CORE) -o build/career_shop_fixture -lm
 .PHONY: career-shop-fixture
 career-shop-dialog-test: tools/career_shop_dialog_test.c src/gui_dialog.c src/gui_dialog.h
 	@mkdir -p build

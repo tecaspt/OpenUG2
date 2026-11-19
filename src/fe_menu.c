@@ -1024,8 +1024,10 @@ int fem_paint_wants_vinyl(const FeMenu *m) {
     if(!m || !m->open || m->screen!=FEM_SCR_CAREER_PAINT)return 0;
     const FePaintColor *c=fpt_selected(&m->paint);
     /* [data] The VINYL paint group is the graphics shop's vinyl row: retail leaves the
-     * colour list and opens the layer screen from it rather than buying a colour. */
-    return m->paint.page==0 && c && c->paint.group==CD_PAINT_VINYL;
+     * colour list and opens the layer screen from it rather than buying a colour. The row
+     * only exists inside the list (fpt_selected is NULL on the category page), and the walk
+     * reaches the vinyl tab from that page, so the guard has to accept both pages. */
+    return c && c->paint.group==CD_PAINT_VINYL;
 }
 void fem_open_vinyl(FeMenu *m,const FeVinylShop *shop) { fem_open_vinyl_at(m,shop,0); }
 /* Retail leaves the category carousel where the shopper left it, so the roam host keeps the
